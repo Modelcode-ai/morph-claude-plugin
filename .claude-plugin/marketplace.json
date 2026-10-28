@@ -1,0 +1,16 @@
+{
+  "name": "modelcode-morph",
+  "owner": {
+    "name": "Modelcode"
+  },
+  "metadata": {
+    "description": "Modelcode's Claude Code plugins."
+  },
+  "plugins": [
+    {
+      "name": "morph",
+      "source": "./plugins/morph",
+      "description": "Run your Morph projects from Claude Code: see where every milestone stands, start and retry milestone runs, and follow them."
+    }
+  ]
+}

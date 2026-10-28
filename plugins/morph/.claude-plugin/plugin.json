@@ -1,0 +1,24 @@
+{
+  "name": "morph",
+  "version": "0.1.0",
+  "description": "Run your Morph projects from Claude Code: see where every milestone stands, start and retry milestone runs, and follow them.",
+  "author": {
+    "name": "Modelcode"
+  },
+  "homepage": "https://github.com/Modelcode-ai/morph-claude-plugin",
+  "userConfig": {
+    "morph_key": {
+      "type": "string",
+      "title": "Morph key",
+      "description": "Your personal Morph key, from your Morph settings. Stored in your system keychain.",
+      "sensitive": true,
+      "required": true
+    },
+    "morph_url": {
+      "type": "string",
+      "title": "Morph URL",
+      "description": "Where you open Morph. Change it only if Modelcode gave you another address.",
+      "default": "https://morph.modelcode.ai"
+    }
+  }
+}
