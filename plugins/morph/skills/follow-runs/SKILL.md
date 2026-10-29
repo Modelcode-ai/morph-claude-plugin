@@ -22,7 +22,7 @@ Answer in plain words: which step it's at, what the agent is doing, what's done 
 
 When the user asks to be told when a run finishes, check its status every few minutes, and stop when:
 
-- the milestone is pending code review: say so, with its pull requests and `review_url`;
+- the milestone is pending code review and its PR report finished: say so, with its pull requests and `review_url` (its state turns to pending review a few minutes before the report lists the pull requests);
 - a step failed: say which and why, and offer to retry it (see the `run-project` skill);
 - the user asks you to stop watching.
 
