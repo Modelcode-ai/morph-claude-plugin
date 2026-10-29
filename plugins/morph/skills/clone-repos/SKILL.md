@@ -9,7 +9,7 @@ If you don't know which Morph project the user means, use the `connect` skill fi
 
 1. Call `get_project_repos`. It lists each repository's `name`, plain `clone_url`, `default_branch`, and whether it is `reference_only` (a source Morph reads but milestones never change).
 2. For each repository, in the folder Claude Code runs in:
-   - If `./<name>` is already a git clone of that URL (`git -C <name> remote get-url origin`), run `git -C <name> fetch origin` and leave it as it is.
+   - If `./<name>` is already a clone of that repository (`git -C <name> remote get-url origin` names the same owner and repository, over HTTPS or SSH), run `git -C <name> fetch origin` and leave it as it is.
    - If `./<name>` exists but is something else, don't touch it: tell the user and skip it.
    - Otherwise run `git clone <clone_url> <name>`.
 3. Say which repositories were cloned, which were already there, and which are reference-only.
