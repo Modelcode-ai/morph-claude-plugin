@@ -35,11 +35,14 @@ Morph's refusals say what's wrong; relay them in plain words.
 
 ## Fewer prompts
 
-Claude Code asks before each Morph tool call. Reading tools are safe to allow; starting and retrying runs should keep asking. If the user wants fewer prompts, offer to add these rules to `permissions.allow` in their `~/.claude/settings.json`, and do it only once they agree:
+Claude Code asks before each Morph tool call. Reading tools are safe to allow; starting and retrying runs, changing review issues, rebasing and merging should keep asking. If the user wants fewer prompts, offer to add these rules to `permissions.allow` in their `~/.claude/settings.json`, and do it only once they agree:
 
 ```json
 "mcp__plugin_morph_morph__list_projects",
 "mcp__plugin_morph_morph__get_project_execution_status",
 "mcp__plugin_morph_morph__get_milestone_details",
-"mcp__plugin_morph_morph__get_milestone_start_quote"
+"mcp__plugin_morph_morph__get_milestone_start_quote",
+"mcp__plugin_morph_morph__get_project_repos",
+"mcp__plugin_morph_morph__get_milestone_review",
+"mcp__plugin_morph_morph__get_milestone_review_issue"
 ```
