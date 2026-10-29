@@ -33,7 +33,7 @@ Then ask what they want to do. Read an issue in full with `get_milestone_review_
 
 ## Fixing issues ("fix issues 1 and 3")
 
-1. Read each issue, make the change in the right repository, and check it (run the tests or build when you can tell how).
+1. Read each issue, make the change in the right repository, and check it (run the tests or build when you can tell how). Leave the worktree as you found it apart from the fix: remove files your checks created (a lockfile or cache a test runner wrote, for example) before committing, and never commit them.
 2. Tell the user what you changed, issue by issue. Don't commit until they say so.
 3. **Commit** when they ask: one commit per issue, for example `Fix review issue 3: <title>`.
 4. **Push** to the pull request branch: ask first, unless they already asked for it. Others may push to the branch too, so run `git pull --rebase origin <branch>` first; if that stops on a conflict, resolve it and tell the user what you merged. Then `git push origin <branch>`.
