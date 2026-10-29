@@ -14,4 +14,4 @@ If you don't know which Morph project the user means, use the `connect` skill fi
    - Otherwise run `git clone <clone_url> <name>`.
 3. Say which repositories were cloned, which were already there, and which are reference-only.
 
-The user clones with their own git credentials: Morph doesn't hand out tokens. If a clone fails with an authentication error, tell the user they need access to that repository on its git host (for example `gh auth login` for GitHub) and stop. Never put a token in a URL or a command.
+The user clones with their own git credentials: Morph doesn't hand out tokens. `clone_url` is the HTTPS address; users whose git is set up for SSH can't authenticate it ("Repository not found", "Authentication failed"). When that happens, clone the same repository over SSH instead (`git@<host>:<owner>/<repo>.git`, or `gh repo clone <owner>/<repo> <name>` for GitHub) and say so. If that fails too, tell the user they need access to that repository on its git host (for example `gh auth login` for GitHub) and stop. Never put a token in a URL or a command.
