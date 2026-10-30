@@ -5,17 +5,26 @@ description: Set up and check the connection between Claude Code and Morph, and 
 
 # Connecting Claude Code to Morph
 
-Claude Code reaches Morph through the plugin's MCP server, `morph`. It acts as the user whose Morph key is in the plugin's settings: what you do shows in the Morph UI as theirs, as if they had clicked it there.
+Claude Code reaches Morph through the plugin's MCP server, `morph` (`plugin:morph:morph` in `claude mcp list`). It acts as the user who signed in to Morph through it, in the organization they had open in Morph when they signed in: what you do shows in the Morph UI as theirs, as if they had clicked it there.
 
 ## Is it connected?
 
 It is when the `morph` tools are available (`list_projects`, `get_project_execution_status`...). Call `list_projects`: it lists the user's projects with their `project_id` and a link to each in the Morph UI.
 
-If the tools are missing or every call is refused as unauthorized:
+If the tools are missing, `/mcp` shows morph as "needs authentication", or a call says the sign-in "was revoked or has expired", the user isn't signed in. Help them sign in:
 
-1. The key is missing, mistyped, expired or revoked. The user creates a key in their Morph settings, then sets it with `/plugin` (the morph plugin's configuration, "Morph key"). Never ask them to paste the key into the conversation, and never print or repeat it.
-2. The "Morph URL" setting must be where they open Morph (default `https://morph.modelcode.ai`).
-3. Claude Code reads MCP servers when it starts: after changing a setting, they run `/reload-plugins` or restart Claude Code.
+1. If Claude Code gives you `mcp__plugin_morph_morph__authenticate`, call it and give the user the link it returns. Otherwise ask them to run `/mcp`, pick morph, and choose Authenticate (Re-authenticate if it's there). From a terminal, `claude mcp login plugin:morph:morph` does the same; over SSH or with no browser, add `--no-browser`.
+2. Their browser opens Morph's sign-in, then a page asking them to let Claude Code use their Morph account. They allow it there.
+3. In a remote or SSH session, the browser then goes to a `localhost` address that may not load, and the `authenticate` tool's result asks you to get that address from the user. Ask them to copy it from the address bar and paste it here, then pass it to `mcp__plugin_morph_morph__complete_authentication`. This is Claude Code's own sign-in step: the code in that address works once, and only for this Claude Code. Don't repeat it or use it for anything else.
+4. Once they're done, call `list_projects` to check.
+
+The sign-in happens in their browser, between them and Morph. Apart from that `localhost` address, never ask them to paste anything from the sign-in. Never ask for a password, an access or refresh token, or a Morph key, and never read, print or copy Claude Code's stored credentials. If they paste one of those anyway, don't use or repeat it: tell them to sign in as above instead.
+
+If `/mcp` shows morph as failed rather than needing authentication, Claude Code can't reach Morph at the plugin's Morph URL. Ask them to check it with `/plugin` → morph → Configure options: it's `https://morph.modelcode.ai` unless Modelcode gave them another address. After a change they run `/reload-plugins` and sign in again, since a sign-in works only for the address it was made on.
+
+If the sign-in page refuses them, relay its reason: usually their account isn't active, they aren't a member of the organization they had open, or the organization's subscription is paused. An admin of their organization can help.
+
+To sign out, they run `claude mcp logout plugin:morph:morph`. Their sign-ins are listed in Morph under Connected apps in the user menu (they click their name), where they can revoke one.
 
 ## Picking the project
 
@@ -31,7 +40,10 @@ Morph's refusals say what's wrong; relay them in plain words.
 
 - "Project N not found": it isn't in the user's organization. Check `list_projects`.
 - "You don't have the ... permission": their role in Morph doesn't allow it. An admin of their organization can change it.
-- "no user identity came with the call": the key isn't set (see above).
+- "isn't enabled for your organization yet", or the sign-in refused because it "isn't enabled" or "isn't turned on for your organization": Modelcode turns it on; the user contacts them.
+- "was revoked or has expired", or "no user identity came with the call": they need to sign in again (see above).
+- "can't confirm your Claude Code sign-in right now": Morph couldn't check the sign-in before a start, retry, rebase, review re-run or merge. Try again in a minute.
+- "Too many Morph tool calls" or "Too many Morph changes": wait a minute, then try again.
 
 ## Fewer prompts
 
