@@ -15,7 +15,7 @@ If you don't know which Morph project the user means, use the `connect` skill fi
 3. Say which repositories were cloned, which were already there, and which are reference-only.
 
 The user clones with their own git credentials: Morph doesn't hand out tokens. `clone_url` is the HTTPS address; users whose git is set up for SSH can't authenticate it ("Repository not found", "Authentication failed"). When that happens, clone the same repository over SSH instead, and say so:
-- GitHub, GitLab.com or Bitbucket (`https://<host>/<owner>/<repo>`): `git@<host>:<owner>/<repo>.git`, or `gh repo clone <owner>/<repo> <name>` for GitHub;
+- GitHub, GitLab.com or Bitbucket (`https://<host>/<path>`): `git@<host>:<path>.git`, where `<path>` is everything after the host (on GitLab every group and subgroup too), without a trailing `.git`; or `gh repo clone <owner>/<repo> <name>` for GitHub;
 - Azure DevOps (`https://dev.azure.com/<organization>/<project>/_git/<repo>`, or `https://<organization>.visualstudio.com/<project>/_git/<repo>`): `git@ssh.dev.azure.com:v3/<organization>/<project>/<repo>`;
 - any other host: don't guess the address. Tell the user the HTTPS clone failed and ask for the SSH address their git host shows for that repository.
 
