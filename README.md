@@ -29,6 +29,8 @@ Talk to Claude Code as you would to a teammate:
 
 Claude Code asks before each call to Morph. You can allow the read-only ones for good: ask it to "allow Morph's read tools".
 
+In auto mode, Claude Code doesn't ask: it refuses the calls that change something in Morph, such as starting or retrying a run, resolving a review issue, rebasing or merging. To let one through, switch out of auto mode (Shift+Tab) and ask again, then approve it when Claude Code asks. Or allow it for good with `/permissions`, for example `mcp__plugin_morph_morph__start_milestone_execution` to start runs. On a billed plan, Claude Code still shows the price and waits for your yes before starting a run.
+
 ## What it can't do yet
 
 Pausing or steering a running agent, planning a roadmap and approving a project spec still happen in the Morph UI. Claude Code gives you the link.

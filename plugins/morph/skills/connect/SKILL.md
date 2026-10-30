@@ -35,7 +35,7 @@ Morph's refusals say what's wrong; relay them in plain words.
 
 ## Fewer prompts
 
-Claude Code asks before each Morph tool call. Reading tools are safe to allow; starting and retrying runs, changing review issues, rebasing and merging should keep asking. If the user wants fewer prompts, offer to add these rules to `permissions.allow` in their `~/.claude/settings.json`, and do it only once they agree:
+Claude Code asks before each Morph tool call. Reading tools are safe to allow; starting and retrying runs, changing review issues, rebasing and merging should keep asking. If the user wants fewer prompts, offer to add these rules to `permissions.allow` in their `~/.claude/settings.json`, and do it only once they agree. If Claude Code refuses the edit, give them the rules to add themselves with `/permissions`:
 
 ```json
 "mcp__plugin_morph_morph__list_projects",
@@ -46,3 +46,7 @@ Claude Code asks before each Morph tool call. Reading tools are safe to allow; s
 "mcp__plugin_morph_morph__get_milestone_review",
 "mcp__plugin_morph_morph__get_milestone_review_issue"
 ```
+
+## Auto mode
+
+In auto mode Claude Code doesn't ask: it refuses a call that changes something in Morph (starting or retrying a run, changing a review issue, re-running a review, rebasing, merging) unless a rule allows it. When a Morph call is refused this way, don't retry it or look for another way to do it. Tell the user that nothing changed in Morph, and that they can either switch out of auto mode (Shift+Tab) and ask again, approving the call when Claude Code asks, or allow that tool with `/permissions` (for example `mcp__plugin_morph_morph__start_milestone_execution`). An allow rule doesn't skip the price check: on a billed plan, still quote and wait for their yes before starting.
