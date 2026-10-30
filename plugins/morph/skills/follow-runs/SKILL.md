@@ -39,6 +39,8 @@ When the user asks to be told when a run finishes, check its status every few mi
 
 Don't report every check; speak up only when something changed.
 
+Waiting for the build environment works the same way: check `get_project_execution_status` every few minutes and stop when its `environment.state` is no longer `building`. If it is `ready` and the user asked you to start a milestone then, follow the `run-project` skill's start rules (quote it again; a billed start still needs their yes). If it is `failed`, say so, with the error and the project's link.
+
 ## What Claude Code doesn't do (yet)
 
 Pausing, sending a message to, or stopping a running agent happens in the Morph UI: give the user the milestone's `url`.
