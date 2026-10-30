@@ -13,11 +13,11 @@ If no `morph` tools are available, or you don't know which project the user mean
 
 For any question about progress (what is running, what is done, what can start next, why a run failed), call `get_project_execution_status` and answer from it. It names the project, lists each milestone with its state, prerequisites, runs and pull requests, and says whether the organization is billed for runs (`billed`, `billing_note`). `get_milestone_details` gives one milestone in full: its description and tasks.
 
-Always check its `environment` too. While `state` is `building`, the project's build environment (its Docker image, or on a daemon its dependencies) is still being prepared, and no milestone can start: say so whenever the user asks about status or what can start. When it is `failed`, say the build environment failed to generate, with `generation_run.error` if there is one, and give the project's link so they can retry it in the Morph UI.
+Always check its `environment` too: whether the project's build environment (its Docker image, or on a daemon its dependencies) is `ready`, still `building`, or `failed`. When the user asks about status or what can start, pass on Morph's own reasons: `environment.blocks_milestone_start`, and each milestone's `not_ready_because`. When `state` is `failed`, add `generation_run.error` if there is one, and give the project's link so they can retry it in the Morph UI.
 
 ## Links to the Morph UI
 
-Morph's results carry links to the same things in the Morph UI: the project (`project.url`), a milestone (`url`, `milestone_url`) and its code review (`review_url`, once the milestone is pending review). When the user asks for a link, take it from those results: never build a Morph URL yourself. When you tell the user about something they might want to see or act on in Morph, add its link as a markdown link, e.g. "Milestone 2's pull request is ready: [review it in Morph](<review_url>)". Don't list links nobody asked for. If the user asks you to open one, run `open <url>`.
+Morph's results carry links to the same things in the Morph UI: the project (`project.url`), a milestone (`url`, `milestone_url`) and its code review (`review_url`, once the milestone is pending review). When the user asks for a link, take it from those results: never build a Morph URL yourself. When you tell the user about something they might want to see or act on in Morph, add its link as a markdown link, e.g. "Milestone 2's pull request is ready: [review it in Morph](<review_url>)". Don't list links nobody asked for. If the user asks you to open one, run `open <url>` on macOS, `xdg-open <url>` on Linux, or `start "" "<url>"` on Windows.
 
 ## Starting milestones
 

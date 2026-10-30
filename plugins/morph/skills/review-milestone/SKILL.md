@@ -12,12 +12,12 @@ If you don't know which Morph project the user means, use the `connect` skill fi
 
 ## Setting up
 
-1. Call `get_milestone_review` with the milestone's number (a sub-milestone like 3.1 is `number` 3, `sub_number` 1). Its `branch` is the milestone's branch, the same in every repository that has one of its `pull_requests`; `base_branch` is where they merge.
+1. Call `get_milestone_review` with the milestone's number (a sub-milestone like 3.1 is `number` 3, `sub_number` 1). Its `display_number` (`3`, `3.1`) names the milestone below. Its `branch` is the milestone's branch, the same in every repository that has one of its `pull_requests`; `base_branch` is where they merge.
 2. If a repository with a pull request isn't cloned in this folder, use the `clone-repos` skill first.
-3. Give each of those repositories a worktree on the milestone's branch, at `reviews/m<number>/<repo>`, so several milestones can be reviewed side by side without switching branches:
-   - not there yet: `git -C <repo> fetch origin <branch>` then `git -C <repo> worktree add ../reviews/m<number>/<repo> <branch>`;
-   - already there: `git -C reviews/m<number>/<repo> pull --rebase origin <branch>` (if it has uncommitted changes, ask first).
-4. Work in `reviews/m<number>` from now on: make every change in its repositories.
+3. Give each of those repositories a worktree on the milestone's branch, at `reviews/m<display_number>/<repo>` (`reviews/m3.1/<repo>` for 3.1), so several milestones can be reviewed side by side without switching branches:
+   - not there yet: `git -C <repo> fetch origin <branch>` then `git -C <repo> worktree add ../reviews/m<display_number>/<repo> <branch>`;
+   - already there: first check that `git -C reviews/m<display_number>/<repo> branch --show-current` is `branch`. If it isn't, don't pull: tell the user which branch the worktree is on and ask what to do. If it is, `git -C reviews/m<display_number>/<repo> pull --rebase origin <branch>` (if it has uncommitted changes, ask first).
+4. Work in `reviews/m<display_number>` from now on: make every change in its repositories.
 
 ## The summary
 
@@ -33,11 +33,13 @@ Then ask what they want to do. Read an issue in full with `get_milestone_review_
 
 ## Fixing issues ("fix issues 1 and 3")
 
+Issue numbers are per review. When a number the user gives exists in more than one review, ask which review they mean before reading, fixing, resolving or ignoring it.
+
 1. Read each issue, make the change in the right repository, and check it (run the tests or build when you can tell how). Leave the worktree as you found it apart from the fix: remove files your checks created (a lockfile or cache a test runner wrote, for example) before committing, and never commit them.
 2. Tell the user what you changed, issue by issue. Don't commit until they say so.
 3. **Commit** when they ask: one commit per issue, for example `Fix review issue 3: <title>`.
-4. **Push** to the pull request branch: ask first, unless they already asked for it. Others may push to the branch too, so run `git pull --rebase origin <branch>` first; if that stops on a conflict, resolve it and tell the user what you merged. Then `git push origin <branch>`.
-5. Only once pushed, mark each fixed issue with `update_milestone_review_issue` (`number`, `review_number`, `issue_number`): `status` `RESOLVED` and a `note` saying what changed and in which commit.
+4. **Push** to the pull request branch, and **resolve** the fixed issues in Morph: ask once for both, naming the issues ("Push, then mark issues 1 and 3 resolved in Morph?"), unless they already asked for both. Others may push to the branch too, so run `git pull --rebase origin <branch>` first. If that stops on a conflict, resolve it, explain how, run the tests when you can, and ask again before pushing. Then `git push origin <branch>`.
+5. Only once pushed, mark each issue the user confirmed with `update_milestone_review_issue` (`number`, `review_number`, `issue_number`): `status` `RESOLVED` and a `note` saying what changed and in which commit.
 
 To set an issue aside ("ignore issue 2"), use `status` `IGNORED` with a `note` giving the user's reason. Use the user's own words for decisions; don't resolve or ignore an issue they didn't ask about.
 
@@ -49,13 +51,13 @@ When the fixes are pushed, suggest re-running Morph's review. Call `rerun_milest
 
 A milestone needs a rebase when its base branch moved since it ran, usually because a milestone that ran in parallel was merged first. Its pull requests can't merge until it's rebased. Offer the user both ways:
 - **Here**: in each repository, `git fetch origin <base_branch>` and `git rebase origin/<base_branch>`. Resolve each conflict and explain how. Run the tests, then ask before `git push --force-with-lease origin <branch>`. Then call `record_milestone_rebased`: Morph checks on the git host that the branches contain their base and lets them merge. If it couldn't check a pull request, try once more; if that fails too, offer Morph's rebase; if a milestone merged meanwhile, rebase again. Suggest re-running the review afterwards, since Morph's own validation didn't run on the rebased code.
-- **In Morph**: `start_milestone_rebase` runs Morph's rebase (its agent resolves conflicts, re-validates and force-pushes). Follow it with `follow-runs`. When it ends, the branch's history is rewritten: if the worktrees have no unpushed work, `git fetch origin <branch>` and `git reset --hard origin/<branch>`; otherwise ask the user what to keep first.
+- **In Morph**: `start_milestone_rebase` runs Morph's rebase (its agent resolves conflicts, re-validates and force-pushes). Follow it with `follow-runs`. When it ends, the branch's history is rewritten. For each worktree, `git fetch origin <branch>`; if `git status --porcelain` is empty and `git log origin/<branch>..HEAD` shows no commits, `git reset --hard origin/<branch>`. Otherwise show the user what isn't committed or pushed and ask what to keep before changing anything.
 
 ## Merging ("merge all PRs")
 
 1. Check that every worktree is committed and pushed. If not, say what isn't and ask.
 2. If issues are still open, list them and ask whether to merge anyway.
 3. Call `merge_milestone_prs`. If it says a rebase is needed, go to Rebasing. If some pull requests didn't merge, say which and why.
-4. Once merged, the milestone is done and the milestones that depend on it can start. Offer to remove its worktrees (`git -C <repo> worktree remove ../reviews/m<number>/<repo>`).
+4. Once merged, the milestone is done and the milestones that depend on it can start. Offer to remove its worktrees (`git -C <repo> worktree remove ../reviews/m<display_number>/<repo>`).
 
 Merging can't be undone: never call `merge_milestone_prs` unless the user asked to merge in this conversation.

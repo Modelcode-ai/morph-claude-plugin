@@ -26,7 +26,7 @@ When the agent hits a problem it can't solve alone (a missing secret, a service 
 - `help_chat_url`: the help chat in the Morph UI, where the user works through the blockers with Morph's agent;
 - `review_number`: pass it with an `issue_number` to `get_milestone_review_issue` to read a blocker in full (what's wrong, what was tried, what the agent needs).
 
-Tell the user the milestone needs their help and list the blockers in plain words, with a link to the help chat. Offer to read a blocker in full. The run resumes by itself once every blocker is resolved or ignored. If the user fixed the cause themselves and asks you to, resolve the blocker with `update_milestone_review_issue`, with a note saying what they changed, which the agent reads when it resumes. While a milestone waits for help, no other milestone of the project can start.
+Tell the user the milestone needs their help and list the blockers in plain words, with a link to the help chat. Offer to read a blocker in full. The run resumes by itself once every blocker is resolved or ignored. If the user fixed the cause themselves and asks you to, resolve the blocker with `update_milestone_review_issue`, with a note saying what they changed, which the agent reads when it resumes. Other milestones of the project may be held back meanwhile: their `not_ready_because` says so.
 
 ## Watching a run
 
