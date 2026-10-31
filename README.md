@@ -1,6 +1,6 @@
 # Morph for Claude Code
 
-Run your [Morph](https://modelcode.ai) projects from Claude Code. Ask where your milestones stand, start and retry milestone runs, and follow them, without leaving your terminal. Everything you do also shows in the Morph UI, as if you had done it there.
+Run your [Morph](https://modelcode.ai) projects from Claude Code. Ask where your milestones stand, start and retry milestone runs, follow them, and do a milestone's code review, without leaving your terminal. Everything you do also shows in the Morph UI, as if you had done it there.
 
 ## Install
 
@@ -24,12 +24,16 @@ Talk to Claude Code as you would to a teammate:
 - "Start milestone 1." On a billed plan, Claude Code shows the price first and starts only after you say yes.
 - "How is milestone 1 doing? Tell me when it's done."
 - "Milestone 2 failed. Why? Retry it."
+- "Clone the project's repos." then "Review milestone 1." Claude Code checks out its branch and summarizes the review issues.
+- "Fix issues 1 and 3.", "Commit and push.", "Re-run the review.", "Merge all PRs."
 
 Claude Code asks before each call to Morph. You can allow the read-only ones for good: ask it to "allow Morph's read tools".
 
+In auto mode, Claude Code doesn't ask before each call. It makes the changes you ask for, such as starting a run when you say "start milestone 1", and can refuse a change in Morph that you didn't ask for. To let a refused call through, switch out of auto mode (Shift+Tab) and ask again, then approve it when Claude Code asks. Or allow it for good with `/permissions`, for example `mcp__plugin_morph_morph__start_milestone_execution` to start runs. To keep Claude Code from making a change, deny its tool with `/permissions`. On a billed plan, Claude Code still shows the price and waits for your yes before starting a run.
+
 ## What it can't do yet
 
-Pausing or steering a running agent, planning a roadmap, approving a project spec and code review still happen in the Morph UI. Claude Code gives you the link.
+Pausing or steering a running agent, planning a roadmap and approving a project spec still happen in the Morph UI. Claude Code gives you the link.
 
 ## Troubleshooting
 
