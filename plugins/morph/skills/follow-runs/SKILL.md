@@ -16,7 +16,7 @@ Call `get_project_execution_status` (with the milestone's `number` to see only t
 - `progress_report` (while it runs): the agent's latest report on what it's doing, its `stage` and `step`, and how far through its stages it is.
 - `error` (once it failed): why.
 
-Answer in plain words: which step it's at, what the agent is doing, what's done and what's left. Add the milestone's `url` when the user may want to watch it in the Morph UI. Morph's transcripts are not available from Claude Code: never offer or link one.
+Answer in plain words, right away: which step it's at, what the agent is doing, what's done and what's left. A run that was paused and now runs again is "running again". Add the milestone's `url` when the user may want to watch it in the Morph UI. Morph's transcripts are not available from Claude Code: never offer or link one.
 
 ## A run waiting for the user's help
 
@@ -37,7 +37,7 @@ When the user asks to be told when a run finishes, check its status every few mi
 - the run is waiting for the user's help: say so, with its blockers and help chat link (see above);
 - the user asks you to stop watching.
 
-Don't report every check; speak up only when something changed.
+Don't report every check; speak up only when something changed. A watch ends when it stops: a later "how is it doing?" is a status question, so answer it with the current status, and watch again only if the user asks to be told.
 
 Waiting for the build environment works the same way: check `get_project_execution_status` every few minutes and stop when its `environment.state` is no longer `building`. If it is `ready` and the user asked you to start a milestone then, follow the `run-project` skill's start rules (quote it again; a billed start still needs their yes). If it is `failed`, say so, with the error and the project's link.
 
