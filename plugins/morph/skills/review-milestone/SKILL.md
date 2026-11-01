@@ -36,9 +36,9 @@ Then ask what they want to do. Read an issue in full with `get_milestone_review_
 Issue numbers are per review. When a number the user gives exists in more than one review, ask which review they mean before reading, fixing, resolving or ignoring it.
 
 1. Read each issue, make the change in the right repository, and check it (run the tests or build when you can tell how). Leave the worktree as you found it apart from the fix: remove files your checks created (a lockfile or cache a test runner wrote, for example) before committing, and never commit them.
-2. Tell the user what you changed, issue by issue. Don't commit until they say so.
-3. **Commit** when they ask: one commit per issue, for example `Fix review issue 3: <title>`.
-4. **Push** to the pull request branch, and **resolve** the fixed issues in Morph: ask once for both, naming the issues ("Push, then mark issues 1 and 3 resolved in Morph?"), unless they already asked for both. Others may push to the branch too, so run `git pull --rebase origin <branch>` first. If that stops on a conflict, resolve it, explain how, run the tests when you can, and ask again before pushing. Then `git push origin <branch>`.
+2. Tell the user what you changed, issue by issue, then ask once whether to commit, push and resolve, naming the issues ("Commit, push, then mark issues 1 and 3 resolved in Morph?"). Don't commit until they say so; do only the parts they agree to ("just commit" means no push and no resolve).
+3. **Commit**: one commit per issue, for example `Fix review issue 3: <title>`.
+4. **Push** to the pull request branch, unless they said not to push. If they asked only to commit, ask before pushing and resolving later, once for both. Others may push to the branch too, so run `git pull --rebase origin <branch>` first. If that stops on a conflict, resolve it, explain how, run the tests when you can, and ask again before pushing. Then `git push origin <branch>`.
 5. Only once pushed, mark each issue the user confirmed with `update_milestone_review_issue` (`number`, `review_number`, `issue_number`): `status` `RESOLVED` and a `note` saying what changed and in which commit.
 
 To set an issue aside ("ignore issue 2"), use `status` `IGNORED` with a `note` giving the user's reason. Use the user's own words for decisions; don't resolve or ignore an issue they didn't ask about.
