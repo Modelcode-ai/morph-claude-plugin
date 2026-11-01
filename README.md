@@ -25,7 +25,7 @@ Talk to Claude Code as you would to a teammate:
 - "How is milestone 1 doing? Tell me when it's done."
 - "Milestone 2 failed. Why? Retry it."
 - "Clone the project's repos." then "Review milestone 1." Claude Code checks out its branch and summarizes the review issues.
-- "Fix issues 1 and 3.", "Commit and push.", "Re-run the review.", "Merge all PRs."
+- "Fix issues 1 and 3.", "Commit and push.", "Add an issue: Divide ignores a zero divisor.", "Re-run the review.", "Merge all PRs."
 
 Claude Code asks before each call to Morph. You can allow the read-only ones for good: ask it to "allow Morph's read tools".
 

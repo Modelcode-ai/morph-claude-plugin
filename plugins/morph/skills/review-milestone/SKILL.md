@@ -1,6 +1,6 @@
 ---
 name: review-milestone
-description: Do a Morph milestone's code review from here - check out its branch, go through its review issues, fix them, commit and push to its pull requests, re-run Morph's review, rebase, and merge all its pull requests. Use when the user asks to review milestone N, or to fix, ignore or discuss its review issues, rebase it, re-run its review or merge it.
+description: Do a Morph milestone's code review from here - check out its branch, go through its review issues, add issues, fix them, commit and push to its pull requests, re-run Morph's review, rebase, and merge all its pull requests. Use when the user asks to review milestone N, or to fix, ignore, add or discuss its review issues, rebase it, re-run its review or merge it.
 argument-hint: <milestone number>
 ---
 
@@ -42,6 +42,10 @@ Issue numbers are per review. When a number the user gives exists in more than o
 5. Only once pushed, mark each issue the user confirmed with `update_milestone_review_issue` (`number`, `review_number`, `issue_number`): `status` `RESOLVED` and a `note` saying what changed and in which commit.
 
 To set an issue aside ("ignore issue 2"), use `status` `IGNORED` with a `note` giving the user's reason. Use the user's own words for decisions; don't resolve or ignore an issue they didn't ask about.
+
+## Adding an issue ("add an issue: Divide ignores a zero divisor")
+
+When the user asks to add an issue they found, call `create_milestone_review_issue` with the milestone's `number`, `type` `BUG` (something wrong) or `WARNING` (worth a look), a short `title`, and a markdown `content`: what's wrong, where (repository, file and line), and how to fix it when that's known. Write it from what the user said and what you checked in the worktree; ask when the problem or its place is unclear. Don't add issues the user didn't ask for. Say its number, and that Morph's next review re-run plans a fix for it like any open issue, unless they fix it here first.
 
 ## Re-running the review
 
