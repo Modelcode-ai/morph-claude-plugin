@@ -2,10 +2,7 @@
   "mcpServers": {
     "morph": {
       "type": "http",
-      "url": "${user_config.morph_url}/api/morph/mcp",
-      "headers": {
-        "Authorization": "Bearer ${user_config.morph_key}"
-      }
+      "url": "${user_config.morph_url}/api/morph/mcp"
     }
   }
 }
