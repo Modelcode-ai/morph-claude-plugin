@@ -4,7 +4,7 @@ Run your [Morph](https://modelcode.ai) projects from Claude Code. Ask where your
 
 ## Install
 
-The plugin is tested with Claude Code 2.1.312. Check your version with `claude --version`, and update with `claude update`.
+The plugin needs Claude Code 2.1.186 or later. Check your version with `claude --version`, and update with `claude update`.
 
 In Claude Code:
 
