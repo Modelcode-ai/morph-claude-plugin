@@ -1,6 +1,6 @@
 ---
 name: connect
-description: Set up and check the connection between Claude Code and Morph, and pick or switch the Morph project to work on. Use when the user wants to work on a Morph project from Claude Code, asks which projects they have, wants to switch projects, or when a Morph tool is missing or refuses the call.
+description: Set up and check the connection between Claude Code and Morph, and pick or switch the Morph project to work on. Use when the user wants to work on a Morph project from Claude Code, asks which projects they have, wants to switch projects, or when a Morph tool is missing or refuses the call. Use also when the user asks to sign in to Morph, sign out, re-authenticate, or see or revoke their Claude Code sign-ins, or when Morph says the sign-in was revoked or expired.
 ---
 
 # Connecting Claude Code to Morph
