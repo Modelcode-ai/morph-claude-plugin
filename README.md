@@ -15,6 +15,15 @@ In Claude Code:
 
 If Claude Code asks for a **Morph URL**, leave it as it is unless Modelcode gave you another address. Then run `/reload-plugins`, or restart Claude Code.
 
+Or, from a terminal:
+
+```bash
+claude plugin marketplace add Modelcode-ai/morph-claude-plugin
+claude plugin install morph@modelcode-morph
+```
+
+Then start Claude Code, or run `/reload-plugins` in a session that's already open.
+
 ## Sign in
 
 Run `/mcp`, pick **morph**, and choose **Authenticate**. Or, from a terminal:
