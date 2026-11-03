@@ -28,7 +28,7 @@ Every edit takes the `expected_version` you last read. If someone changed the pa
 Change only what the user asked for. Prefer `edits` (exact `old_text` / `new_text` pairs) or a `section` rewrite to resending a whole body, and keep each call to about one section.
 
 - **Wiki:** `create_project_wiki_page`, `update_project_wiki_page` (body, title, order, or `new_path` to move it), `delete_project_wiki_page`.
-- **Rules:** `create_project_rule`, `update_project_rule`, `delete_project_rule` (archives it). A rule applies to every later run in the project, so read the new rule back to the user before you create it.
+- **Rules:** `create_project_rule`, `update_project_rule`, `delete_project_rule`. A rule applies to every later run in the project, so read the new rule back to the user before you create it. These tools see only published rules. Changing a rule's status (draft, published or archived) is done only in the Knowledge Hub in the Morph UI: tell the user to do it there.
 - **Spec:** `edit_project_spec` changes its body and, while it is a draft, a repository's description (`repo_descriptions`). Claude Code can't add, remove or rename a repository, or change its role: that is done in the Knowledge Chat in the Morph UI, which also updates the wiki to match. Give the user the project's link.
 
 Say what you changed, and that the Knowledge Hub shows it.
