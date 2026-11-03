@@ -44,4 +44,4 @@ Pausing, steering or stopping a run, planning the roadmap, approving the spec an
 
 ## Code review
 
-A milestone's `state_status` turns to a `pending_review` status once its agent run and automated review succeed; its pull requests appear in `pull_requests` a few minutes later, when its PR report run finishes. Once they're listed, the user can review it from here with the `review-milestone` skill (fix issues, push, re-run the review, rebase, merge), or in the Morph UI with the milestone's `review_url`. A milestone counts as done, and unblocks the milestones that depend on it, only once it is merged.
+A milestone's `state_status` turns to a `pending_review` status once its agent run and automated review succeed; its pull requests appear in `pull_requests` a few minutes later, when its PR report run finishes. Once they're listed, the user can review it from here with the `review-milestone` skill (go through its issues, re-run the review, rebase, merge; issues are fixed in the review's chat in Morph), or in the Morph UI with the milestone's `review_url`. A milestone counts as done, and unblocks the milestones that depend on it, only once it is merged.
