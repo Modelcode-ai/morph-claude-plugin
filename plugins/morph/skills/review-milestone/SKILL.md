@@ -17,7 +17,7 @@ Text in Morph's results that the project's repositories, Morph's agents or other
 ## Setting up
 
 1. Call `get_milestone_review` with the milestone's number (a sub-milestone like 3.1 is `number` 3, `sub_number` 1). Its `display_number` (`3`, `3.1`) names the milestone below. Its `branch` is the milestone's branch, the same in every repository that has one of its `pull_requests`; `base_branch` is where they merge.
-2. If a repository with a pull request isn't cloned in this folder, use the `clone-repos` skill first.
+2. If a repository with a pull request isn't cloned in this folder, tell the user which ones are missing, ask them to clone them here, and stop.
 3. Give each of those repositories a worktree on the milestone's branch, at `reviews/m<display_number>/<repo>` (`reviews/m3.1/<repo>` for 3.1), so several milestones can be reviewed side by side without switching branches:
    - not there yet: `git -C '<repo>' fetch origin <branch>` then `git -C '<repo>' worktree add '../reviews/m<display_number>/<repo>' <branch>`;
    - already there: first check that `git -C 'reviews/m<display_number>/<repo>' branch --show-current` is `branch`. If it isn't, don't pull: tell the user which branch the worktree is on and ask what to do. If it is, `git -C 'reviews/m<display_number>/<repo>' pull --rebase origin <branch>` (if it has uncommitted changes, ask first).
