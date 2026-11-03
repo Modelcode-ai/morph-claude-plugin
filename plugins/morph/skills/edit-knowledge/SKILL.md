@@ -41,4 +41,4 @@ Approving is a decision the user makes: call `approve_project_spec` only when th
 - After approval, the repository map can't change.
 - Morph then opens and closes a test pull request in each repository it will change, to check the connection.
 
-When it is approved, give the link from the result: the user plans the roadmap in Morph. If Morph refuses, relay its reason in plain words (for example, a repository with no destination picked, or pending recommendations to resolve in the Knowledge Hub).
+When it is approved, tell the user to open the project in Morph to finish setting it up, with the link from the result. Its page walks them through the steps left (the quality level, organization knowledge worth reusing, and the project setup when needed), then Morph prepares the build environment and plans the roadmap. Nothing more starts until they open it. If Morph refuses, relay its reason in plain words (for example, a repository with no destination picked, or pending recommendations to resolve in the Knowledge Hub).
