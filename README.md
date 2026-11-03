@@ -54,7 +54,6 @@ Talk to Claude Code as you would to a teammate:
 - "Clone the project's repos." then "Review milestone 1." Claude Code checks out its branch and summarizes the review issues.
 - "Fix issues 1 and 3.", "Commit and push.", "Add an issue: Divide ignores a zero divisor.", "Re-run the review.", "Merge all PRs."
 - "What does the wiki say about authentication?", "Add a rule: log every new function's arguments.", "Add a bullet to the spec's scope."
-- "Approve the spec." Morph creates the spec's new repositories on the destinations you picked in the Morph UI, then approves it.
 
 Claude Code asks before each call to Morph. You can allow the read-only ones for good: ask it to "allow Morph's read tools".
 
@@ -62,7 +61,7 @@ In auto mode, Claude Code doesn't ask before each call. It makes the changes you
 
 ## What it can't do yet
 
-Pausing or steering a running agent, planning a roadmap, adding, removing or renaming a project's repositories, and picking where Morph creates a new repository still happen in the Morph UI. Claude Code gives you the link.
+Pausing or steering a running agent, approving a project spec, planning a roadmap, and adding, removing or renaming a project's repositories still happen in the Morph UI. Claude Code gives you the link.
 
 ## Troubleshooting
 

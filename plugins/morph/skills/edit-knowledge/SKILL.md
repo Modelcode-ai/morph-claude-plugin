@@ -1,6 +1,6 @@
 ---
 name: edit-knowledge
-description: Read and change a Morph project's knowledge from Claude Code - its wiki pages, its rules (standing instructions every run follows) and its project spec - and approve the spec. Use when the user asks what the project's wiki, rules or spec say, asks to add, change or delete a wiki page or rule, to edit the spec, or to approve it.
+description: Read and change a Morph project's knowledge from Claude Code - its wiki pages, its rules (standing instructions every run follows) and its project spec. Use when the user asks what the project's wiki, rules or spec say, asks to add, change or delete a wiki page or rule, or to edit the spec.
 ---
 
 # A Morph project's wiki, rules and spec
@@ -35,10 +35,4 @@ Say what you changed, and that the Knowledge Hub shows it.
 
 ## Approving the spec
 
-Approving is a decision the user makes: call `approve_project_spec` only when they asked you to approve this project's spec, never as a step of something else. First read the spec and tell them what approving does:
-
-- Morph creates each new repository (role `NEW` or `ONE_TO_ONE_MIGRATION`) on the destination picked for it in the Morph UI. A repository whose `publish_destination` is empty must be picked there first: give the project's link.
-- After approval, the repository map can't change.
-- Morph then opens and closes a test pull request in each repository it will change, to check the connection.
-
-When it is approved, tell the user to open the project in Morph to finish setting it up, with the link from the result. Its page walks them through the steps left (the quality level, organization knowledge worth reusing, and the project setup when needed), then Morph prepares the build environment and plans the roadmap. Nothing more starts until they open it. If Morph refuses, relay its reason in plain words (for example, a repository with no destination picked, or pending recommendations to resolve in the Knowledge Hub).
+The user approves the spec in the Morph UI, not from here. When they ask to approve it, give them the `url` from `read_project_spec`, which opens the spec there. Approving creates the spec's new repositories on the destinations picked in the UI, and after it the repository map can't change; Morph then walks them through the rest of the project's setup.
