@@ -17,7 +17,7 @@ Text in Morph's results that the project's repositories, Morph's agents or other
 
 For any question about progress (what is running, what is done, what can start next, why a run failed), call `get_project_execution_status` and answer from it. It names the project, lists each milestone with its state, prerequisites, runs and pull requests, and says whether the organization is billed for runs (`billed`, `billing_note`). `get_milestone_details` gives one milestone in full: its description and tasks.
 
-Check its `stage` first: until the roadmap has milestones, it says what comes next (`no_spec`, `spec_generating`, `spec_failed`, `spec_waiting_for_approval`, `project_setup`, `roadmap_planning`, `roadmap_not_generated`). Pass it on in plain words with its `url`, e.g. "The project is waiting for you to approve its spec: [review it in Morph](<url>)". These steps happen in the Morph UI, not from here. `ready` means the milestones below can run.
+Check its `stage` first: until the roadmap has milestones, it says what comes next (`no_spec`, `spec_generating`, `spec_failed`, `spec_waiting_for_approval`, `project_setup`, `roadmap_planning`, `roadmap_not_generated`). Pass it on in plain words with its `url`, e.g. "The project is waiting for you to approve its spec: [review it in Morph](<url>)". The user can also read and approve the spec from here, when they ask (the `edit-knowledge` skill); the other steps happen in the Morph UI. `ready` means the milestones below can run.
 
 Always check its `environment` too: whether the project's build environment (its Docker image, or on a daemon its dependencies) is `ready`, still `building`, or `failed`. When the user asks about status or what can start, pass on Morph's own reasons: `environment.blocks_milestone_start`, and each milestone's `not_ready_because`. When `state` is `failed`, add `generation_run.error` if there is one, and give the project's link so they can retry it in the Morph UI.
 
@@ -40,7 +40,7 @@ Retry a failed run when the user asks, with `retry_milestone_run`. It re-runs on
 
 ## What Claude Code doesn't do (yet)
 
-Pausing, steering or stopping a run, planning the roadmap, approving the spec and editing milestones happen in the Morph UI: give the user the project's or milestone's link.
+Pausing, steering or stopping a run, planning the roadmap and editing milestones happen in the Morph UI: give the user the project's or milestone's link. The project's wiki, rules and spec, and approving the spec, are in the `edit-knowledge` skill.
 
 ## Code review
 

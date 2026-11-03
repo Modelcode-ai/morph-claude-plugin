@@ -1,6 +1,6 @@
 # Morph for Claude Code
 
-Run your [Morph](https://modelcode.ai) projects from Claude Code. Ask where your milestones stand, start and retry milestone runs, follow them, and do a milestone's code review, without leaving your terminal. Everything you do also shows in the Morph UI, as if you had done it there.
+Run your [Morph](https://modelcode.ai) projects from Claude Code. Ask where your milestones stand, start and retry milestone runs, follow them, do a milestone's code review, and read and edit the project's wiki, rules and spec, without leaving your terminal. Everything you do also shows in the Morph UI, as if you had done it there.
 
 ## Install
 
@@ -44,6 +44,8 @@ Talk to Claude Code as you would to a teammate:
 - "Milestone 2 failed. Why? Retry it."
 - "Clone the project's repos." then "Review milestone 1." Claude Code checks out its branch and summarizes the review issues.
 - "Fix issues 1 and 3.", "Commit and push.", "Add an issue: Divide ignores a zero divisor.", "Re-run the review.", "Merge all PRs."
+- "What does the wiki say about authentication?", "Add a rule: log every new function's arguments.", "Add a bullet to the spec's scope."
+- "Approve the spec." Morph creates the spec's new repositories on the destinations you picked in the Morph UI, then approves it.
 
 Claude Code asks before each call to Morph. You can allow the read-only ones for good: ask it to "allow Morph's read tools".
 
@@ -51,7 +53,7 @@ In auto mode, Claude Code doesn't ask before each call. It makes the changes you
 
 ## What it can't do yet
 
-Pausing or steering a running agent, planning a roadmap and approving a project spec still happen in the Morph UI. Claude Code gives you the link.
+Pausing or steering a running agent, planning a roadmap, adding, removing or renaming a project's repositories, and picking where Morph creates a new repository still happen in the Morph UI. Claude Code gives you the link.
 
 ## Troubleshooting
 
@@ -59,6 +61,6 @@ Pausing or steering a running agent, planning a roadmap and approving a project 
 - **`/mcp` says morph failed to connect.** Check the Morph URL: `/plugin` → morph → **Configure options**. It's `https://morph.modelcode.ai` unless Modelcode gave you another address. After changing it, run `/reload-plugins` and sign in again: a sign-in works only for the address it was made on.
 - **Morph refused the sign-in.** The page says why. Usually your Morph account isn't active, or your organization's subscription is paused. Ask an admin of your organization.
 - **"Using Morph's tools from Claude Code isn't enabled for your organization yet", "isn't enabled for your organization", or "Connecting apps such as Claude Code isn't turned on for your organization".** Contact Modelcode to turn it on.
-- **"Morph can't confirm your Claude Code sign-in right now".** Morph couldn't check your sign-in before starting, retrying, rebasing, re-running a review or merging. Try again in a minute.
+- **"Morph can't confirm your Claude Code sign-in right now".** Morph couldn't check your sign-in before a change. Try again in a minute.
 - **"Project N not found".** The project isn't in your organization. Ask "What are my Morph projects?" to see the ones you can open.
 - **"You don't have the … permission".** Your role in Morph doesn't allow that action. Ask an admin of your organization.

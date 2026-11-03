@@ -10,7 +10,7 @@
     {
       "name": "morph",
       "source": "./plugins/morph",
-      "description": "Run your Morph projects from Claude Code: see where every milestone stands, start and retry milestone runs, follow them, and review them."
+      "description": "Run your Morph projects from Claude Code: see where every milestone stands, start and retry milestone runs, follow them, review them, and read and edit the project's wiki, rules and spec."
     }
   ]
 }
