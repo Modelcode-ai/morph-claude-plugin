@@ -40,7 +40,11 @@ Retry a failed run when the user asks, with `retry_milestone_run`. It re-runs on
 
 ## What Claude Code doesn't do (yet)
 
-Pausing, steering or stopping a run, approving the spec, planning the roadmap and editing milestones happen in the Morph UI: give the user the project's or milestone's link. Reading and editing the project's wiki, rules and spec are in the `edit-knowledge` skill.
+Pausing, steering or stopping a run, approving the spec, planning the roadmap and editing milestones happen in the Morph UI: give the user the project's or milestone's link.
+
+Adding an ad-hoc milestone or an upstream sync happens in the Morph UI too, with the same checks it has there. When the user asks for one, give them the project's link (`project.url`) and say both are under **Ad-hoc milestones** in the roadmap's sidebar. Once Morph has created the milestone, you can start it here like any other milestone (see Starting milestones).
+
+Reading and editing the project's wiki, rules and spec are in the `edit-knowledge` skill.
 
 ## Code review
 

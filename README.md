@@ -61,7 +61,7 @@ In auto mode, Claude Code doesn't ask before each call. It makes the changes you
 
 ## What it can't do yet
 
-Pausing or steering a running agent, approving a project spec, changing a rule's status (draft, published or archived), planning a roadmap, and adding, removing or renaming a project's repositories still happen in the Morph UI. Claude Code gives you the link.
+Pausing or steering a running agent, approving a project spec, changing a rule's status (draft, published or archived), planning a roadmap, adding an ad-hoc milestone or an upstream sync, and adding, removing or renaming a project's repositories still happen in the Morph UI. Claude Code gives you the link.
 
 ## Troubleshooting
 
