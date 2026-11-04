@@ -40,7 +40,7 @@ Morph's refusals say what's wrong; relay them in plain words.
 
 - "Project N not found": it isn't in the user's organization. Check `list_projects`.
 - "You don't have the ... permission": their role in Morph doesn't allow it. An admin of their organization can change it.
-- "isn't enabled for your organization yet", or the sign-in refused because it "isn't enabled" or "isn't turned on for your organization": Modelcode turns it on; the user contacts them.
+- "is in beta. To turn it on for your organization, please reach out to us at support@modelcode.ai" (on a tool call or the sign-in page): Claude Code access isn't on for their organization yet. Modelcode turns it on; the user emails support@modelcode.ai.
 - "was revoked or has expired", or "no user identity came with the call": they need to sign in again (see above).
 - "can't confirm your Claude Code sign-in right now": Morph couldn't check the sign-in before a start, retry, rebase, review re-run or merge. Try again in a minute.
 - "Too many Morph tool calls" or "Too many Morph changes": wait a minute, then try again.
