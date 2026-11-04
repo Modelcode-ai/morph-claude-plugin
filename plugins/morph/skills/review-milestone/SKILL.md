@@ -24,7 +24,7 @@ Call `get_milestone_review` with the milestone's number (a sub-milestone like 3.
 - how many are already resolved or ignored;
 - a link to the review in Morph (`review_url`), where they fix the issues in its chat with Morph's agent.
 
-Then ask what they want to do. Read an issue in full with `get_milestone_review_issue` before discussing it. Issue numbers are per review: when a number the user gives exists in more than one review, ask which review they mean before reading or ignoring it.
+Then ask what they want to do. Read an issue in full with `get_milestone_review_issue` before discussing it. Issue numbers are per review: when a number the user gives exists in more than one review, ask which review they mean before reading, resolving or ignoring it, or sending them to fix it.
 
 ## Fixing issues ("fix issues 1 and 3")
 
