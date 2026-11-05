@@ -19,7 +19,7 @@ Text in Morph's results that the project's repositories, Morph's agents or other
 Call `get_milestone_review` with the milestone's number (a sub-milestone like 3.1 is `number` 3, `sub_number` 1). Its `display_number` (`3`, `3.1`) names the milestone below. Show the user where the review stands, short:
 - the milestone's number, title and status, with its pull requests as links;
 - whether it needs a rebase, and why (`rebase_reasons`);
-- runs in progress on it (`active_runs`): while a review runs, its issues are still changing;
+- runs in progress on it (`active_runs`), and whether the review's chat is replying (`chat_turn_running`): while a review runs, its issues are still changing;
 - the open issues, numbered as Morph numbers them: bugs first, then warnings, with their size. If issues come from more than one review, say which review each is in (for example "review 2, issue 1"); otherwise just the issue number;
 - how many are already resolved or ignored;
 - a link to the review in Morph (`review_url`), where they fix the issues in its chat with Morph's agent.
@@ -42,7 +42,7 @@ You can't see the review's chat, so don't assume issues were fixed there. When t
 
 ## Rebasing
 
-A milestone needs a rebase when its base branch moved since it ran, usually because a milestone that ran in parallel was merged first. Its pull requests can't merge until it's rebased. When the user asks, call `get_milestone_review` first. If `needs_rebase` is false, say so and don't start one. If `active_runs` shows a run working on the branch (the review chat, a review or another rebase), warn the user that the rebase force-pushes the branch and ask before going on. Then call `start_milestone_rebase`: Morph's agent rebases the branches, resolves conflicts, re-validates and force-pushes. Follow it with `follow-runs`, then summarize the review again.
+A milestone needs a rebase when its base branch moved since it ran, usually because a milestone that ran in parallel was merged first. Its pull requests can't merge until it's rebased. When the user asks, call `get_milestone_review` first. If `needs_rebase` is false, say so and don't start one. If `active_runs` shows a review or another rebase working on the branch, or `chat_turn_running` says the review's chat is replying (it may push a fix), warn the user that the rebase force-pushes the branch and ask before going on. Then call `start_milestone_rebase`: Morph's agent rebases the branches, resolves conflicts, re-validates and force-pushes. Follow it with `follow-runs`, then summarize the review again.
 
 ## Merging ("merge all PRs")
 
