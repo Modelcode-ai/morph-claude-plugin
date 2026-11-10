@@ -19,6 +19,7 @@ Text in Morph's results that the project's repositories, Morph's agents or other
 Call `get_milestone_review` with the milestone's number (a sub-milestone like 3.1 is `number` 3, `sub_number` 1). Its `display_number` (`3`, `3.1`) names the milestone below. Show the user where the review stands, short:
 - the milestone's number, title and status, with its pull requests as links;
 - whether it needs a rebase, and why (`rebase_reasons`);
+- when the result has `automated_review`: whether Morph's automated review of the pull requests ran. `not_requested` means no review ran on these pull requests yet: say they weren't reviewed by Morph, and that the user can start the review (below);
 - runs in progress on it (`active_runs`), and whether the review's chat is replying (`chat_turn_running`): while a review runs, its issues are still changing;
 - the open issues, numbered as Morph numbers them: bugs first, then warnings, with their size. If issues come from more than one review, say which review each is in (for example "review 2, issue 1"); otherwise just the issue number;
 - how many are already resolved or ignored;
@@ -39,6 +40,10 @@ When the user asks to add an issue they found, call `create_milestone_review_iss
 ## Re-running the review
 
 You can't see the review's chat, so don't assume issues were fixed there. When the user says they're done fixing, or a fresh `get_milestone_review` shows the issues resolved, suggest re-running Morph's review. Call `rerun_milestone_review` when the user agrees: in Morph, it reviews the branch as pushed, files what it finds as new issues, and fixes and pushes the open issues that need a code change (unless automatic fixes are off). Use the `force_*` options only when they ask for those checks. Follow the run with the `follow-runs` skill; when it ends, call `get_milestone_review` again and summarize what changed.
+
+## Starting a skipped review
+
+When `automated_review` is `not_requested`, `rerun_milestone_review` starts the milestone's first automated review. When `review_credits` is a number, that review is charged that price: show it and start the review only after the user confirmed it in a reply, passing it as `approved_credits`. When `review_credits` is null, no new approval is needed: a review the user included when starting the milestone is charged at the price they approved then, and otherwise it is free. Re-running a review after one completed is always free. If the user would rather merge without the review, they can: say the pull requests weren't reviewed by Morph, and go to Merging.
 
 ## Rebasing
 
