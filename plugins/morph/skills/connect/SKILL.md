@@ -54,6 +54,7 @@ Claude Code asks before each Morph tool call. Reading tools are safe to allow; s
 "mcp__plugin_morph_morph__get_project_execution_status",
 "mcp__plugin_morph_morph__get_milestone_details",
 "mcp__plugin_morph_morph__get_milestone_start_quote",
+"mcp__plugin_morph_morph__get_project_repos",
 "mcp__plugin_morph_morph__get_milestone_review",
 "mcp__plugin_morph_morph__get_milestone_review_issue",
 "mcp__plugin_morph_morph__list_project_wiki_pages",
