@@ -51,8 +51,8 @@ Talk to Claude Code as you would to a teammate:
 - "Start milestone 1." On a billed plan, Claude Code shows the price first and starts only after you say yes.
 - "How is milestone 1 doing? Tell me when it's done."
 - "Milestone 2 failed. Why? Retry it."
-- "Clone the project's repos." then "Review milestone 1." Claude Code checks out its branch and summarizes the review issues.
-- "Fix issues 1 and 3.", "Commit and push.", "Add an issue: Divide ignores a zero divisor.", "Re-run the review.", "Merge all PRs."
+- "Clone the project's repos." then "Review milestone 1." Claude Code checks out its branch, summarizes the review issues and links to the review in Morph, where you can also fix them in its chat with Morph's agent.
+- "Fix issues 1 and 3.", "Commit and push.", "Ignore issue 2.", "Add an issue: Divide ignores a zero divisor.", "Re-run the review.", "Rebase it.", "Merge all PRs."
 - "What does the wiki say about authentication?", "Add a rule: log every new function's arguments.", "Add a bullet to the spec's scope."
 
 Claude Code asks before each call to Morph. You can allow the read-only ones for good: ask it to "allow Morph's read tools".
@@ -68,7 +68,7 @@ Pausing or steering a running agent, approving a project spec, changing a rule's
 - **`/mcp` says morph "needs authentication", Morph's tools are missing, or a call says your sign-in "was revoked or has expired".** You aren't signed in, or your sign-in ended: you signed out, it was revoked in Connected apps, it expired, or Claude Code access was switched off for your organization. Sign in again: `/mcp` → morph → **Authenticate** (or **Re-authenticate**).
 - **`/mcp` says morph failed to connect.** Check the Morph URL: `/plugin` → morph → **Configure options**. It's `https://morph.modelcode.ai` unless Modelcode gave you another address. After changing it, run `/reload-plugins` and sign in again: a sign-in works only for the address it was made on.
 - **Morph refused the sign-in.** The page says why. Usually your Morph account isn't active, or your organization's subscription is paused. Ask an admin of your organization.
-- **"Using Morph's tools from Claude Code isn't enabled for your organization yet", "isn't enabled for your organization", or "Connecting apps such as Claude Code isn't turned on for your organization".** Contact Modelcode to turn it on.
+- **"… is in beta. To turn it on for your organization, please reach out to support@modelcode.ai".** Claude Code access isn't on for your organization yet. Email support@modelcode.ai to turn it on.
 - **"Morph can't confirm your Claude Code sign-in right now".** Morph couldn't check your sign-in before a change. Try again in a minute.
 - **"Project N not found".** The project isn't in your organization. Ask "What are my Morph projects?" to see the ones you can open.
 - **"You don't have the … permission".** Your role in Morph doesn't allow that action. Ask an admin of your organization.
