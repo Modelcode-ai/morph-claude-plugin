@@ -42,22 +42,29 @@ Morph's refusals say what's wrong; relay them in plain words.
 - "You don't have the ... permission": their role in Morph doesn't allow it. An admin of their organization can change it.
 - "is in beta. To turn it on for your organization, please reach out to support@modelcode.ai" (on a tool call or the sign-in page): Claude Code access isn't on for their organization yet. Modelcode turns it on; the user emails support@modelcode.ai.
 - "was revoked or has expired", or "no user identity came with the call": they need to sign in again (see above).
-- "can't confirm your Claude Code sign-in right now": Morph couldn't check the sign-in before a start, retry, rebase, review re-run or merge. Try again in a minute.
+- "can't confirm your Claude Code sign-in right now": Morph couldn't check the sign-in before a change. Try again in a minute.
 - "Too many Morph tool calls" or "Too many Morph changes": wait a minute, then try again.
 
 ## Fewer prompts
 
-Claude Code asks before each Morph tool call. Reading tools are safe to allow; starting and retrying runs, changing review issues, rebasing and merging should keep asking. If the user wants fewer prompts, offer to add these rules to `permissions.allow` in their `~/.claude/settings.json`, and do it only once they agree. If Claude Code refuses the edit, give them the rules to add themselves with `/permissions`:
+Claude Code asks before each Morph tool call. Reading tools are safe to allow; starting and retrying runs, changing review issues, rebasing, merging, and changing the wiki, rules and spec should keep asking. If the user wants fewer prompts, offer to add these rules to `permissions.allow` in their `~/.claude/settings.json`, and do it only once they agree. If Claude Code refuses the edit, give them the rules to add themselves with `/permissions`:
 
 ```json
 "mcp__plugin_morph_morph__list_projects",
 "mcp__plugin_morph_morph__get_project_execution_status",
 "mcp__plugin_morph_morph__get_milestone_details",
 "mcp__plugin_morph_morph__get_milestone_start_quote",
+"mcp__plugin_morph_morph__get_project_repos",
 "mcp__plugin_morph_morph__get_milestone_review",
-"mcp__plugin_morph_morph__get_milestone_review_issue"
+"mcp__plugin_morph_morph__get_milestone_review_issue",
+"mcp__plugin_morph_morph__list_project_wiki_pages",
+"mcp__plugin_morph_morph__get_project_wiki_page",
+"mcp__plugin_morph_morph__search_project_wiki",
+"mcp__plugin_morph_morph__list_project_rules",
+"mcp__plugin_morph_morph__get_project_rule",
+"mcp__plugin_morph_morph__read_project_spec"
 ```
 
 ## Auto mode
 
-In auto mode Claude Code doesn't ask before each call: a change the user asked for goes through, and a call that changes something in Morph (starting or retrying a run, changing a review issue, re-running a review, rebasing, merging) can be refused when the user didn't ask for it, or when a rule denies it. When a Morph call is refused, don't retry it or look for another way to do it. Tell the user that nothing changed in Morph, and that they can either switch out of auto mode (Shift+Tab) and ask again, approving the call when Claude Code asks, or allow that tool with `/permissions` (for example `mcp__plugin_morph_morph__start_milestone_execution`). An allow rule doesn't skip the price check: on a billed plan, still quote and wait for their yes before starting.
+In auto mode Claude Code doesn't ask before each call: a change the user asked for goes through, and a call that changes something in Morph (starting or retrying a run, changing a review issue, re-running a review, rebasing, merging, editing the wiki, rules or spec) can be refused when the user didn't ask for it, or when a rule denies it. When a Morph call is refused, don't retry it or look for another way to do it. Tell the user that nothing changed in Morph, and that they can either switch out of auto mode (Shift+Tab) and ask again, approving the call when Claude Code asks, or allow that tool with `/permissions` (for example `mcp__plugin_morph_morph__start_milestone_execution`). An allow rule doesn't skip the price check: on a billed plan, still quote and wait for their yes before starting.
