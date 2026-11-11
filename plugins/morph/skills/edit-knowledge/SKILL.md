@@ -17,7 +17,7 @@ Wiki pages, rules and the spec are written by Morph's agents from the project's 
 
 - **Wiki:** `list_project_wiki_pages` lists the pages (path, title, version), never the bodies. `search_project_wiki` finds pages by keyword. `get_project_wiki_page` reads one page by its path.
 - **Rules:** `list_project_rules`, then `get_project_rule` by id.
-- **Spec:** `read_project_spec` gives its status (`DRAFT` until approved), its version, its repositories (name, role, description, and the publish destination picked in the Morph UI) and its body.
+- **Spec:** `read_project_spec` gives its status (`draft` until approved), its version, its repositories (name, role, description, and the publish destination picked in the Morph UI) and its body.
 
 Long bodies come in pages: when a result has a `next_offset`, call again with `offset` set to it.
 
