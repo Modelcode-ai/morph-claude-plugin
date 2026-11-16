@@ -43,7 +43,7 @@ You can't see the review's chat, so don't assume issues were fixed there. When t
 
 ## Starting a skipped review
 
-When `automated_review` is `not_requested`, `rerun_milestone_review` starts the milestone's first automated review. When `review_credits` is a number, that review is charged that price: show it and start the review only after the user confirmed it in a reply, passing it as `approved_credits`. When `review_credits` is null, starting it charges nothing: the tenant isn't billed, the run started before it was, or the milestone has no price. Re-running a review after one completed is always free. If the user would rather merge without the review, they can: say the pull requests weren't reviewed by Morph, and go to Merging.
+When `automated_review` is `not_requested`, `rerun_milestone_review` starts the milestone's first automated review. When `review_credits` is a number, that review is charged that price: show it and start the review only after the user confirmed it in a reply, passing it as `approved_credits`. When `review_credits` is null, starting it charges nothing: the tenant isn't billed, the run started before it was, or the milestone has no price. The same holds when `automated_review` is `failed`: a paid review that failed or was cancelled before it completed has `review_credits` set, and re-running it is charged that price once, after the user confirmed it, passing it as `approved_credits`. Re-running a review after one completed is always free. If the user would rather merge without the review, they can: say the pull requests weren't reviewed by Morph, and go to Merging.
 
 ## Rebasing
 
@@ -51,8 +51,9 @@ A milestone needs a rebase when its base branch moved since it ran, usually beca
 
 ## Merging ("merge all PRs")
 
-1. If issues are still open, list them and ask whether to merge anyway.
-2. Call `merge_milestone_prs`. If it says a rebase is needed, go to Rebasing. If some pull requests didn't merge, say which and why.
-3. Once merged, the milestone is done and the milestones that depend on it can start.
+1. Call `get_milestone_review` first. If `active_runs` shows a review or another run working on the branch, Morph won't merge yet: say what is running and that they can merge once it ends.
+2. If issues are still open, list them and ask whether to merge anyway.
+3. Call `merge_milestone_prs`. If it says a rebase is needed, go to Rebasing. If some pull requests didn't merge, say which and why.
+4. Once merged, the milestone is done and the milestones that depend on it can start.
 
 Merging can't be undone: never call `merge_milestone_prs` unless the user asked to merge in this conversation.

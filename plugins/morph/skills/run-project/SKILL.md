@@ -40,7 +40,7 @@ Morph's results carry links to the same things in the Morph UI: the project (`pr
 
 Retry a failed run when the user asks, with `retry_milestone_run`. It re-runs only the step that failed (the agent run, the automated review or the PR report) and keeps the work already done. Retrying the agent run follows the price rules of a start; a review or report retry needs no confirmation. Say which step was retried.
 
-A failed agent run that chose its review keeps that choice when retried: don't ask about the review. Quote `credits_without_review` when the quote has it, else `credits`, and if the retry is refused for its price, quote the price the refusal names and ask once more.
+A failed agent run keeps its review choice when retried: don't ask about the review. Its price isn't the start quote's (a run that chose its review costs its implementation share, one that made no choice the full price), so don't quote from `credits` or `credits_without_review`. Call `retry_milestone_run` with `approved_credits` null: on a billed tenant Morph refuses and names the retry's price. Show that price, and retry with it as `approved_credits` once the user confirmed it.
 
 ## What Claude Code doesn't do (yet)
 
@@ -48,4 +48,4 @@ Pausing, steering or stopping a run, planning the roadmap, approving the spec an
 
 ## Code review
 
-A milestone's `state_status` turns to a `pending_review` status once its agent run and automated review succeed; its pull requests appear in `pull_requests` a few minutes later, when its PR report run finishes. A run that chose its review (`review_choice` in its quote, billed or not) opens its pull requests first: its automated review then runs on them, or not at all when the user skipped it. Once they're listed, the user can review it from here with the `review-milestone` skill (go through its issues, re-run the review, rebase, merge; issues are fixed in the review's chat in Morph), or in the Morph UI with the milestone's `review_url`. A milestone counts as done, and unblocks the milestones that depend on it, only once it is merged.
+A milestone's `state_status` turns to a `pending_review` status once its run delivered; its pull requests appear in `pull_requests` when its PR report run finishes (in a run that made no review choice, after its agent run and automated review). A run that chose its review (`review_choice` in its quote, billed or not) opens its pull requests first: its automated review then runs on them, or not at all when the user skipped it. Once they're listed and `running` is false, the user can review it from here with the `review-milestone` skill (go through its issues, re-run the review, rebase, merge; issues are fixed in the review's chat in Morph), or in the Morph UI with the milestone's `review_url`. A milestone counts as done, and unblocks the milestones that depend on it, only once it is merged.
