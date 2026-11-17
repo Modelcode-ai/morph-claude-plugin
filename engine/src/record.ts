@@ -17,8 +17,8 @@ export function writeRecord(dir: string, b: Bundle) {
   fs.writeFileSync(path.join(dir, "agent.md"), agentDigest(b, dir));
   fs.writeFileSync(path.join(dir, "pr.md"), prComment(b));
   const tpl = fs.readFileSync(path.join(here, "viewer", "index.html"), "utf8");
-  const data = JSON.stringify(b).replace(/</g, "\\u003c");
-  fs.writeFileSync(path.join(dir, "index.html"), tpl.replace("/*__WITNESS_DATA__*/null", data));
+  const data = JSON.stringify(b).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  fs.writeFileSync(path.join(dir, "index.html"), tpl.replace("/*__WITNESS_DATA__*/null", () => data));
   const latest = path.join(path.dirname(dir), "latest");
   try {
     fs.rmSync(latest, { force: true });

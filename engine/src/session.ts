@@ -98,7 +98,8 @@ export class Side {
       await this.waitReady(run, vars, log);
     }
     for (const [surface, s] of Object.entries(this.contract.surfaces)) {
-      const run = this.running.find((r) => r.svc.name === s.service)!;
+      const run = this.running.find((r) => r.svc.name === s.service);
+      if (!run) continue;
       run.proxy = new RecordingProxy({ host: "127.0.0.1", port: run.port }, this.name, this.rewrite);
       await run.proxy.listen();
       say("calling witnesses", `${this.name}: surface ${surface} recorded via :${run.proxy.port}`);
@@ -140,7 +141,8 @@ export class Side {
   surfaceEnv(): Record<string, string> {
     const env: Record<string, string> = {};
     for (const [surface, s] of Object.entries(this.contract.surfaces)) {
-      const run = this.running.find((r) => r.svc.name === s.service)!;
+      const run = this.running.find((r) => r.svc.name === s.service);
+      if (!run?.proxy) continue;
       env[`WITNESS_${surface.toUpperCase()}_URL`] = `http://localhost:${run.proxy!.port}`;
     }
     return env;
@@ -181,11 +183,15 @@ export interface SuiteRun {
 export async function runSuites(
   contract: Contract,
   side: Side,
-  opts: { only?: string[]; run?: string; logDir: string },
+  opts: { only?: string[]; run?: string; logDir: string; artifacts?: string },
 ): Promise<SuiteRun[]> {
   const out: SuiteRun[] = [];
   side.setRun(opts.run ?? "primary");
   for (const suite of contract.suites) {
+    if (suite.surface && !side.surfaceEnv()[`WITNESS_${suite.surface.toUpperCase()}_URL`]) {
+      say("testimony", `${side.name}: skipping suite ${suite.name} (no ${suite.surface} surface on this side)`);
+      continue;
+    }
     if (contract.fixtures.reset) {
       await runShell(contract.fixtures.reset, { cwd: side.checkout, env: { CHECKOUT: side.checkout, WITNESS_HOME: contract.home }, log: path.join(opts.logDir, `${side.name}-reset.log`) });
     }
@@ -194,6 +200,10 @@ export async function runSuites(
     const log = path.join(opts.logDir, `${side.name}-suite-${suite.name}${opts.run && opts.run !== "primary" ? "-" + opts.run : ""}.log`);
     const env: Record<string, string> = { ...side.surfaceEnv(), WITNESS_HOME: contract.home, CHECKOUT: contract.root };
     if (opts.only?.length) env.WITNESS_TESTS = opts.only.join(",");
+    if (opts.artifacts) {
+      fs.mkdirSync(opts.artifacts, { recursive: true });
+      env.WITNESS_ARTIFACTS = opts.artifacts;
+    }
     say("testimony", `${side.name}: suite ${suite.name}${opts.only ? ` (${opts.only.length} tests)` : ""}`);
     const r = await runShell(subst(suite.cmd, { WITNESS_HOME: contract.home, CHECKOUT: contract.root }), {
       cwd: contract.root,

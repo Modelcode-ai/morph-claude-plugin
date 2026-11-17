@@ -23,10 +23,14 @@ export interface Suite {
   timeout?: string | number;
   /** Glob (relative to the repo root) of this suite's test sources; narrows the origin cache key. */
   tests?: string;
+  /** Surface this suite needs; the suite is skipped on a side that doesn't serve it (e.g. a legacy origin without a UI). */
+  surface?: string;
 }
 
 export interface Surface {
   service: string;
+  /** OpenAPI document (relative to the repo root) describing this surface; powers the surface map. */
+  schema?: string;
 }
 
 export interface Equivalence {
@@ -36,6 +40,7 @@ export interface Equivalence {
   compare_status: boolean;
   /** Fields the target adds that the origin never returned are compatible additions, not differences. */
   allow_added_fields: boolean;
+  ui: { pixel_threshold: number; ignore_text: string[] };
 }
 
 export interface Contract {
@@ -89,13 +94,15 @@ const DEFAULT_EQ: Equivalence = {
   headers: ["content-type"],
   compare_status: true,
   allow_added_fields: false,
+  ui: { pixel_threshold: 0.002, ignore_text: [] },
 };
 
 export function parseEquivalence(text: string | null): Equivalence {
   if (!text) return { ...DEFAULT_EQ };
   try {
     const eq = parseToml(text) as any;
-    return { ...DEFAULT_EQ, ...(eq.http ?? eq) };
+    const http = eq.http ?? eq;
+    return { ...DEFAULT_EQ, ...http, ui: { ...DEFAULT_EQ.ui, ...(eq.ui ?? {}) } };
   } catch (e) {
     throw new ContractError(`equivalence.toml does not parse: ${(e as Error).message}`);
   }
@@ -149,8 +156,8 @@ export function loadContract(root: string): Contract {
     originRaw = fs.readFileSync(oc, "utf8");
     const odoc = parseToml(originRaw) as any;
     const oservices: Service[] = odoc.service ?? [];
-    for (const surf of Object.values(surfaces))
-      if (!oservices.find((x) => x.name === surf.service)) throw new ContractError(`origin contract must define a service named "${surf.service}" (same as the target's surface)`);
+    if (!Object.values(surfaces).some((surf) => oservices.find((x) => x.name === surf.service)))
+      throw new ContractError("origin contract must define at least one service named like a target surface's service");
     let routes: Route[] = [];
     if (origin.map) {
       const mraw = fs.readFileSync(path.resolve(root, origin.map), "utf8");

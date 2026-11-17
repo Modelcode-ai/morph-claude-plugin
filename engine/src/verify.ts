@@ -12,6 +12,8 @@ import { Mistrial, registerCleanup, runSuites, Side, type SuiteRun } from "./ses
 import { applyJudge, assessClaim, type ClaimResult, counts, overall, type Verdict } from "./verdict.ts";
 import { fmtMs, git, hashFiles, readJson, say, sha, tryGit, worktreeHash, worktreeTree, writeJson } from "./util.ts";
 import { lint } from "./lint.ts";
+import { buildSurface, readIfFile, type SurfaceMap, loadOperations, matchOp } from "./surface.ts";
+import { collectArtifacts, compareScreens, copyArtifacts, type ScreenCompare, type TestArtifacts } from "./ui.ts";
 
 export interface VerifyOpts {
   level: "medium" | "high";
@@ -30,6 +32,7 @@ interface SideCapture {
   reruns: SuiteRun[];
   exchanges: Exchange[];
   bootMs: number;
+  artifacts?: Record<string, TestArtifacts>;
 }
 
 export interface Bundle {
@@ -55,6 +58,9 @@ export interface Bundle {
   declarations?: Declarations;
   coverage?: { checked: boolean; note: string; error?: string };
   originSide?: "base" | "origin";
+  screens?: ScreenCompare[];
+  uiFiles?: Record<string, string[]>;
+  surface?: SurfaceMap;
   origin?: { kind: "evolve" | "migrate"; repo: string; sha: string | null };
 }
 
@@ -114,18 +120,29 @@ function resolveBase(root: string, base: string | null | undefined): { ref: stri
 
 async function capture(contract: Contract, side: Side, logDir: string, rerun: boolean, only?: string[]): Promise<SideCapture> {
   await side.boot();
+  const artDir = path.join(logDir, "..", "artifacts-tmp", side.name);
+  fs.rmSync(artDir, { recursive: true, force: true });
   try {
-    const runs = await runSuites(contract, side, { logDir, only });
+    const runs = await runSuites(contract, side, { logDir, only, artifacts: artDir });
     const reruns: SuiteRun[] = [];
     const failed = runs.flatMap((r) => r.results.filter((t) => t.status === "failed").map((t) => t.id));
     if (rerun && failed.length && failed.length <= 10) {
       say("testimony", `${side.name}: re-examining ${failed.length} failed test(s) to rule out an unreliable witness`);
       reruns.push(...(await runSuites(contract, side, { logDir, only: failed, run: "rerun" })));
     }
-    return { runs, reruns, exchanges: side.exchanges(), bootMs: side.bootMs };
+    return { runs, reruns, exchanges: side.exchanges(), bootMs: side.bootMs, artifacts: collectArtifacts(artDir) };
   } finally {
     await side.shutdown();
   }
+}
+
+/** Add UI checkpoint text changes to an exchange comparison; visual-only changes are evidence, not failures. */
+function withScreens(p: ParityResult, sc: ScreenCompare[], expectDiff: string[]): ParityResult {
+  const diffs = [...p.diffs];
+  for (const s of sc.filter((x) => x.status === "text")) for (const t of s.textChanges.slice(0, 5)) diffs.push({ field: `screen.${s.name}.text`, origin: t.origin || "(absent)", target: t.target || "(absent)" });
+  if (diffs.length === p.diffs.length) return p;
+  const explained = diffs.every((d) => expectDiff.some((e) => d.field.replace(/^#\d+ /, "").startsWith(e)));
+  return { ...p, diffs, status: explained ? "intended" : "unexplained" };
 }
 
 /** Capture origin observations per test, booting the origin only for tests not already on record. */
@@ -156,15 +173,17 @@ async function captureOrigin(
     const side = new Side("origin", contract, o.repoPath!, logDir, { services: o.services, rewrite: (u) => mapRoute(o.routes ?? [], u) });
     const cap = await capture(contract, side, logDir, false, missing);
     const results = byId(cap.runs);
-    for (const t of missing) writeJson(file(t), { result: results.get(t) ?? null, exchanges: cap.exchanges.filter((e) => e.test === t) });
+    const arts = copyArtifacts(cap.artifacts ?? {}, path.join(dir, "artifacts"));
+    for (const t of missing) writeJson(file(t), { result: results.get(t) ?? null, exchanges: cap.exchanges.filter((e) => e.test === t), artifacts: arts[t] });
   } else say("subpoena", `origin ${o.repo}@${originSha.slice(0, 7)}: all ${tests.length} test(s) already on record`);
-  const per = tests.map((t) => readJson<{ result: TestResult | null; exchanges: Exchange[] }>(file(t), { result: null, exchanges: [] }));
+  const per = tests.map((t) => readJson<{ result: TestResult | null; exchanges: Exchange[]; artifacts?: TestArtifacts }>(file(t), { result: null, exchanges: [] }));
   bundle.layers.origin = { key: oKey, reused: missing.length === 0, ms: missing.length ? Date.now() - t1 : undefined, note: `${tests.length - missing.length} reused, ${missing.length} captured` };
   return {
     runs: [{ suite: "origin", side: "origin", run: "primary", code: 0, ms: 0, log: "", results: per.map((p) => p.result).filter((r): r is TestResult => !!r) }],
     reruns: [],
     exchanges: per.flatMap((p) => p.exchanges),
     bootMs: 0,
+    artifacts: Object.fromEntries(tests.map((t, i) => [t, per[i].artifacts]).filter(([, a]) => a)),
   };
 }
 
@@ -174,12 +193,16 @@ function byId(runs: SuiteRun[]): Map<string, TestResult> {
   return m;
 }
 
+let suiteGlobs: string[] = [];
+
 function testSource(root: string, id: string): ClaimResult["source"] {
   const [cls, method] = id.split("#");
-  const files = fs.globSync(path.join(root, "**", `${cls}.*`)).filter((f) => !f.includes("node_modules") && !f.includes("/target/") && !f.includes("/.witness/"));
-  for (const f of files) {
+  const named = fs.globSync(path.join(root, "**", `${cls}.*`)).filter((f) => !f.includes("node_modules") && !f.includes("/target/") && !f.includes("/.witness/"));
+  const fromSuites = suiteGlobs.flatMap((g) => fs.globSync(path.join(root, g)));
+  const escM = method.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const f of [...named, ...fromSuites]) {
     const lines = fs.readFileSync(f, "utf8").split("\n");
-    const i = lines.findIndex((l) => new RegExp(`\\b${method}\\s*\\(`).test(l));
+    const i = lines.findIndex((l) => new RegExp(`\\b${escM}\\s*\\(`).test(l) || new RegExp(`(test|it)\\(\\s*['"\`]${escM}['"\`]`).test(l));
     if (i >= 0) {
       let start = i;
       while (start > 0 && /^\s*@/.test(lines[start - 1])) start--;
@@ -244,6 +267,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
   const giText = fs.existsSync(gi) ? fs.readFileSync(gi, "utf8") : "";
   for (const line of ["records/", "cache/"]) if (!giText.split("\n").includes(line)) fs.appendFileSync(gi, (giText && !giText.endsWith("\n") ? "\n" : "") + line + "\n");
 
+  suiteGlobs = contract.suites.map((x) => x.tests).filter((x): x is string => !!x);
   const tree = worktreeHash(root);
   const headSha = tryGit(root, ["rev-parse", "HEAD"]);
   const branch = tryGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
@@ -287,13 +311,15 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     // Target layer: head app + head tests.
     // Claims, equivalence rules and docs don't change what the app returns, so they don't key captures.
     const captureTree = worktreeHash(root, [".witness/claims", ".witness/equivalence.toml", ".witness/sources", "VERIFY.md"]);
-    const tKey = sha(`${captureTree}|${contractHash}`);
+    const outside = contract.suites.flatMap((x) => (x.tests ? fs.globSync(path.join(root, x.tests)) : [])).filter((f) => !path.resolve(f).startsWith(root + path.sep));
+    const tKey = sha(`${captureTree}|${contractHash}|${hashFiles(outside)}`);
     const tFile = path.join(cacheDir(contract, "target", tKey), "capture.json");
     let target = opts.fresh ? null : readJson<SideCapture | null>(tFile, null);
     if (target) say("record", "this change is already on record (same code and tests); reused");
     else {
       const t1 = Date.now();
       target = await capture(contract, new Side("head", contract, root, logDir), logDir, opts.rerun);
+      target.artifacts = copyArtifacts(target.artifacts ?? {}, path.join(path.dirname(tFile), "artifacts"));
       writeJson(tFile, target);
       bundle.layers.target = { key: tKey, reused: false, ms: Date.now() - t1 };
     }
@@ -327,6 +353,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
           tryGit(root, ["worktree", "remove", "--force", wt]);
           unregister();
         }
+        baseCap.artifacts = copyArtifacts(baseCap.artifacts ?? {}, path.join(path.dirname(bFile), "artifacts"));
         writeJson(bFile, baseCap);
         bundle.layers.base = { key: bKey, reused: false, ms: Date.now() - t1 };
       }
@@ -336,7 +363,11 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     const rerun = byId(target.reruns);
     const baseRes = baseCap ? byId(baseCap.runs) : undefined;
     const primary = (caps: SideCapture | null, test: string) => (caps?.exchanges ?? []).filter((e) => e.run === "primary" && e.test === test).sort((a, b) => a.seq - b.seq);
+    // Static files (scripts, styles, images, the HTML shell) say nothing about behavior and vary with browser caching.
+    const STATIC = /\.(js|mjs|css|png|jpe?g|gif|svg|ico|woff2?|ttf|map|webp)(\?|$)/i;
+    const observed = (caps: SideCapture | null, test: string) => primary(caps, test).filter((e) => !STATIC.test(e.path) && !/text\/html/.test(e.resHeaders["content-type"] ?? ""));
     const parityClaims = claims.filter((c) => c.proof && (c.tags.includes("parity") || c.tags.includes("changed")));
+    const uiOut = path.join(dir, "ui");
 
     // Origin layer (High): the base commit (Evolve) or a separate legacy checkout (Migrate).
     let originCap: SideCapture | null = null;
@@ -362,6 +393,13 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
       if (drift.length) bundle.warnings.unshift(`${drift.length} existing test(s) get different responses than on ${base!.ref} (${drift.map((t) => t.id).join(", ")}). Run with --level high to judge whether that's a regression.`);
     }
 
+    // UI evidence: compare each test's checkpoints with the origin (or the base commit) when both exist.
+    const screenOrigin = (opts.level === "high" ? originCap : null) ?? baseCap;
+    const screens: ScreenCompare[] = Object.keys(target.artifacts ?? {}).flatMap((t) =>
+      compareScreens(t, screenOrigin?.artifacts?.[t], target.artifacts?.[t], { outDir: path.join(uiOut, "diff"), threshold: contract.equivalence.ui.pixel_threshold, ignoreText: contract.equivalence.ui.ignore_text }),
+    );
+    const screensFor = (t: string) => screens.filter((x) => x.test === t);
+
     // Parity layer (High): pure comparison over stored observations.
     // Rules come from the base commit, so a PR can't loosen them to pass itself; head rules only mark what awaits approval.
     if (!base) bundle.warnings.unshift("No base commit was found (tried origin/main, main, origin/master, master), so new tests could not be checked to fail without the change. Pass --base <branch>.");
@@ -379,17 +417,17 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
         const pKey = sha(`${bundle.layers.target.key}|${bundle.layers.origin!.key}|${JSON.stringify(eqBase)}|${JSON.stringify(contract.equivalence)}`);
         say("cross-examination", `comparing ${migrate ? "the legacy app" : base?.ref ?? "the origin"} with this change for ${parityClaims.length} claim(s)`);
         for (const c of parityClaims) {
-          parity.set(c.id, compareExchanges(primary(originCap, c.proof!), primary(target, c.proof!), eqBase, c.expectDiff));
-          if (rulesChanged) parityHeadRules.set(c.id, compareExchanges(primary(originCap, c.proof!), primary(target, c.proof!), contract.equivalence, c.expectDiff));
+          parity.set(c.id, withScreens(compareExchanges(observed(originCap, c.proof!), observed(target, c.proof!), eqBase, c.expectDiff), screensFor(c.proof!), c.expectDiff));
+          if (rulesChanged) parityHeadRules.set(c.id, withScreens(compareExchanges(observed(originCap, c.proof!), observed(target, c.proof!), contract.equivalence, c.expectDiff), screensFor(c.proof!), c.expectDiff));
         }
         // Existing tests no claim mentions still guard behavior: compare their traffic with main too.
         if (!migrate) {
           const claimedTests = new Set(claims.map((c) => c.proof).filter(Boolean));
           for (const t of target.runs.flatMap((r) => r.results)) {
             if (claimedTests.has(t.id) || t.status !== "passed") continue;
-            const o = primary(originCap, t.id);
-            if (!o.length) continue;
-            const p = compareExchanges(o, primary(target, t.id), eqBase, []);
+            const o = observed(originCap, t.id);
+            if (!o.length && !originCap.artifacts?.[t.id]) continue;
+            const p = withScreens(compareExchanges(o, observed(target, t.id), eqBase, []), screensFor(t.id), []);
             if (p.status !== "equal") existing.push({ test: t.id, parity: p });
           }
         }
@@ -495,6 +533,45 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     bundle.regressions = all.filter((t) => !claimed.has(t.id) && t.status === "failed" && rerun.get(t.id)?.status !== "passed");
     bundle.otherTests = all.filter((t) => !claimed.has(t.id));
     if (!all.length) throw new Mistrial("No test results were found after the suites ran.", "Check the suite command and its junit path in witness.toml; see the suite log.", "");
+    // UI evidence into the record (paths relative to the record folder).
+    const rel = (f: string | undefined, sub: string) => {
+      if (!f) return undefined;
+      if (f.startsWith(dir)) return path.relative(dir, f);
+      const d = path.join(dir, "ui", sub, path.basename(path.dirname(f)), path.basename(f));
+      fs.mkdirSync(path.dirname(d), { recursive: true });
+      fs.copyFileSync(f, d);
+      return path.relative(dir, d);
+    };
+    bundle.screens = screens.map((x) => ({ ...x, head: rel(x.head, "head"), origin: rel(x.origin, "origin"), diff: rel(x.diff, "diff") }));
+    bundle.uiFiles = Object.fromEntries(Object.entries(target.artifacts ?? {}).filter(([, a]) => a.files.length).map(([t, a]) => [t, a.files.map((f) => rel(f, "files")!)]));
+    fs.rmSync(path.join(dir, "artifacts-tmp"), { recursive: true, force: true });
+
+    // Surface map: every operation in the API spec, what this change touched, and what proved it.
+    const schemaSurface = Object.values(contract.surfaces).find((x) => x.schema);
+    if (schemaSurface?.schema) {
+      const headText = readIfFile(path.join(root, schemaSurface.schema));
+      if (headText) {
+        const baseText = base ? tryGit(root, ["show", `${base.sha}:${schemaSurface.schema}`]) : null;
+        const { ops } = loadOperations(headText);
+        const behaviorChanged = new Set<string>();
+        for (const r of results) {
+          if (!r.testId || !r.parity || r.parity.status === "equal") continue;
+          for (const e of primary(target, r.testId)) {
+            const op = matchOp(ops, e.method, e.path);
+            if (op) behaviorChanged.add(op.key);
+          }
+        }
+        bundle.surface = buildSurface(schemaSurface.schema, {
+          headText,
+          baseText,
+          exchanges: target.exchanges,
+          claims: results.map((r) => ({ id: r.id, status: r.status, testId: r.testId, synthetic: r.synthetic, parityChanged: !!r.parity && r.parity.status !== "equal", tags: r.tags })),
+          behaviorChanged,
+        });
+        const claimByTest = new Map(results.filter((r) => r.testId).map((r) => [r.testId!, r.status]));
+        bundle.surface.screens = screens.map((x) => ({ test: x.test, name: x.name, status: claimByTest.get(x.test) ?? "exercised", changed: x.status !== "same" && x.status !== "missing" }));
+      }
+    }
     bundle.claims = results;
     bundle.exchanges = [...(baseCap?.exchanges ?? []), ...(originCap && originCap !== baseCap ? originCap.exchanges : []), ...target.exchanges].filter((e) => e.run === "primary" || e.run === "rerun");
     bundle.verdict = overall(results, bundle.regressions, problems, pending);

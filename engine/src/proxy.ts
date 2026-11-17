@@ -135,7 +135,10 @@ export class RecordingProxy {
             const resBody = Buffer.concat(out);
             ex.status = upRes.statusCode ?? 0;
             ex.resHeaders = pickHeaders(upRes.headers);
-            ex.resBody = redact(clip(decode(resBody, upRes.headers["content-encoding"])));
+            const ctype = String(upRes.headers["content-type"] ?? "");
+            ex.resBody = /^(image|font|audio|video)\/|octet-stream|zip|pdf|wasm/.test(ctype)
+              ? `[binary ${ctype.split(";")[0]}, ${resBody.length} bytes]`
+              : redact(clip(decode(resBody, upRes.headers["content-encoding"])));
             ex.truncated = resBody.length > MAX_BODY || body.length > MAX_BODY;
             ex.ms = Date.now() - t0;
             this.exchanges.push(ex);

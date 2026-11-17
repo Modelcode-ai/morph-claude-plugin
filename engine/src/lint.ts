@@ -21,7 +21,8 @@ export function lint(contract: Contract, files: ClaimFile[]): LintIssue[] {
   const issues: LintIssue[] = [];
   const ids = new Map<string, string>();
   let srcCache: { file: string; text: string }[] | null = null;
-  const src = () => (srcCache ??= sourceFiles(contract.root).map((f) => ({ file: f, text: fs.readFileSync(f, "utf8") })));
+  const suiteFiles = () => contract.suites.flatMap((x) => (x.tests ? fs.globSync(path.join(contract.root, x.tests)) : []));
+  const src = () => (srcCache ??= [...new Set([...sourceFiles(contract.root), ...suiteFiles()])].map((f) => ({ file: f, text: fs.readFileSync(f, "utf8") })));
   for (const f of files) {
     const rel = path.relative(contract.root, f.file);
     if (!f.claims.length) issues.push({ level: "warning", message: `${rel} has no claims (expected lines like "- C1 [api] ...")`, where: rel });
@@ -39,8 +40,11 @@ export function lint(contract: Contract, files: ClaimFile[]): LintIssue[] {
           continue;
         }
         const [cls, method] = c.proof.split("#");
-        const hit = src().find((s) => path.basename(s.file).startsWith(cls + ".") && new RegExp(`\\b${method}\\s*\\(`).test(s.text));
-        if (!hit) issues.push({ level: "error", message: `${c.id} proof ${c.proof}: no test method "${method}" found in a file named ${cls}.*`, where });
+        const m = method.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const hit =
+          src().find((s) => path.basename(s.file).startsWith(cls + ".") && new RegExp(`\\b${m}\\s*\\(`).test(s.text)) ??
+          src().find((s) => suiteFiles().includes(s.file) && new RegExp(`(test|it)\\(\\s*['"\`]${m}['"\`]`).test(s.text));
+        if (!hit) issues.push({ level: "error", message: `${c.id} proof ${c.proof}: no test "${method}" found (in a file named ${cls}.* or in a suite's tests glob)`, where });
         else if (!/witness/i.test(hit.text) && !/extends\s+\w*Witness\w*/.test(hit.text))
           issues.push({ level: "warning", message: `${c.id}: ${cls} doesn't appear to use the witness helper, so its exchanges won't be attributed`, where });
       }
