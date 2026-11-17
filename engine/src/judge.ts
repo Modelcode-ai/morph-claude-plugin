@@ -11,6 +11,7 @@ export interface Source {
   canOverturn: boolean;
   /** Absolute path, for sources passed with --source. */
   path?: string;
+  sha?: string;
 }
 
 export interface Citation {
@@ -174,6 +175,43 @@ export function coverage(request: string, claimsList: string, cacheDir?: string)
   if (call.error || !call.parsed) return { uncovered: [], note: "", error: call.error ?? "no answer" };
   const n = (x: string) => x.replace(/\s+/g, " ").trim().toLowerCase();
   const res: Coverage = { uncovered: (call.parsed.uncovered ?? []).filter((u: any) => u.quote && n(request).includes(n(u.quote))), note: call.parsed.note ?? "" };
+  if (cached) {
+    fs.mkdirSync(cacheDir!, { recursive: true });
+    fs.writeFileSync(cached, JSON.stringify(res));
+  }
+  return res;
+}
+
+export interface ProofReview {
+  mismatches: { id: string; reason: string }[];
+  error?: string;
+  cached?: boolean;
+}
+
+const PROOF_SYSTEM = `You review whether each test actually checks what its claim says. For each claim you get its text and the
+source of the test linked as its proof. List only the claims whose test does NOT assert the behavior the claim states
+(e.g. the claim says two filters combine but the test checks only one; the claim says "rejects" but the test never checks
+the status). Do not list claims whose test is adequate even if style could improve. Respond with the JSON object only.`;
+
+const PROOF_SCHEMA = {
+  type: "object",
+  properties: {
+    mismatches: { type: "array", items: { type: "object", properties: { id: { type: "string" }, reason: { type: "string" } }, required: ["id", "reason"] } },
+  },
+  required: ["mismatches"],
+};
+
+/** One call per run: do the proof tests changed in this PR check what their claims say? */
+export function reviewProofs(items: { id: string; claim: string; test: string }[], cacheDir?: string): ProofReview {
+  if (!items.length) return { mismatches: [] };
+  const prompt = items.map((i) => `CLAIM ${i.id}: ${i.claim}\nTEST SOURCE:\n${i.test.slice(0, 4000)}`).join("\n\n---\n\n");
+  const key = createHash("sha256").update(JSON.stringify([PROOF_SYSTEM, prompt, process.env.WITNESS_JUDGE_MODEL ?? ""])).digest("hex").slice(0, 16);
+  const cached = cacheDir ? path.join(cacheDir, `proof-${key}.json`) : null;
+  if (cached && fs.existsSync(cached)) return { ...JSON.parse(fs.readFileSync(cached, "utf8")), cached: true };
+  const call = callClaude(PROOF_SYSTEM, prompt, PROOF_SCHEMA);
+  if (call.error || !call.parsed) return { mismatches: [], error: call.error ?? "no answer" };
+  const ids = new Set(items.map((i) => i.id));
+  const res: ProofReview = { mismatches: (call.parsed.mismatches ?? []).filter((m: any) => ids.has(m.id)) };
   if (cached) {
     fs.mkdirSync(cacheDir!, { recursive: true });
     fs.writeFileSync(cached, JSON.stringify(res));

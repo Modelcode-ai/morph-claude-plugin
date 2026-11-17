@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { type Claim, loadClaims, parseClaimFile } from "./claims.ts";
 import { type Contract, type Equivalence, mapRoute, parseEquivalence } from "./contract.ts";
-import { coverage, judge, type Source } from "./judge.ts";
+import { coverage, judge, reviewProofs, type Source } from "./judge.ts";
 import type { TestResult } from "./junit.ts";
 import { compareExchanges, type ParityResult } from "./parity.ts";
 import type { Exchange } from "./proxy.ts";
@@ -49,7 +49,7 @@ export interface Bundle {
   exchanges: Exchange[];
   layers: Record<string, { key: string; reused: boolean; ms?: number; note?: string }>;
   warnings: string[];
-  sources: { name: string; canOverturn: boolean; path?: string }[];
+  sources: { name: string; canOverturn: boolean; path?: string; sha?: string }[];
   logs: string[];
   judgeCalls: number;
   declarations?: Declarations;
@@ -212,7 +212,8 @@ function loadSources(root: string, home: string, base: { sha: string } | null, e
   for (const [f, vouched] of [...extra.map((f) => [f, false] as const), ...trusted.map((f) => [f, true] as const)]) {
     const abs = fs.realpathSync(path.resolve(f));
     const inside = abs.startsWith(realRoot + path.sep);
-    out.push({ name: path.basename(f), text: fs.readFileSync(abs, "utf8"), canOverturn: vouched && !inside, path: abs });
+    const text = fs.readFileSync(abs, "utf8");
+    out.push({ name: path.basename(f), text, canOverturn: vouched && !inside, path: abs, sha: sha(text) });
   }
   for (const f of fs.existsSync(path.join(home, "claims")) ? fs.readdirSync(path.join(home, "claims")) : [])
     out.push({ name: `claims/${f}`, text: fs.readFileSync(path.join(home, "claims", f), "utf8"), canOverturn: false });
@@ -239,7 +240,9 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
   const dir = path.join(contract.home, "records", recordId);
   const logDir = path.join(dir, "logs");
   fs.mkdirSync(logDir, { recursive: true });
-  fs.writeFileSync(path.join(contract.home, ".gitignore"), "records/\ncache/\n");
+  const gi = path.join(contract.home, ".gitignore");
+  const giText = fs.existsSync(gi) ? fs.readFileSync(gi, "utf8") : "";
+  for (const line of ["records/", "cache/"]) if (!giText.split("\n").includes(line)) fs.appendFileSync(gi, (giText && !giText.endsWith("\n") ? "\n" : "") + line + "\n");
 
   const tree = worktreeHash(root);
   const headSha = tryGit(root, ["rev-parse", "HEAD"]);
@@ -300,7 +303,8 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     let baseCap: SideCapture | null = null;
     const testGlobs = contract.suites.map((s) => s.tests);
     const harnessFiles = fs.globSync(path.join(contract.home, "**", "*")).filter((f) => !/\/\.witness\/(claims|sources|records|cache)\/|equivalence\.toml$/.test(f) && fs.statSync(f).isFile());
-    const testsKey = testGlobs.every(Boolean) ? hashFiles([...testGlobs.flatMap((g) => fs.globSync(path.join(root, g!))), ...harnessFiles]) : captureTree;
+    const proofFiles = claims.map((c) => (c.proof ? testSource(root, c.proof)?.file : undefined)).filter((f): f is string => !!f).map((f) => path.join(root, f));
+    const testsKey = testGlobs.every(Boolean) ? hashFiles([...new Set([...testGlobs.flatMap((g) => fs.globSync(path.join(root, g!))), ...harnessFiles, ...proofFiles])]) : captureTree;
     const needsBite = claims.some((c) => c.proof && !c.tags.includes("parity") && !c.tags.includes("judged") && !(migrate && c.tags.includes("changed")));
     const needBase = !!base && (needsBite || (opts.level === "high" && !migrate));
     if (base && !needBase) say("subpoena", `skipping ${base.ref}: no claim needs the bite check${migrate ? " (the origin is the legacy app)" : ""}`);
@@ -350,8 +354,17 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
       }
     }
 
+    // Medium: if main was booted anyway, point out existing tests whose responses changed (High turns them into E claims).
+    if (opts.level !== "high" && baseCap) {
+      const claimedTests = new Set(claims.map((c) => c.proof).filter(Boolean));
+      const eqHint = base ? parseEquivalence(tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`])) : contract.equivalence;
+      const drift = target.runs.flatMap((r) => r.results).filter((t) => !claimedTests.has(t.id) && t.status === "passed" && primary(baseCap, t.id).length && compareExchanges(primary(baseCap, t.id), primary(target, t.id), eqHint, []).status !== "equal");
+      if (drift.length) bundle.warnings.unshift(`${drift.length} existing test(s) get different responses than on ${base!.ref} (${drift.map((t) => t.id).join(", ")}). Run with --level high to judge whether that's a regression.`);
+    }
+
     // Parity layer (High): pure comparison over stored observations.
     // Rules come from the base commit, so a PR can't loosen them to pass itself; head rules only mark what awaits approval.
+    if (!base) bundle.warnings.unshift("No base commit was found (tried origin/main, main, origin/master, master), so new tests could not be checked to fail without the change. Pass --base <branch>.");
     const decl = declarations(root, base, claims, retiredClaims, changedPaths);
     bundle.declarations = decl;
     const baseEqText = base ? tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`]) : null;
@@ -390,6 +403,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
         head, base: baseRes, rerun, parity: parity.get(c.id), level: opts.level, migrate,
         observed: c.proof ? primary(target, c.proof).length : undefined,
         testChanged: !!src && changedPaths.includes(src.file),
+        noBase: !base,
       });
       r.source = src;
       return r;
@@ -407,7 +421,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
 
     // T2: judge.
     const sources = loadSources(root, contract.home, base, opts.sources, opts.trustedSources, opts.why);
-    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn, path: s.path }));
+    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn, path: s.path, sha: s.sha }));
     const toJudge = results.filter((r) => (r.tags.includes("judged") && r.status === "cant_tell") || (r.parity?.status === "unexplained" && r.status === "failed"));
     if (toJudge.length && opts.judge) {
       say("deliberation", `the judge reviews ${toJudge.length} item(s)`);
@@ -454,6 +468,19 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
           reasons: [`The request asks for this, but no claim covers it: “${u.quote}”. Add a claim, or tell the reviewer why it's out of scope.`],
         });
       });
+    }
+
+    // Proof review: do tests changed in this PR assert what their claims say?
+    const toReview = results.filter((r) => !r.synthetic && r.status === "proven" && r.source && changedPaths.includes(r.source.file));
+    if (toReview.length && opts.judge) {
+      say("deliberation", `checking that ${toReview.length} new or changed test(s) assert what their claims say`);
+      const pr = reviewProofs(toReview.map((r) => ({ id: r.id, claim: r.text, test: r.source!.snippet })), path.join(contract.home, "cache", "judge"));
+      if (!pr.cached && !pr.error) bundle.judgeCalls++;
+      for (const m of pr.mismatches) {
+        const r = results.find((x) => x.id === m.id)!;
+        r.status = "cant_tell";
+        r.reasons.push(`The judge thinks the test doesn't check what the claim says: ${m.reason}`);
+      }
     }
 
     const suiteMismatch = [...target.runs, ...(baseCap?.runs ?? [])].filter((r) => r.code !== 0 && !r.results.some((t) => t.status === "failed"));

@@ -104,7 +104,7 @@ function header() {
   const bites = B.claims.filter((c) => c.bite === "bites").length, vac = B.claims.filter((c) => c.bite === "vacuous").length;
   const others = (B.otherTests || []).filter((t) => t.status === "passed").length;
   const biteTxt = B.base && bites + vac ? `Bite check: ${bites} of ${bites + vac} new test${bites + vac === 1 ? "" : "s"} fail on <code>${esc(BASE())}</code> and pass with this change${vac ? ` · <b>${vac} also pass without it (doesn't bite)</b>` : ""}` : "";
-  const otherTxt = (B.otherTests || []).length ? `Existing boundary tests: ${others} of ${B.otherTests.length} pass${B.regressions.length ? ` · <b>${B.regressions.length} regression(s)</b>` : ""}` : "";
+  const otherTxt = (B.otherTests || []).length ? `Other boundary tests (not linked to a claim): ${others} of ${B.otherTests.length} pass${B.regressions.length ? ` · <b>${B.regressions.length} regression(s)</b>` : ""}` : "";
   const bite = B.verdict === "mistrial" || B.verdict === "unproven" ? "" : `<div class="bite">${[biteTxt, otherTxt].filter(Boolean).join("<br>")}</div>`;
   const d = B.declarations;
   const dl = [];

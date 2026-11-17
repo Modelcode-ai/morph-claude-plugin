@@ -51,7 +51,7 @@ function biteLine(b: Bundle): string | null {
 function otherLine(b: Bundle): string | null {
   const others = b.otherTests.length;
   if (!others) return null;
-  return `Existing boundary tests: ${b.otherTests.filter((t) => t.status === "passed").length} of ${others} pass${b.regressions.length ? ` · ${b.regressions.length} regression(s)` : ""}`;
+  return `Other boundary tests (not linked to a claim): ${b.otherTests.filter((t) => t.status === "passed").length} of ${others} pass${b.regressions.length ? ` · ${b.regressions.length} regression(s)` : ""}`;
 }
 
 /** What the PR changed in claims and rules: the things a reviewer must approve. */
@@ -79,7 +79,12 @@ export function summaryLines(b: Bundle): string[] {
   const dl = declarationLines(b);
   if (dl.length) out.push(`Changed in this PR (a reviewer should approve): ${dl.join(" · ")}`);
   for (const w of b.warnings.filter((w) => /harness|exited with code|deleted in this PR/.test(w))) out.push(`  warning     ${w}`);
-  for (const c of b.claims.filter((c) => c.status !== "proven")) out.push(`  ${STATUS_WORD[c.status].padEnd(11)} ${c.id} ${c.text}`);
+  for (const c of b.claims.filter((c) => c.status !== "proven")) {
+    out.push(`  ${STATUS_WORD[c.status].padEnd(11)} ${c.id} ${c.text}`);
+    const why = c.parity?.diffs.length && c.status !== "overturned" ? c.parity.diffs.slice(0, 2).map((d) => `${d.field}: ${d.origin} -> ${d.target}`).join("; ") : c.reasons[0];
+    if (why) out.push(`              ${why.slice(0, 200)}`);
+  }
+  for (const w of b.warnings.filter((w) => /existing test\(s\) get different|No base commit/.test(w))) out.push(`  note        ${w}`);
   for (const t of b.regressions) out.push(`  regression  ${t.id}: ${firstLine(t.message)}`);
   return out;
 }
@@ -157,6 +162,6 @@ export function prComment(b: Bundle): string {
   for (const t of b.regressions) L.push(`- **Regression:** ${t.id}`);
   L.push("", "<details><summary>Claims</summary>", "", "| | Claim | Proof |", "|---|---|---|");
   for (const c of b.claims) L.push(`| ${STATUS_WORD[c.status]} | ${c.id} ${c.text} | ${c.testId ?? "judged"}${c.bite === "bites" ? " · bites" : ""} |`);
-  L.push("", "</details>", "", `<sub>head ${short(b.head.sha)}${b.head.dirty ? "+dirty" : ""}${b.base ? ` · base ${b.base.ref}@${short(b.base.sha)}` : ""} · reproduce: \`witness verify${b.level === "high" ? " --level high" : ""}\`</sub>`);
+  L.push("", "</details>", "", `<sub>head ${short(b.head.sha)}${b.head.dirty ? " plus uncommitted changes" : ""}${b.base ? ` · base ${b.base.ref}@${short(b.base.sha)}` : ""} · reproduce: \`witness verify${b.level === "high" ? " --level high" : ""}\`</sub>`);
   return L.join("\n");
 }

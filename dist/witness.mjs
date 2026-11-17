@@ -2961,7 +2961,7 @@ function assessClaim(c, facts) {
     }
     return r;
   }
-  const id = c.proof;
+  const id = normalizeTestId(c.proof);
   r.testId = id;
   const head = facts.head.get(id);
   r.head = head;
@@ -2989,6 +2989,11 @@ function assessClaim(c, facts) {
   if (r.status === "proven" && facts.observed === 0) {
     r.status = "cant_tell";
     r.reasons.push("The proof test passed but made no request to the app that witness could see, so it proves nothing about the app. Make it call the app through the witness helper (it sends the X-Witness-Test header).");
+  }
+  const needsBite = !c.tags.includes("parity") && !c.tags.includes("judged") && !(facts.migrate && c.tags.includes("changed"));
+  if (facts.noBase && needsBite && r.status === "proven") {
+    r.status = "cant_tell";
+    r.reasons.push("No base commit to check against, so witness can't show this test fails without the change. Run with --base <branch>.");
   }
   if (facts.base) {
     const base = facts.base.get(id);
@@ -3281,7 +3286,7 @@ function otherLine(b) {
   const others = b.otherTests.length;
   if (!others)
     return null;
-  return `Existing boundary tests: ${b.otherTests.filter((t) => t.status === "passed").length} of ${others} pass${b.regressions.length ? ` · ${b.regressions.length} regression(s)` : ""}`;
+  return `Other boundary tests (not linked to a claim): ${b.otherTests.filter((t) => t.status === "passed").length} of ${others} pass${b.regressions.length ? ` · ${b.regressions.length} regression(s)` : ""}`;
 }
 function declarationLines(b) {
   const d = b.declarations;
@@ -3321,8 +3326,14 @@ function summaryLines(b) {
     out.push(`Changed in this PR (a reviewer should approve): ${dl.join(" · ")}`);
   for (const w of b.warnings.filter((w2) => /harness|exited with code|deleted in this PR/.test(w2)))
     out.push(`  warning     ${w}`);
-  for (const c2 of b.claims.filter((c3) => c3.status !== "proven"))
+  for (const c2 of b.claims.filter((c3) => c3.status !== "proven")) {
     out.push(`  ${STATUS_WORD[c2.status].padEnd(11)} ${c2.id} ${c2.text}`);
+    const why = c2.parity?.diffs.length && c2.status !== "overturned" ? c2.parity.diffs.slice(0, 2).map((d) => `${d.field}: ${d.origin} -> ${d.target}`).join("; ") : c2.reasons[0];
+    if (why)
+      out.push(`              ${why.slice(0, 200)}`);
+  }
+  for (const w of b.warnings.filter((w2) => /existing test\(s\) get different|No base commit/.test(w2)))
+    out.push(`  note        ${w}`);
   for (const t of b.regressions)
     out.push(`  regression  ${t.id}: ${firstLine(t.message)}`);
   return out;
@@ -3422,7 +3433,7 @@ function prComment(b) {
   L.push("", "<details><summary>Claims</summary>", "", "| | Claim | Proof |", "|---|---|---|");
   for (const c2 of b.claims)
     L.push(`| ${STATUS_WORD[c2.status]} | ${c2.id} ${c2.text} | ${c2.testId ?? "judged"}${c2.bite === "bites" ? " · bites" : ""} |`);
-  L.push("", "</details>", "", `<sub>head ${short(b.head.sha)}${b.head.dirty ? "+dirty" : ""}${b.base ? ` · base ${b.base.ref}@${short(b.base.sha)}` : ""} · reproduce: \`witness verify${b.level === "high" ? " --level high" : ""}\`</sub>`);
+  L.push("", "</details>", "", `<sub>head ${short(b.head.sha)}${b.head.dirty ? " plus uncommitted changes" : ""}${b.base ? ` · base ${b.base.ref}@${short(b.base.sha)}` : ""} · reproduce: \`witness verify${b.level === "high" ? " --level high" : ""}\`</sub>`);
   return L.join(`
 `);
 }
@@ -3917,6 +3928,42 @@ ${claimsList}`;
   }
   return res;
 }
+var PROOF_SYSTEM = `You review whether each test actually checks what its claim says. For each claim you get its text and the
+source of the test linked as its proof. List only the claims whose test does NOT assert the behavior the claim states
+(e.g. the claim says two filters combine but the test checks only one; the claim says "rejects" but the test never checks
+the status). Do not list claims whose test is adequate even if style could improve. Respond with the JSON object only.`;
+var PROOF_SCHEMA = {
+  type: "object",
+  properties: {
+    mismatches: { type: "array", items: { type: "object", properties: { id: { type: "string" }, reason: { type: "string" } }, required: ["id", "reason"] } }
+  },
+  required: ["mismatches"]
+};
+function reviewProofs(items, cacheDir) {
+  if (!items.length)
+    return { mismatches: [] };
+  const prompt = items.map((i) => `CLAIM ${i.id}: ${i.claim}
+TEST SOURCE:
+${i.test.slice(0, 4000)}`).join(`
+
+---
+
+`);
+  const key = createHash2("sha256").update(JSON.stringify([PROOF_SYSTEM, prompt, process.env.WITNESS_JUDGE_MODEL ?? ""])).digest("hex").slice(0, 16);
+  const cached = cacheDir ? path7.join(cacheDir, `proof-${key}.json`) : null;
+  if (cached && fs7.existsSync(cached))
+    return { ...JSON.parse(fs7.readFileSync(cached, "utf8")), cached: true };
+  const call = callClaude(PROOF_SYSTEM, prompt, PROOF_SCHEMA);
+  if (call.error || !call.parsed)
+    return { mismatches: [], error: call.error ?? "no answer" };
+  const ids = new Set(items.map((i) => i.id));
+  const res = { mismatches: (call.parsed.mismatches ?? []).filter((m) => ids.has(m.id)) };
+  if (cached) {
+    fs7.mkdirSync(cacheDir, { recursive: true });
+    fs7.writeFileSync(cached, JSON.stringify(res));
+  }
+  return res;
+}
 
 // engine/src/parity.ts
 function globToRegex(p) {
@@ -4176,7 +4223,8 @@ function loadSources(root, home, base, extra, trusted, why) {
   for (const [f, vouched] of [...extra.map((f2) => [f2, false]), ...trusted.map((f2) => [f2, true])]) {
     const abs = fs8.realpathSync(path8.resolve(f));
     const inside = abs.startsWith(realRoot + path8.sep);
-    out.push({ name: path8.basename(f), text: fs8.readFileSync(abs, "utf8"), canOverturn: vouched && !inside, path: abs });
+    const text2 = fs8.readFileSync(abs, "utf8");
+    out.push({ name: path8.basename(f), text: text2, canOverturn: vouched && !inside, path: abs, sha: sha(text2) });
   }
   for (const f of fs8.existsSync(path8.join(home, "claims")) ? fs8.readdirSync(path8.join(home, "claims")) : [])
     out.push({ name: `claims/${f}`, text: fs8.readFileSync(path8.join(home, "claims", f), "utf8"), canOverturn: false });
@@ -4205,8 +4253,14 @@ async function verify(contract, opts) {
   const dir = path8.join(contract.home, "records", recordId);
   const logDir = path8.join(dir, "logs");
   fs8.mkdirSync(logDir, { recursive: true });
-  fs8.writeFileSync(path8.join(contract.home, ".gitignore"), `records/
-cache/
+  const gi = path8.join(contract.home, ".gitignore");
+  const giText = fs8.existsSync(gi) ? fs8.readFileSync(gi, "utf8") : "";
+  for (const line of ["records/", "cache/"])
+    if (!giText.split(`
+`).includes(line))
+      fs8.appendFileSync(gi, (giText && !giText.endsWith(`
+`) ? `
+` : "") + line + `
 `);
   const tree = worktreeHash(root);
   const headSha = tryGit(root, ["rev-parse", "HEAD"]);
@@ -4262,7 +4316,8 @@ cache/
     let baseCap = null;
     const testGlobs = contract.suites.map((s) => s.tests);
     const harnessFiles = fs8.globSync(path8.join(contract.home, "**", "*")).filter((f) => !/\/\.witness\/(claims|sources|records|cache)\/|equivalence\.toml$/.test(f) && fs8.statSync(f).isFile());
-    const testsKey = testGlobs.every(Boolean) ? hashFiles([...testGlobs.flatMap((g) => fs8.globSync(path8.join(root, g))), ...harnessFiles]) : captureTree;
+    const proofFiles = claims.map((c2) => c2.proof ? testSource(root, c2.proof)?.file : undefined).filter((f) => !!f).map((f) => path8.join(root, f));
+    const testsKey = testGlobs.every(Boolean) ? hashFiles([...new Set([...testGlobs.flatMap((g) => fs8.globSync(path8.join(root, g))), ...harnessFiles, ...proofFiles])]) : captureTree;
     const needsBite = claims.some((c2) => c2.proof && !c2.tags.includes("parity") && !c2.tags.includes("judged") && !(migrate && c2.tags.includes("changed")));
     const needBase = !!base && (needsBite || opts.level === "high" && !migrate);
     if (base && !needBase)
@@ -4309,6 +4364,15 @@ cache/
         bundle.layers.origin = { key: bundle.layers.base.key, reused: true, note: "same as the base layer" };
       }
     }
+    if (opts.level !== "high" && baseCap) {
+      const claimedTests = new Set(claims.map((c2) => c2.proof).filter(Boolean));
+      const eqHint = base ? parseEquivalence(tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`])) : contract.equivalence;
+      const drift = target.runs.flatMap((r) => r.results).filter((t) => !claimedTests.has(t.id) && t.status === "passed" && primary(baseCap, t.id).length && compareExchanges(primary(baseCap, t.id), primary(target, t.id), eqHint, []).status !== "equal");
+      if (drift.length)
+        bundle.warnings.unshift(`${drift.length} existing test(s) get different responses than on ${base.ref} (${drift.map((t) => t.id).join(", ")}). Run with --level high to judge whether that's a regression.`);
+    }
+    if (!base)
+      bundle.warnings.unshift("No base commit was found (tried origin/main, main, origin/master, master), so new tests could not be checked to fail without the change. Pass --base <branch>.");
     const decl = declarations(root, base, claims, retiredClaims, changedPaths);
     bundle.declarations = decl;
     const baseEqText = base ? tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`]) : null;
@@ -4354,7 +4418,8 @@ cache/
         level: opts.level,
         migrate,
         observed: c2.proof ? primary(target, c2.proof).length : undefined,
-        testChanged: !!src && changedPaths.includes(src.file)
+        testChanged: !!src && changedPaths.includes(src.file),
+        noBase: !base
       });
       r.source = src;
       return r;
@@ -4367,7 +4432,7 @@ cache/
       results.push(r);
     });
     const sources = loadSources(root, contract.home, base, opts.sources, opts.trustedSources, opts.why);
-    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn, path: s.path }));
+    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn, path: s.path, sha: s.sha }));
     const toJudge = results.filter((r) => r.tags.includes("judged") && r.status === "cant_tell" || r.parity?.status === "unexplained" && r.status === "failed");
     if (toJudge.length && opts.judge) {
       say("deliberation", `the judge reviews ${toJudge.length} item(s)`);
@@ -4428,6 +4493,18 @@ ${exchangeText(ex.length ? ex : target.exchanges.filter((e) => !r.evidence || e.
           reasons: [`The request asks for this, but no claim covers it: “${u.quote}”. Add a claim, or tell the reviewer why it's out of scope.`]
         });
       });
+    }
+    const toReview = results.filter((r) => !r.synthetic && r.status === "proven" && r.source && changedPaths.includes(r.source.file));
+    if (toReview.length && opts.judge) {
+      say("deliberation", `checking that ${toReview.length} new or changed test(s) assert what their claims say`);
+      const pr = reviewProofs(toReview.map((r) => ({ id: r.id, claim: r.text, test: r.source.snippet })), path8.join(contract.home, "cache", "judge"));
+      if (!pr.cached && !pr.error)
+        bundle.judgeCalls++;
+      for (const m of pr.mismatches) {
+        const r = results.find((x) => x.id === m.id);
+        r.status = "cant_tell";
+        r.reasons.push(`The judge thinks the test doesn't check what the claim says: ${m.reason}`);
+      }
     }
     const suiteMismatch = [...target.runs, ...baseCap?.runs ?? []].filter((r) => r.code !== 0 && !r.results.some((t) => t.status === "failed"));
     for (const r of suiteMismatch)

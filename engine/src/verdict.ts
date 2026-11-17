@@ -1,4 +1,4 @@
-import type { Claim } from "./claims.ts";
+import { type Claim, normalizeTestId } from "./claims.ts";
 import type { JudgeResult } from "./judge.ts";
 import type { TestResult } from "./junit.ts";
 import type { ParityResult } from "./parity.ts";
@@ -45,6 +45,8 @@ export function assessClaim(
     observed?: number;
     /** The proof test's source file changed in this PR. */
     testChanged?: boolean;
+    /** No base commit was available for the bite check. */
+    noBase?: boolean;
   },
 ): ClaimResult {
   const r: ClaimResult = { ...c, status: "proven", reasons: [], bite: null };
@@ -58,7 +60,7 @@ export function assessClaim(
     }
     return r;
   }
-  const id = c.proof;
+  const id = normalizeTestId(c.proof);
   r.testId = id;
   const head = facts.head.get(id);
   r.head = head;
@@ -86,6 +88,11 @@ export function assessClaim(
   if (r.status === "proven" && facts.observed === 0) {
     r.status = "cant_tell";
     r.reasons.push("The proof test passed but made no request to the app that witness could see, so it proves nothing about the app. Make it call the app through the witness helper (it sends the X-Witness-Test header).");
+  }
+  const needsBite = !c.tags.includes("parity") && !c.tags.includes("judged") && !(facts.migrate && c.tags.includes("changed"));
+  if (facts.noBase && needsBite && r.status === "proven") {
+    r.status = "cant_tell";
+    r.reasons.push("No base commit to check against, so witness can't show this test fails without the change. Run with --base <branch>.");
   }
   if (facts.base) {
     const base = facts.base.get(id);
