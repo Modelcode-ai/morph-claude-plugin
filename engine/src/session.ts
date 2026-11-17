@@ -68,7 +68,6 @@ export class Side {
       PORT: String(port),
       CHECKOUT: this.checkout,
       WITNESS_HOME: this.contract.home,
-      WITNESS_SIDE: this.name,
       "self.url": `http://127.0.0.1:${port}`,
     };
     for (const r of this.running) v[`${r.svc.name}.url`] = `http://127.0.0.1:${r.port}`;
@@ -193,7 +192,7 @@ export async function runSuites(
     const pattern = path.join(contract.root, suite.junit);
     for (const f of fs.globSync(pattern)) fs.rmSync(f, { force: true });
     const log = path.join(opts.logDir, `${side.name}-suite-${suite.name}${opts.run && opts.run !== "primary" ? "-" + opts.run : ""}.log`);
-    const env: Record<string, string> = { ...side.surfaceEnv(), WITNESS_HOME: contract.home, WITNESS_SIDE: side.name, CHECKOUT: contract.root };
+    const env: Record<string, string> = { ...side.surfaceEnv(), WITNESS_HOME: contract.home, CHECKOUT: contract.root };
     if (opts.only?.length) env.WITNESS_TESTS = opts.only.join(",");
     say("testimony", `${side.name}: suite ${suite.name}${opts.only ? ` (${opts.only.length} tests)` : ""}`);
     const r = await runShell(subst(suite.cmd, { WITNESS_HOME: contract.home, CHECKOUT: contract.root }), {

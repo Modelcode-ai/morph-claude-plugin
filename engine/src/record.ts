@@ -7,7 +7,7 @@ import { fmtMs } from "./util.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export const VERDICT_WORD = { proven: "Proven", needs_a_look: "Needs a look", unproven: "Nothing proven", mistrial: "Mistrial" } as const;
+export const VERDICT_WORD = { proven: "Proven", proven_pending: "Proven, pending approval", needs_a_look: "Needs a look", unproven: "Nothing proven", mistrial: "Mistrial" } as const;
 
 const short = (s?: string | null) => (s ?? "").slice(0, 7);
 
@@ -63,6 +63,7 @@ export function declarationLines(b: Bundle): string[] {
   if (d.changed.length) out.push(`Claims edited: ${d.changed.join(", ")}`);
   if (d.retired.length) out.push(`Claims retired: ${d.retired.join(", ")}`);
   if (d.removed.length) out.push(`Claims deleted without a reason: ${d.removed.join(", ")}`);
+  if (d.harness.length) out.push(`Boot/test harness changed: ${d.harness.join(", ")}`);
   for (const l of d.rules.added) out.push(`Rule added in equivalence.toml: ${l}`);
   for (const l of d.rules.removed) out.push(`Rule removed from equivalence.toml: ${l}`);
   const declared = b.claims.filter((c) => c.tags.includes("changed") && (d.added.includes(c.id) || d.changed.includes(c.id)));
@@ -77,6 +78,7 @@ export function summaryLines(b: Bundle): string[] {
   for (const l of [biteLine(b), otherLine(b)]) if (l) out.push(l);
   const dl = declarationLines(b);
   if (dl.length) out.push(`Changed in this PR (a reviewer should approve): ${dl.join(" · ")}`);
+  for (const w of b.warnings.filter((w) => /harness|exited with code|deleted in this PR/.test(w))) out.push(`  warning     ${w}`);
   for (const c of b.claims.filter((c) => c.status !== "proven")) out.push(`  ${STATUS_WORD[c.status].padEnd(11)} ${c.id} ${c.text}`);
   for (const t of b.regressions) out.push(`  regression  ${t.id}: ${firstLine(t.message)}`);
   return out;
@@ -133,7 +135,7 @@ export function agentDigest(b: Bundle, dir: string): string {
 
 /** Level-0 summary for a pull request comment. */
 export function prComment(b: Bundle): string {
-  const icon = b.verdict === "proven" ? "🟢" : b.verdict === "mistrial" || b.verdict === "unproven" ? "⚪" : "🔴";
+  const icon = b.verdict === "proven" ? "🟢" : b.verdict === "proven_pending" ? "🟡" : b.verdict === "mistrial" || b.verdict === "unproven" ? "⚪" : "🔴";
   const L = [`### ${icon} witness · ${VERDICT_WORD[b.verdict]}`, ""];
   if (b.verdict === "mistrial") {
     L.push(`The app could not be verified: ${b.mistrial?.message}`, "", `**Remedy:** ${b.mistrial?.remedy}`);

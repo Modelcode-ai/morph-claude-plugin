@@ -46,6 +46,20 @@ function decode(b: Buffer, encoding: string | string[] | undefined): Buffer {
   return b;
 }
 
+const SECRET_KEY = /pass(word)?|secret|token|api[-_]?key|credential/i;
+
+/** Mask values of secret-looking JSON fields so records are safe to share. */
+export function redact(body: string): string {
+  if (!SECRET_KEY.test(body)) return body;
+  try {
+    const walk = (v: any): any =>
+      Array.isArray(v) ? v.map(walk) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, SECRET_KEY.test(k) && typeof x !== "object" ? "[redacted]" : walk(x)])) : v;
+    return JSON.stringify(walk(JSON.parse(body)));
+  } catch {
+    return body;
+  }
+}
+
 const clip = (b: Buffer) => (b.length > MAX_BODY ? b.subarray(0, MAX_BODY).toString("utf8") : b.toString("utf8"));
 
 /** Recording reverse proxy. Strips the attribution header before forwarding. */
@@ -105,7 +119,7 @@ export class RecordingProxy {
         method: req.method ?? "GET",
         path: req.url ?? "/",
         reqHeaders: pickHeaders(req.headers),
-        reqBody: clip(body),
+        reqBody: redact(clip(body)),
         status: 0,
         resHeaders: {},
         resBody: "",
@@ -121,7 +135,7 @@ export class RecordingProxy {
             const resBody = Buffer.concat(out);
             ex.status = upRes.statusCode ?? 0;
             ex.resHeaders = pickHeaders(upRes.headers);
-            ex.resBody = clip(decode(resBody, upRes.headers["content-encoding"]));
+            ex.resBody = redact(clip(decode(resBody, upRes.headers["content-encoding"])));
             ex.truncated = resBody.length > MAX_BODY || body.length > MAX_BODY;
             ex.ms = Date.now() - t0;
             this.exchanges.push(ex);

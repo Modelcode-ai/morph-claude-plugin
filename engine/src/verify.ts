@@ -10,7 +10,7 @@ import type { Exchange } from "./proxy.ts";
 import { writeRecord } from "./record.ts";
 import { Mistrial, registerCleanup, runSuites, Side, type SuiteRun } from "./session.ts";
 import { applyJudge, assessClaim, type ClaimResult, counts, overall, type Verdict } from "./verdict.ts";
-import { fmtMs, git, hashFiles, readJson, say, sha, tryGit, worktreeHash, writeJson } from "./util.ts";
+import { fmtMs, git, hashFiles, readJson, say, sha, tryGit, worktreeHash, worktreeTree, writeJson } from "./util.ts";
 import { lint } from "./lint.ts";
 
 export interface VerifyOpts {
@@ -18,6 +18,8 @@ export interface VerifyOpts {
   base?: string | null;
   judge: boolean;
   sources: string[];
+  /** Sources a human vouches for; only these (and base-revision docs) may justify an overturn. */
+  trustedSources: string[];
   why?: string;
   rerun: boolean;
   fresh: boolean;
@@ -63,10 +65,12 @@ export interface Declarations {
   changed: string[];
   removed: string[];
   retired: string[];
+  /** Files that decide how the app is booted or tested, changed in this PR. */
+  harness: string[];
 }
 
 /** What this PR changed in the rules of the game: claims and equivalence rules, relative to the base commit. */
-function declarations(root: string, base: { sha: string } | null, headClaims: Claim[], headRetired: Claim[]): Declarations | undefined {
+function declarations(root: string, base: { sha: string } | null, headClaims: Claim[], headRetired: Claim[], changed: string[]): Declarations | undefined {
   if (!base) return undefined;
   const list = tryGit(root, ["ls-tree", "--name-only", base.sha, ".witness/claims/"]) ?? "";
   const baseClaims = list
@@ -87,6 +91,7 @@ function declarations(root: string, base: { sha: string } | null, headClaims: Cl
     changed: headClaims.filter((c) => byId.has(c.id) && sig(byId.get(c.id)!) !== sig(c)).map((c) => c.id),
     removed: baseClaims.filter((c) => !headIds.has(c.id)).map((c) => c.id),
     retired: headRetired.filter((c) => byId.has(c.id)).map((c) => c.id),
+    harness: changed.filter((f) => /^\.witness\/(witness\.toml|bin\/|origin\/)/.test(f)),
   };
 }
 
@@ -135,7 +140,13 @@ async function captureOrigin(
   bundle: Bundle,
 ): Promise<SideCapture> {
   const originSha = tryGit(o.repoPath!, ["rev-parse", "HEAD"]) ?? "untracked";
-  const oKey = sha(`${originSha}|${testsKey}|${contractHash}`);
+  let originTree = originSha;
+  try {
+    originTree = worktreeHash(o.repoPath!);
+  } catch {
+    /* not a git checkout */
+  }
+  const oKey = sha(`${originTree}|${testsKey}|${contractHash}`);
   const dir = cacheDir(contract, "origin", oKey);
   const file = (t: string) => path.join(dir, `${t.replace(/[^\w.-]+/g, "_")}.json`);
   const missing = tests.filter((t) => fresh || !fs.existsSync(file(t)));
@@ -185,7 +196,7 @@ function testSource(root: string, id: string): ClaimResult["source"] {
   return undefined;
 }
 
-function loadSources(root: string, home: string, base: { sha: string } | null, extra: string[], why?: string): Source[] {
+function loadSources(root: string, home: string, base: { sha: string } | null, extra: string[], trusted: string[], why?: string): Source[] {
   const out: Source[] = [];
   const atBase = (rel: string) => (base ? tryGit(root, ["show", `${base.sha}:${rel}`]) : null);
   const verify = atBase("VERIFY.md");
@@ -198,10 +209,10 @@ function loadSources(root: string, home: string, base: { sha: string } | null, e
     }
   }
   const realRoot = fs.realpathSync(root);
-  for (const f of extra) {
+  for (const [f, vouched] of [...extra.map((f) => [f, false] as const), ...trusted.map((f) => [f, true] as const)]) {
     const abs = fs.realpathSync(path.resolve(f));
     const inside = abs.startsWith(realRoot + path.sep);
-    out.push({ name: path.basename(f), text: fs.readFileSync(abs, "utf8"), canOverturn: !inside, path: abs });
+    out.push({ name: path.basename(f), text: fs.readFileSync(abs, "utf8"), canOverturn: vouched && !inside, path: abs });
   }
   for (const f of fs.existsSync(path.join(home, "claims")) ? fs.readdirSync(path.join(home, "claims")) : [])
     out.push({ name: `claims/${f}`, text: fs.readFileSync(path.join(home, "claims", f), "utf8"), canOverturn: false });
@@ -224,7 +235,7 @@ function exchangeText(ex: Exchange[]): string {
 export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bundle: Bundle; dir: string }> {
   const t0 = Date.now();
   const root = contract.root;
-  const recordId = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + "Z";
+  const recordId = new Date().toISOString().replace(/[:.]/g, "-").replace(/Z$/, "Z");
   const dir = path.join(contract.home, "records", recordId);
   const logDir = path.join(dir, "logs");
   fs.mkdirSync(logDir, { recursive: true });
@@ -235,6 +246,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
   const branch = tryGit(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
   const dirty = tree !== (tryGit(root, ["rev-parse", "HEAD^{tree}"]) ?? "").slice(0, 16);
   const base = resolveBase(root, opts.base);
+  const changedPaths = base ? (tryGit(root, ["diff", "--name-only", base.sha, worktreeTree(root)]) ?? "").split("\n").filter(Boolean) : [];
   const files = loadClaims(contract.home);
   const claims: Claim[] = files.flatMap((f) => f.claims).filter((c) => !c.retired);
   const retiredClaims: Claim[] = files.flatMap((f) => f.claims).filter((c) => c.retired);
@@ -287,7 +299,8 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     // Base layer: the base commit's app, for the bite check (and Evolve parity).
     let baseCap: SideCapture | null = null;
     const testGlobs = contract.suites.map((s) => s.tests);
-    const testsKey = testGlobs.every(Boolean) ? hashFiles(testGlobs.flatMap((g) => fs.globSync(path.join(root, g!)))) : captureTree;
+    const harnessFiles = fs.globSync(path.join(contract.home, "**", "*")).filter((f) => !/\/\.witness\/(claims|sources|records|cache)\/|equivalence\.toml$/.test(f) && fs.statSync(f).isFile());
+    const testsKey = testGlobs.every(Boolean) ? hashFiles([...testGlobs.flatMap((g) => fs.globSync(path.join(root, g!))), ...harnessFiles]) : captureTree;
     const needsBite = claims.some((c) => c.proof && !c.tags.includes("parity") && !c.tags.includes("judged") && !(migrate && c.tags.includes("changed")));
     const needBase = !!base && (needsBite || (opts.level === "high" && !migrate));
     if (base && !needBase) say("subpoena", `skipping ${base.ref}: no claim needs the bite check${migrate ? " (the origin is the legacy app)" : ""}`);
@@ -339,7 +352,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
 
     // Parity layer (High): pure comparison over stored observations.
     // Rules come from the base commit, so a PR can't loosen them to pass itself; head rules only mark what awaits approval.
-    const decl = declarations(root, base, claims, retiredClaims);
+    const decl = declarations(root, base, claims, retiredClaims, changedPaths);
     bundle.declarations = decl;
     const baseEqText = base ? tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`]) : null;
     const rulesChanged = !!decl && (decl.rules.added.length > 0 || decl.rules.removed.length > 0);
@@ -372,8 +385,13 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     }
 
     const results = claims.map((c) => {
-      const r = assessClaim(c, { head, base: baseRes, rerun, parity: parity.get(c.id), level: opts.level, migrate, observed: c.proof ? primary(target, c.proof).length : undefined });
-      if (c.proof) r.source = testSource(root, c.proof);
+      const src = c.proof ? testSource(root, c.proof) : undefined;
+      const r = assessClaim(c, {
+        head, base: baseRes, rerun, parity: parity.get(c.id), level: opts.level, migrate,
+        observed: c.proof ? primary(target, c.proof).length : undefined,
+        testChanged: !!src && changedPaths.includes(src.file),
+      });
+      r.source = src;
       return r;
     });
     existing.forEach(({ test, parity: p }, i) => {
@@ -388,7 +406,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     });
 
     // T2: judge.
-    const sources = loadSources(root, contract.home, base, opts.sources, opts.why);
+    const sources = loadSources(root, contract.home, base, opts.sources, opts.trustedSources, opts.why);
     bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn, path: s.path }));
     const toJudge = results.filter((r) => (r.tags.includes("judged") && r.status === "cant_tell") || (r.parity?.status === "unexplained" && r.status === "failed"));
     if (toJudge.length && opts.judge) {
@@ -422,7 +440,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     }
 
     // Intent: does any requirement in the request lack a claim?
-    const request = [opts.why ?? "", ...sources.filter((s) => s.canOverturn && !s.name.includes("@base")).map((s) => s.text)].join("\n\n").trim();
+    const request = [opts.why ?? "", ...sources.filter((s) => s.path).map((s) => s.text)].join("\n\n").trim();
     if (request && opts.judge) {
       say("deliberation", "checking that the claims cover the request");
       const list = claims.map((c) => `${c.id} [${[...c.surfaces, ...c.tags].join(", ")}] ${c.text}`).join("\n");
@@ -438,7 +456,11 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
       });
     }
 
-    const problems = (decl?.removed.length ?? 0) + results.filter((r) => r.synthetic === "uncovered").length;
+    const suiteMismatch = [...target.runs, ...(baseCap?.runs ?? [])].filter((r) => r.code !== 0 && !r.results.some((t) => t.status === "failed"));
+    for (const r of suiteMismatch) bundle.warnings.unshift(`Suite ${r.suite} on ${r.side} exited with code ${r.code} but its JUnit report shows no failure. The report can't be trusted; see ${path.basename(r.log)}.`);
+    if (decl?.harness.length) bundle.warnings.unshift(`This PR changes how the app is booted or tested (${decl.harness.join(", ")}). A reviewer must approve that before this verdict can be trusted.`);
+    const problems = (decl?.removed.length ?? 0) + (decl?.harness.length ?? 0) + suiteMismatch.length + results.filter((r) => r.synthetic === "uncovered").length;
+    const pending = !!decl && (decl.added.length + decl.changed.length + decl.retired.length > 0);
     if (decl?.removed.length) bundle.warnings.unshift(`Claims deleted in this PR without a retired: reason: ${decl.removed.join(", ")}. Keep them and add "retired: <why>" so the reviewer sees it.`);
 
     const claimed = new Set(results.map((r) => r.testId).filter(Boolean));
@@ -448,7 +470,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     if (!all.length) throw new Mistrial("No test results were found after the suites ran.", "Check the suite command and its junit path in witness.toml; see the suite log.", "");
     bundle.claims = results;
     bundle.exchanges = [...(baseCap?.exchanges ?? []), ...(originCap && originCap !== baseCap ? originCap.exchanges : []), ...target.exchanges].filter((e) => e.run === "primary" || e.run === "rerun");
-    bundle.verdict = overall(results, bundle.regressions, problems);
+    bundle.verdict = overall(results, bundle.regressions, problems, pending);
     bundle.counts = counts(results);
   } catch (e) {
     if (e instanceof Mistrial) {

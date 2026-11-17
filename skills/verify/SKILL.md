@@ -19,7 +19,8 @@ pass or fail from the repo's own test reports; your job is to make the claims tr
    - Add `--level high` when the change must keep existing behavior (refactors, migrations, "don't
      break X"), or when the user asks to compare with the base or origin.
    - Add `--source <file>` for the issue or spec file the user gave you (outside the repo). The
-     judge then checks that your claims cover every requirement in it.
+     judge then checks that your claims cover every requirement in it. Never write such a file
+     yourself, and never use `--trusted-source`: that flag is for documents a human vouches for.
    - It takes about a minute: it boots the app twice (this change and the base commit).
 3. Read the `agent.md` file it prints. For each item:
    - **failed**: the claim doesn't hold. Fix the code. Change the test only if it is clearly wrong, and
@@ -41,6 +42,10 @@ pass or fail from the repo's own test reports; your job is to make the claims tr
    - **can't tell, "matches only under the equivalence rules this PR changes"**: you loosened a rule
      in `.witness/equivalence.toml`. That's allowed, but only a human can approve it. Say so.
    - **Nothing proven**: there are no claims. Follow the `claims` skill.
+   - **Proven, pending approval**: everything holds, but the PR adds or edits claims. That's normal
+     for a feature; the reviewer approves them in the PR. Report it as is.
+   - **harness changed** warning: you edited `.witness/witness.toml`, `.witness/bin/` or
+     `.witness/origin/`. Only do that when the boot or test setup really needs it, and tell the user.
 4. Re-run `witness verify` after fixes. Stop after three rounds and report what's left; don't loop.
 5. Report to the user in a few lines:
    - the verdict line and the counts, exactly as printed;

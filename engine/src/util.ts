@@ -44,6 +44,11 @@ export function tryGit(cwd: string, args: string[]): string | null {
 
 /** Tree hash of the working directory including uncommitted and untracked (non-ignored) files. */
 export function worktreeHash(repo: string, exclude: string[] = []): string {
+  return worktreeTree(repo, exclude).slice(0, 16);
+}
+
+/** Full git tree id of the working directory (tracked, modified and untracked non-ignored files). */
+export function worktreeTree(repo: string, exclude: string[] = []): string {
   const idx = path.join(os.tmpdir(), `witness-idx-${process.pid}-${Date.now()}`);
   try {
     const env = { GIT_INDEX_FILE: idx };
@@ -52,10 +57,19 @@ export function worktreeHash(repo: string, exclude: string[] = []): string {
     if (fs.existsSync(path.dirname(gi)) && !fs.existsSync(gi)) fs.writeFileSync(gi, "records/\ncache/\n");
     git(repo, ["add", "-A", "--", "."], env);
     if (exclude.length) git(repo, ["rm", "-r", "--cached", "-q", "--ignore-unmatch", "--", ...exclude], env);
-    return git(repo, ["write-tree"], env).slice(0, 16);
+    return git(repo, ["write-tree"], env);
   } finally {
     fs.rmSync(idx, { force: true });
   }
+}
+
+const SCRUB = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "OPENAI_API_KEY"];
+
+/** The environment for app and test processes: no credentials meant for witness itself. */
+export function childEnv(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...process.env, ...extra };
+  for (const k of SCRUB) if (!(k in extra)) delete env[k];
+  return env;
 }
 
 export interface RunResult {
@@ -75,7 +89,7 @@ export function runShell(
     fs.writeSync(out, `\n$ ${cmd}\n`);
     const child = spawn("bash", ["-c", cmd], {
       cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
+      env: childEnv(opts.env),
       stdio: ["ignore", out, out],
       detached: true,
     });
@@ -95,7 +109,7 @@ export function startShell(cmd: string, opts: { cwd: string; env: NodeJS.Process
   fs.writeSync(out, `\n$ ${cmd}\n`);
   const child = spawn("bash", ["-c", cmd], {
     cwd: opts.cwd,
-    env: { ...process.env, ...opts.env },
+    env: childEnv(opts.env),
     stdio: ["ignore", out, out],
     detached: true,
   });

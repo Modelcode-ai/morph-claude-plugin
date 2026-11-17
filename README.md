@@ -53,6 +53,12 @@ What keeps a green verdict honest:
   and deleted claims are listed under "Changed in this PR" for the reviewer.
 - **Unclaimed changes are caught at high level.** Existing tests that no claim mentions are compared
   with main too; a difference shows up as an `E` claim.
+- **The PR can't grade itself.** A skipped proof test fails its claim. A proof test that never calls the
+  app proves nothing. A `parity` claim whose test changed in the PR can't pass on its own. Changes to
+  the boot/test harness (`witness.toml`, `.witness/bin`, `.witness/origin`) force "Needs a look", and only
+  base-revision docs or `--trusted-source` files (vouched for by a human) can justify an overturn.
+- **"Proven, pending approval"** means everything holds, and the PR adds or edits claims a reviewer
+  should approve. Exit code 0.
 - **Requests are checked for coverage.** With `--source issue.md` (or `--why "..."`), the judge lists
   requirements no claim covers as `U` claims ("not tested").
 

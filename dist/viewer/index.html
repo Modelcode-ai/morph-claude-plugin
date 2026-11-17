@@ -25,7 +25,7 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: none; background: var(--skip); }
 .dot.proven { background: var(--pass); } .dot.failed, .dot.flaky { background: var(--fail); } .dot.cant_tell { background: var(--warn); }
 .dot.overturned { background: var(--over); } .dot.not_tested { background: var(--skip); } .dot.mistrial { background: var(--skip); }
-.dot.needs_a_look { background: var(--fail); } .dot.unproven { background: var(--warn); }
+.dot.needs_a_look { background: var(--fail); } .dot.proven_pending { background: var(--pass); box-shadow: 0 0 0 3px var(--warn-soft); } .dot.unproven { background: var(--warn); }
 .decl { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
 .decl b { color: var(--warn); }
 .decl ul { margin: 4px 0 0; padding-left: 18px; }
@@ -87,7 +87,7 @@ td code { word-break: break-word; }
 <footer class="foot" id="foot"></footer>
 <script>
 const B = /*__WITNESS_DATA__*/null;
-const WORD = { proven: "Proven", needs_a_look: "Needs a look", unproven: "Nothing proven", mistrial: "Mistrial" };
+const WORD = { proven: "Proven", proven_pending: "Proven, pending approval", needs_a_look: "Needs a look", unproven: "Nothing proven", mistrial: "Mistrial" };
 const BASE = () => (B.base ? `${B.base.ref}@${short(B.base.sha)}` : "base");
 const ORIGIN = () => (B.originSide === "origin" ? `legacy app (${B.origin?.repo})` : BASE());
 const PTAB = () => (B.originSide === "origin" ? "Legacy vs this change" : `${B.base ? B.base.ref : "Base"} vs this change`);
@@ -113,6 +113,7 @@ function header() {
     if (d.changed.length) dl.push(`Claims edited: ${d.changed.join(", ")}`);
     if (d.retired.length) dl.push(`Claims retired: ${d.retired.join(", ")}`);
     if (d.removed.length) dl.push(`<b>Claims deleted without a reason: ${d.removed.join(", ")}</b>`);
+    if (d.harness && d.harness.length) dl.push(`<b>Boot/test harness changed: ${esc(d.harness.join(", "))}</b>`);
     d.rules.added.forEach((l) => dl.push(`Rule added: <code>${esc(l)}</code>`));
     d.rules.removed.forEach((l) => dl.push(`Rule removed: <code>${esc(l)}</code>`));
     B.claims.filter((c) => c.tags.includes("changed") && (d.added.includes(c.id) || d.changed.includes(c.id))).forEach((c) => dl.push(`Declared difference (${esc(c.id)}): ${esc(c.expectDiff.join(", "))}`));

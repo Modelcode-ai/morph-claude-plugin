@@ -21,7 +21,7 @@ export interface ClaimResult extends Claim {
   synthetic?: "existing" | "uncovered";
 }
 
-export type Verdict = "proven" | "needs_a_look" | "unproven" | "mistrial";
+export type Verdict = "proven" | "proven_pending" | "needs_a_look" | "unproven" | "mistrial";
 
 export const STATUS_WORD: Record<ClaimStatus, string> = {
   proven: "proven",
@@ -35,7 +35,17 @@ export const STATUS_WORD: Record<ClaimStatus, string> = {
 /** Per-claim outcome from the runner's facts (T1, bite, parity). The judge is applied afterwards. */
 export function assessClaim(
   c: Claim,
-  facts: { head: Map<string, TestResult>; base?: Map<string, TestResult>; rerun?: Map<string, TestResult>; parity?: ParityResult; level: string; migrate?: boolean; observed?: number },
+  facts: {
+    head: Map<string, TestResult>;
+    base?: Map<string, TestResult>;
+    rerun?: Map<string, TestResult>;
+    parity?: ParityResult;
+    level: string;
+    migrate?: boolean;
+    observed?: number;
+    /** The proof test's source file changed in this PR. */
+    testChanged?: boolean;
+  },
 ): ClaimResult {
   const r: ClaimResult = { ...c, status: "proven", reasons: [], bite: null };
   if (!c.proof) {
@@ -48,7 +58,7 @@ export function assessClaim(
     }
     return r;
   }
-  const id = c.proof.includes("#") ? c.proof : c.proof;
+  const id = c.proof;
   r.testId = id;
   const head = facts.head.get(id);
   r.head = head;
@@ -58,8 +68,8 @@ export function assessClaim(
     return r;
   }
   if (head.status === "skipped") {
-    r.status = "not_tested";
-    r.reasons.push(`The proof test ${id} was skipped.`);
+    r.status = "failed";
+    r.reasons.push(`The proof test ${id} was skipped (disabled or assumption failed), so it proves nothing. Re-enable it or change the proof.`);
     return r;
   }
   if (head.status === "failed") {
@@ -84,10 +94,19 @@ export function assessClaim(
     // In a migration, "changed" is relative to the legacy origin, not to this repo's base commit.
     const biteExempt = facts.migrate && c.tags.includes("changed");
     if (base && biteExempt) r.bite = null;
-    else if (base) {
+    else if (!base) {
+      if (r.status === "proven") {
+        r.status = "cant_tell";
+        r.reasons.push("The test didn't run against the base app, so witness can't tell whether it proves this change.");
+      }
+    } else if (base) {
       if (expectPreserved) {
         r.bite = base.status === "passed" ? "preserved" : "not_on_base";
         if (base.status !== "passed") r.reasons.push("Tagged parity, but the test fails on the base app. Is this really existing behavior?");
+        if (base.status === "passed" && facts.testChanged && !facts.migrate && r.status === "proven") {
+          r.status = "cant_tell";
+          r.reasons.push("Tagged parity, but its test changed in this PR and passes on the base app, so it can't show that existing behavior was kept. Use a test that already existed on the base commit, or tag the claim new so it must bite.");
+        }
       } else if (base.status === "passed") {
         r.bite = "vacuous";
         if (r.status === "proven") {
@@ -127,11 +146,12 @@ export function applyJudge(r: ClaimResult, j: JudgeResult, kind: "judged" | "par
   r.reasons.push(`Judge: ${j.note}`);
 }
 
-export function overall(claims: ClaimResult[], regressions: TestResult[], extraProblems = 0): Verdict {
-  if (!claims.filter((c) => !c.synthetic).length) return claims.some((c) => c.status === "failed") || regressions.length ? "needs_a_look" : "unproven";
+export function overall(claims: ClaimResult[], regressions: TestResult[], extraProblems = 0, pendingApproval = false): Verdict {
+  if (!claims.filter((c) => !c.synthetic).length) return claims.some((c) => c.status === "failed") || regressions.length || extraProblems ? "needs_a_look" : "unproven";
   if (extraProblems) return "needs_a_look";
-  const bad = claims.some((c) => c.status !== "proven" && c.status !== "overturned" && c.status !== "not_tested");
-  return bad || regressions.length ? "needs_a_look" : "proven";
+  const bad = claims.some((c) => c.status !== "proven" && c.status !== "overturned");
+  if (bad || regressions.length) return "needs_a_look";
+  return pendingApproval ? "proven_pending" : "proven";
 }
 
 export function counts(claims: ClaimResult[]) {

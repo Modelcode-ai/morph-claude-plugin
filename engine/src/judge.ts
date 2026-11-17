@@ -118,6 +118,9 @@ ${srcText || "(none)"}`;
           ? "Overturn is only allowed for parity failures."
           : "No verbatim quote of 30+ characters from a source that can justify an overturn (base-revision VERIFY.md or .witness/sources, or an external --source file).";
     }
+  } else if (res.verdict === "pass" && !res.citations.some((c) => c.source === "evidence" && c.verified)) {
+    res.accepted = "cant_tell";
+    res.note += " (Not accepted as a pass: no quote from the recorded evidence was found verbatim.)";
   } else res.accepted = res.verdict;
   return res;
 }

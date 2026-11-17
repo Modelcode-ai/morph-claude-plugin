@@ -14,7 +14,10 @@ const HELP = `witness: verify a change at its API boundary and keep the record.
 
 Usage:
   witness verify [--level medium|high] [--base <ref> | --no-base] [--no-judge]
-                 [--source <file>]... [--why <text>] [--fresh] [--no-rerun] [--json]
+                 [--source <file>]... [--trusted-source <file>]... [--why <text>]
+                 [--fresh] [--no-rerun] [--json]
+      --source          the request (issue/spec); the judge checks the claims cover it
+      --trusted-source  a document a human vouches for; it may also justify overturning a difference
   witness lint                 check claims and contract without running anything
   witness doctor               check prerequisites, then boot the app once and probe it
   witness init                 write a starter .witness/witness.toml and VERIFY.md
@@ -34,9 +37,9 @@ function args(argv: string[]) {
     const a = argv[i];
     if (a.startsWith("--")) {
       const [k, inline] = a.slice(2).split("=", 2);
-      const takes = ["level", "base", "source", "why", "format"].includes(k);
+      const takes = ["level", "base", "source", "trusted-source", "why", "format"].includes(k);
       const v = inline ?? (takes ? argv[++i] : true);
-      if (k === "source") (flags.source = (flags.source as string[]) ?? []).push(String(v));
+      if (k === "source" || k === "trusted-source") ((flags[k] as string[]) = (flags[k] as string[]) ?? []).push(String(v));
       else flags[k] = v;
     } else pos.push(a);
   }
@@ -76,6 +79,7 @@ async function main() {
           base: flags["no-base"] ? null : (flags.base as string | undefined),
           judge: !flags["no-judge"],
           sources: (flags.source as string[]) ?? [],
+          trustedSources: (flags["trusted-source"] as string[]) ?? [],
           why: flags.why as string | undefined,
           rerun: !flags["no-rerun"],
           fresh: !!flags.fresh,
@@ -83,13 +87,13 @@ async function main() {
         if (flags.json) console.log(JSON.stringify({ verdict: bundle.verdict, counts: bundle.counts, record: dir }, null, 2));
         else {
           const lines = summaryLines(bundle);
-          const col = bundle.verdict === "proven" ? color.green : bundle.verdict === "mistrial" || bundle.verdict === "unproven" ? color.yellow : color.red;
+          const col = bundle.verdict === "proven" || bundle.verdict === "proven_pending" ? color.green : bundle.verdict === "mistrial" || bundle.verdict === "unproven" ? color.yellow : color.red;
           console.log("\n" + col(color.bold(lines[0])));
           for (const l of lines.slice(1)) console.log(l);
           console.log(`\nRecord:  ${path.join(dir, "index.html")}`);
           console.log(`For agents: ${path.join(dir, "agent.md")}`);
         }
-        process.exitCode = bundle.verdict === "proven" ? 0 : bundle.verdict === "mistrial" ? 2 : 1;
+        process.exitCode = bundle.verdict === "proven" || bundle.verdict === "proven_pending" ? 0 : bundle.verdict === "mistrial" ? 2 : 1;
         return;
       }
       case "lint": {
@@ -170,9 +174,14 @@ async function main() {
         const fresh = b && b.head?.tree === tree;
         if (flags.hook) {
           const input = readJson<any>("/dev/stdin", {});
-          if (input.stop_hook_active || process.env.WITNESS_HOOK === "off" || fresh) return;
+          if (input.stop_hook_active || process.env.WITNESS_HOOK === "off") return;
+          if (fresh && (b.verdict === "proven" || b.verdict === "proven_pending")) return;
           if (!b && !hasCodeChanges(r)) return;
-          const why = b ? `the code changed since the last verdict (${VERDICT_WORD[b.verdict as keyof typeof VERDICT_WORD]})` : "this repo has witness claims but no verdict yet";
+          const why = !b
+            ? "this repo has witness claims but no verdict yet"
+            : fresh
+              ? `the latest verdict is "${VERDICT_WORD[b.verdict as keyof typeof VERDICT_WORD]}". Fix what it lists, or tell the user exactly what is still failing and why`
+              : `the code changed since the last verdict (${VERDICT_WORD[b.verdict as keyof typeof VERDICT_WORD]})`;
           console.log(JSON.stringify({ decision: "block", reason: `Witness: ${why}. Run \`witness verify\` (or /witness:verify) and report the verdict before finishing. Set WITNESS_HOOK=off to skip.` }));
           return;
         }
