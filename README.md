@@ -45,7 +45,16 @@ witness report --format pr      # PR comment for the latest record
 In Claude Code, just ask: "implement X and verify it". The plugin's skills tell the agent how to write
 claims, pin them with native tests and read the verdict.
 
-Exit codes: `0` proven · `1` needs a look · `2` mistrial (the app or the claims couldn't be put on trial).
+Exit codes: `0` proven · `1` needs a look, or nothing proven (no claims) · `2` mistrial (the app or the claims couldn't be put on trial).
+
+What keeps a green verdict honest:
+- **Rules come from the base commit.** If a PR edits `equivalence.toml`, results that only pass under the
+  new rules show as "can't tell" until the change is merged. New or edited claims, declared differences
+  and deleted claims are listed under "Changed in this PR" for the reviewer.
+- **Unclaimed changes are caught at high level.** Existing tests that no claim mentions are compared
+  with main too; a difference shows up as an `E` claim.
+- **Requests are checked for coverage.** With `--source issue.md` (or `--why "..."`), the judge lists
+  requirements no claim covers as `U` claims ("not tested").
 
 ## How a repo is set up
 

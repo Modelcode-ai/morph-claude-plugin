@@ -2763,6 +2763,16 @@ var DEFAULT_EQ = {
   compare_status: true,
   allow_added_fields: false
 };
+function parseEquivalence(text) {
+  if (!text)
+    return { ...DEFAULT_EQ };
+  try {
+    const eq = parse(text);
+    return { ...DEFAULT_EQ, ...eq.http ?? eq };
+  } catch (e) {
+    throw new ContractError(`equivalence.toml does not parse: ${e.message}`);
+  }
+}
 function findRoot(start) {
   let dir = path2.resolve(start);
   for (;; ) {
@@ -2807,12 +2817,8 @@ function loadContract(root) {
     if (!services.find((s) => s.name === v.service))
       throw new ContractError(`surface "${k}" points at unknown service "${v.service}"`);
   }
-  let equivalence = { ...DEFAULT_EQ };
   const eqFile = path2.join(home, "equivalence.toml");
-  if (fs2.existsSync(eqFile)) {
-    const eq = parse(fs2.readFileSync(eqFile, "utf8"));
-    equivalence = { ...equivalence, ...eq.http ?? eq };
-  }
+  const equivalence = parseEquivalence(fs2.existsSync(eqFile) ? fs2.readFileSync(eqFile, "utf8") : null);
   let origin = doc.origin;
   let originRaw = "";
   if (origin?.repo) {
@@ -2974,10 +2980,10 @@ function assessClaim(c, facts) {
     r.rerun = again;
     if (again?.status === "passed") {
       r.status = "flaky";
-      r.reasons.push("Failed, then passed on a rerun. Treat as unreliable until it passes consistently.");
+      r.reasons.push(`Failed, then passed when retried once: ${failureHeadline(head.message)}. Treat as unreliable until it passes consistently.`);
     } else {
       r.status = "failed";
-      r.reasons.push(`The proof test failed: ${firstLine(head.message)}`);
+      r.reasons.push(`The proof test failed: ${failureHeadline(head.message)}`);
     }
   }
   if (facts.base) {
@@ -3035,7 +3041,11 @@ function applyJudge(r, j, kind) {
     r.status = "cant_tell";
   r.reasons.push(`Judge: ${j.note}`);
 }
-function overall(claims, regressions) {
+function overall(claims, regressions, extraProblems = 0) {
+  if (!claims.filter((c) => !c.synthetic).length)
+    return claims.some((c) => c.status === "failed") || regressions.length ? "needs_a_look" : "unproven";
+  if (extraProblems)
+    return "needs_a_look";
   const bad = claims.some((c) => c.status !== "proven" && c.status !== "overturned" && c.status !== "not_tested");
   return bad || regressions.length ? "needs_a_look" : "proven";
 }
@@ -3044,6 +3054,14 @@ function counts(claims) {
   for (const c of claims)
     k[c.status]++;
   return k;
+}
+function failureHeadline(msg) {
+  const lines = (msg ?? "").split(`
+`).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length)
+    return "no message";
+  const picked = [lines[0], ...lines.slice(1, 12).filter((l) => /expected|actual|but was|doesn't match|does not match/i.test(l))];
+  return [...new Set(picked)].slice(0, 4).join(" · ").slice(0, 400);
 }
 var firstLine = (s) => (s ?? "").split(`
 `).find((l) => l.trim())?.trim().slice(0, 300) ?? "no message";
@@ -3198,7 +3216,7 @@ function say(phase, msg) {
 
 // engine/src/record.ts
 var here = path5.dirname(fileURLToPath(import.meta.url));
-var VERDICT_WORD = { proven: "Proven", needs_a_look: "Needs a look", mistrial: "Mistrial" };
+var VERDICT_WORD = { proven: "Proven", needs_a_look: "Needs a look", unproven: "Nothing proven", mistrial: "Mistrial" };
 var short = (s) => (s ?? "").slice(0, 7);
 function writeRecord(dir, b) {
   fs5.mkdirSync(dir, { recursive: true });
@@ -3229,18 +3247,50 @@ function countLine(b) {
 function biteLine(b) {
   const bites = b.claims.filter((c2) => c2.bite === "bites").length;
   const vac = b.claims.filter((c2) => c2.bite === "vacuous").length;
-  if (!b.base)
+  if (!b.base || bites + vac === 0)
     return null;
-  const others = b.otherTests.filter((t) => t.status === "passed").length;
-  return `${bites} new test(s) fail on ${b.base.ref}@${short(b.base.sha)} and pass here${vac ? ` · ${vac} pass on both (don't bite)` : ""} · ${others} other boundary test(s) pass`;
+  return `Bite check: ${bites} of ${bites + vac} new test(s) fail on ${b.base.ref}@${short(b.base.sha)} and pass with this change${vac ? ` · ${vac} also pass${vac === 1 ? "es" : ""} without it (doesn't bite)` : ""}`;
+}
+function otherLine(b) {
+  const others = b.otherTests.length;
+  if (!others)
+    return null;
+  return `Existing boundary tests: ${b.otherTests.filter((t) => t.status === "passed").length} of ${others} pass${b.regressions.length ? ` · ${b.regressions.length} regression(s)` : ""}`;
+}
+function declarationLines(b) {
+  const d = b.declarations;
+  if (!d)
+    return [];
+  const out = [];
+  if (d.added.length)
+    out.push(`New claims: ${d.added.join(", ")}`);
+  if (d.changed.length)
+    out.push(`Claims edited: ${d.changed.join(", ")}`);
+  if (d.retired.length)
+    out.push(`Claims retired: ${d.retired.join(", ")}`);
+  if (d.removed.length)
+    out.push(`Claims deleted without a reason: ${d.removed.join(", ")}`);
+  for (const l of d.rules.added)
+    out.push(`Rule added in equivalence.toml: ${l}`);
+  for (const l of d.rules.removed)
+    out.push(`Rule removed from equivalence.toml: ${l}`);
+  const declared = b.claims.filter((c2) => c2.tags.includes("changed") && (d.added.includes(c2.id) || d.changed.includes(c2.id)));
+  for (const c2 of declared)
+    out.push(`Declared difference from the origin (${c2.id}): ${c2.expectDiff.join(", ")}`);
+  return out;
 }
 function summaryLines(b) {
   if (b.verdict === "mistrial")
     return [`Mistrial: ${b.mistrial?.message}`, `Remedy: ${b.mistrial?.remedy}`];
+  if (b.verdict === "unproven")
+    return ["Nothing proven: no claims cover this change.", "Add claims in .witness/claims/ (the /witness:claims skill helps), then run witness verify again."];
   const out = [`${VERDICT_WORD[b.verdict]} · ${countLine(b)} · level ${b.level} · ${fmtMs(b.ms)}`];
-  const bl = biteLine(b);
-  if (bl)
-    out.push(bl);
+  for (const l of [biteLine(b), otherLine(b)])
+    if (l)
+      out.push(l);
+  const dl = declarationLines(b);
+  if (dl.length)
+    out.push(`Changed in this PR (a reviewer should approve): ${dl.join(" · ")}`);
   for (const c2 of b.claims.filter((c3) => c3.status !== "proven"))
     out.push(`  ${STATUS_WORD[c2.status].padEnd(11)} ${c2.id} ${c2.text}`);
   for (const t of b.regressions)
@@ -3260,7 +3310,15 @@ function agentDigest(b, dir) {
     return L.join(`
 `);
   }
-  L.push(summaryLines(b)[0], biteLine(b) ?? "", "");
+  if (b.verdict === "unproven") {
+    L.push(...summaryLines(b));
+    return L.join(`
+`);
+  }
+  L.push(summaryLines(b)[0], biteLine(b) ?? "", otherLine(b) ?? "", "");
+  const dl = declarationLines(b);
+  if (dl.length)
+    L.push("Changed in this PR (tell the user; a reviewer must approve these):", ...dl.map((x) => `- ${x}`), "");
   const bad = b.claims.filter((c2) => c2.status !== "proven" && c2.status !== "overturned");
   if (!bad.length && !b.regressions.length)
     L.push("All claims hold. Nothing to fix.");
@@ -3298,17 +3356,25 @@ function agentDigest(b, dir) {
 `);
 }
 function prComment(b) {
-  const icon = b.verdict === "proven" ? "\uD83D\uDFE2" : b.verdict === "mistrial" ? "⚪" : "\uD83D\uDD34";
+  const icon = b.verdict === "proven" ? "\uD83D\uDFE2" : b.verdict === "mistrial" || b.verdict === "unproven" ? "⚪" : "\uD83D\uDD34";
   const L = [`### ${icon} witness · ${VERDICT_WORD[b.verdict]}`, ""];
   if (b.verdict === "mistrial") {
     L.push(`The app could not be verified: ${b.mistrial?.message}`, "", `**Remedy:** ${b.mistrial?.remedy}`);
     return L.join(`
 `);
   }
+  if (b.verdict === "unproven") {
+    L.push("No claims cover this change, so nothing was verified.");
+    return L.join(`
+`);
+  }
   L.push(`**${countLine(b)}** · level ${b.level} · ${fmtMs(b.ms)}`, "");
-  const bl = biteLine(b);
-  if (bl)
-    L.push(`- ${bl}`);
+  for (const l of [biteLine(b), otherLine(b)])
+    if (l)
+      L.push(`- ${l}`);
+  const dl = declarationLines(b);
+  if (dl.length)
+    L.push("", "**Changed in this PR — please review:**", ...dl.map((x) => `- ${x}`), "");
   for (const c2 of b.claims.filter((c3) => c3.status === "failed" || c3.status === "flaky"))
     L.push(`- **${STATUS_WORD[c2.status]}:** ${c2.text} (${c2.id}) — ${c2.reasons[0] ?? ""}`);
   for (const c2 of b.claims.filter((c3) => c3.status === "cant_tell"))
@@ -3488,6 +3554,20 @@ class RecordingProxy {
 }
 
 // engine/src/session.ts
+var cleanups = new Set;
+function registerCleanup(fn) {
+  cleanups.add(fn);
+  return () => cleanups.delete(fn);
+}
+async function runCleanups() {
+  for (const fn of [...cleanups].reverse()) {
+    try {
+      await fn();
+    } catch {}
+  }
+  cleanups.clear();
+}
+
 class Mistrial extends Error {
   remedy;
   logTail;
@@ -3527,8 +3607,10 @@ class Side {
       v[`${r.svc.name}.url`] = `http://127.0.0.1:${r.port}`;
     return v;
   }
+  unregister;
   async boot() {
     const t0 = Date.now();
+    this.unregister = registerCleanup(() => this.shutdown());
     for (const svc of this.services) {
       const port = await freePort();
       const vars = this.vars(svc, port);
@@ -3608,6 +3690,7 @@ class Side {
     for (const r of this.running)
       killTree(r.child, "SIGKILL");
     this.running = [];
+    this.unregister?.();
   }
 }
 async function runSuites(contract, side, opts) {
@@ -3710,19 +3793,12 @@ ${item.evidence.slice(0, 20000)}
 
 SOURCES:
 ${srcText || "(none)"}`;
-  const model = process.env.WITNESS_JUDGE_MODEL || "sonnet";
-  const r = spawnSync2(process.env.WITNESS_CLAUDE_BIN || "claude", ["-p", "--model", model, "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", SYSTEM, "--json-schema", JSON.stringify(SCHEMA), "--output-format", "json"], { input: prompt, encoding: "utf8", cwd: os2.tmpdir(), timeout: 180000, maxBuffer: 20 * 1024 * 1024 });
+  const call = callClaude(SYSTEM, prompt, SCHEMA);
   const ms = Date.now() - t0;
   const fail = (error) => ({ verdict: "cant_tell", note: "The judge could not rule.", citations: [], accepted: "cant_tell", error, ms });
-  if (r.status !== 0)
-    return fail((r.stderr || r.stdout || "claude exited non-zero").slice(0, 500));
-  let parsed;
-  try {
-    const outer = JSON.parse(r.stdout);
-    parsed = outer.structured_output ?? (typeof outer.result === "string" ? JSON.parse(outer.result.replace(/^```json\s*|```\s*$/g, "")) : outer.result);
-  } catch (e) {
-    return fail(`unparseable judge output: ${e.message}`);
-  }
+  if (call.error)
+    return fail(call.error);
+  const parsed = call.parsed;
   if (!parsed?.verdict)
     return fail("judge returned no verdict");
   const res = {
@@ -3734,7 +3810,7 @@ ${srcText || "(none)"}`;
     ms
   };
   for (const c2 of res.citations)
-    c2.verified = c2.source === "evidence" ? true : verifyQuote(c2.quote, sources, c2.source) || norm(sources.find((s) => s.name === c2.source)?.text ?? "").includes(norm(c2.quote));
+    c2.verified = c2.source === "evidence" ? norm(item.evidence).includes(norm(c2.quote)) : verifyQuote(c2.quote, sources, c2.source) || norm(sources.find((s) => s.name === c2.source)?.text ?? "").includes(norm(c2.quote));
   if (res.verdict === "overturn") {
     const ok = item.kind === "parity" && res.citations.some((c2) => verifyQuote(c2.quote, sources, c2.source));
     if (ok)
@@ -3745,6 +3821,53 @@ ${srcText || "(none)"}`;
     }
   } else
     res.accepted = res.verdict;
+  return res;
+}
+function callClaude(system, prompt, schema) {
+  const model = process.env.WITNESS_JUDGE_MODEL || "sonnet";
+  const r = spawnSync2(process.env.WITNESS_CLAUDE_BIN || "claude", ["-p", "--model", model, "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", system, "--json-schema", JSON.stringify(schema), "--output-format", "json"], { input: prompt, encoding: "utf8", cwd: os2.tmpdir(), timeout: 180000, maxBuffer: 20 * 1024 * 1024 });
+  if (r.status !== 0)
+    return { error: (r.stderr || r.stdout || "claude exited non-zero").slice(0, 500) };
+  try {
+    const outer = JSON.parse(r.stdout);
+    return { parsed: outer.structured_output ?? (typeof outer.result === "string" ? JSON.parse(outer.result.replace(/^```json\s*|```\s*$/g, "")) : outer.result) };
+  } catch (e) {
+    return { error: `unparseable judge output: ${e.message}` };
+  }
+}
+var COVERAGE_SYSTEM = `You check whether a change's claims cover what was asked. You get the request (issue text) and the list of claims.
+List each concrete, testable requirement in the request that NO claim covers. Quote the request text for each. Ignore requirements that are covered,
+vague wishes, and implementation details. If everything is covered, return an empty list. Respond with the JSON object only.`;
+var COVERAGE_SCHEMA = {
+  type: "object",
+  properties: {
+    uncovered: {
+      type: "array",
+      items: { type: "object", properties: { requirement: { type: "string" }, quote: { type: "string" } }, required: ["requirement", "quote"] }
+    },
+    note: { type: "string" }
+  },
+  required: ["uncovered", "note"]
+};
+function coverage(request2, claimsList, cacheDir) {
+  const prompt = `REQUEST:
+${request2.slice(0, 15000)}
+
+CLAIMS:
+${claimsList}`;
+  const key = createHash2("sha256").update(JSON.stringify([COVERAGE_SYSTEM, prompt, process.env.WITNESS_JUDGE_MODEL ?? ""])).digest("hex").slice(0, 16);
+  const cached = cacheDir ? path7.join(cacheDir, `cov-${key}.json`) : null;
+  if (cached && fs7.existsSync(cached))
+    return { ...JSON.parse(fs7.readFileSync(cached, "utf8")), cached: true };
+  const call = callClaude(COVERAGE_SYSTEM, prompt, COVERAGE_SCHEMA);
+  if (call.error || !call.parsed)
+    return { uncovered: [], note: "", error: call.error ?? "no answer" };
+  const n = (x) => x.replace(/\s+/g, " ").trim().toLowerCase();
+  const res = { uncovered: (call.parsed.uncovered ?? []).filter((u) => u.quote && n(request2).includes(n(u.quote))), note: call.parsed.note ?? "" };
+  if (cached) {
+    fs7.mkdirSync(cacheDir, { recursive: true });
+    fs7.writeFileSync(cached, JSON.stringify(res));
+  }
   return res;
 }
 
@@ -3870,6 +3993,28 @@ function compareExchanges(origin, target, eq, expectDiff) {
 }
 
 // engine/src/verify.ts
+function declarations(root, base, headClaims, headRetired) {
+  if (!base)
+    return;
+  const list = tryGit(root, ["ls-tree", "--name-only", base.sha, ".witness/claims/"]) ?? "";
+  const baseClaims = list.split(`
+`).filter((f) => f.endsWith(".md")).flatMap((f) => parseClaimFile(f, tryGit(root, ["show", `${base.sha}:${f}`]) ?? "").claims).filter((c2) => !c2.retired);
+  const sig = (c2) => JSON.stringify([c2.text, c2.tags, c2.proof, c2.expectDiff, c2.surfaces]);
+  const byId = new Map(baseClaims.map((c2) => [c2.id, c2]));
+  const headIds = new Set([...headClaims, ...headRetired].map((c2) => c2.id));
+  const lines = (t) => (t ?? "").split(`
+`).map((l) => l.split("#")[0].trim()).filter(Boolean);
+  const baseEq = lines(tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`]));
+  const headEqFile = path8.join(root, ".witness", "equivalence.toml");
+  const headEq = lines(fs8.existsSync(headEqFile) ? fs8.readFileSync(headEqFile, "utf8") : null);
+  return {
+    rules: { added: headEq.filter((l) => !baseEq.includes(l)), removed: baseEq.filter((l) => !headEq.includes(l)) },
+    added: headClaims.filter((c2) => !byId.has(c2.id)).map((c2) => c2.id),
+    changed: headClaims.filter((c2) => byId.has(c2.id) && sig(byId.get(c2.id)) !== sig(c2)).map((c2) => c2.id),
+    removed: baseClaims.filter((c2) => !headIds.has(c2.id)).map((c2) => c2.id),
+    retired: headRetired.filter((c2) => byId.has(c2.id)).map((c2) => c2.id)
+  };
+}
 var cacheDir = (c2, layer, key) => path8.join(c2.home, "cache", layer, key);
 function resolveBase(root, base) {
   if (base === null)
@@ -4018,9 +4163,11 @@ cache/
   const base = resolveBase(root, opts.base);
   const files = loadClaims(contract.home);
   const claims = files.flatMap((f) => f.claims).filter((c2) => !c2.retired);
+  const retiredClaims = files.flatMap((f) => f.claims).filter((c2) => c2.retired);
+  const migrate = !!contract.origin?.repo;
   const contractHash = sha(contract.raw);
   const warnings = lint(contract, files).filter((w) => w.level !== "error").map((w) => w.message);
-  say("court in session", `level ${opts.level} · head ${branch ?? "?"}@${(headSha ?? "").slice(0, 7)}${dirty ? "+dirty" : ""}${base ? ` · base ${base.ref}@${base.sha.slice(0, 7)}` : " · no base"} · ${claims.length} claims`);
+  say("court in session", `level ${opts.level} · this change: ${branch ?? "?"}@${(headSha ?? "").slice(0, 7)}${dirty ? " + uncommitted edits" : ""} · compared with: ${base ? `${base.ref}@${base.sha.slice(0, 7)}` : "nothing (no base commit)"}${migrate ? ` and the legacy app ${contract.origin.repo}` : ""} · ${claims.length} claims`);
   const bundle = {
     schema: "witness.record/v0",
     level: opts.level,
@@ -4050,7 +4197,7 @@ cache/
     const tFile = path8.join(cacheDir(contract, "target", tKey), "capture.json");
     let target = opts.fresh ? null : readJson(tFile, null);
     if (target)
-      say("record", `target layer reused (${tKey})`);
+      say("record", "this change is already on record (same code and tests); reused");
     else {
       const t1 = Date.now();
       target = await capture(contract, new Side("head", contract, root, logDir), logDir, opts.rerun);
@@ -4061,22 +4208,28 @@ cache/
     let baseCap = null;
     const testGlobs = contract.suites.map((s) => s.tests);
     const testsKey = testGlobs.every(Boolean) ? hashFiles(testGlobs.flatMap((g) => fs8.globSync(path8.join(root, g)))) : captureTree;
-    if (base) {
+    const needsBite = claims.some((c2) => c2.proof && !c2.tags.includes("parity") && !c2.tags.includes("judged") && !(migrate && c2.tags.includes("changed")));
+    const needBase = !!base && (needsBite || opts.level === "high" && !migrate);
+    if (base && !needBase)
+      say("subpoena", `skipping ${base.ref}: no claim needs the bite check${migrate ? " (the origin is the legacy app)" : ""}`);
+    if (base && needBase) {
       const bKey = sha(`${base.sha}|${testsKey}|${contractHash}`);
       const bFile = path8.join(cacheDir(contract, "base", bKey), "capture.json");
       baseCap = opts.fresh ? null : readJson(bFile, null);
       if (baseCap) {
-        say("subpoena", `base ${base.sha.slice(0, 7)} already on record; reused (${bKey})`);
+        say("subpoena", `${base.ref}@${base.sha.slice(0, 7)} already on record; reused`);
         bundle.layers.base = { key: bKey, reused: true };
       } else {
         const t1 = Date.now();
-        say("subpoena", `booting base ${base.ref}@${base.sha.slice(0, 7)} in a worktree`);
+        say("subpoena", `booting ${base.ref}@${base.sha.slice(0, 7)} (the base commit) in a temporary worktree`);
         const wt = path8.join(os3.tmpdir(), `witness-base-${base.sha.slice(0, 12)}-${process.pid}`);
         git(root, ["worktree", "add", "--detach", "-f", wt, base.sha]);
+        const unregister = registerCleanup(() => void tryGit(root, ["worktree", "remove", "--force", wt]));
         try {
           baseCap = await capture(contract, new Side("base", contract, wt, logDir), logDir, false);
         } finally {
           tryGit(root, ["worktree", "remove", "--force", wt]);
+          unregister();
         }
         writeJson(bFile, baseCap);
         bundle.layers.base = { key: bKey, reused: false, ms: Date.now() - t1 };
@@ -4101,23 +4254,53 @@ cache/
         bundle.layers.origin = { key: bundle.layers.base.key, reused: true, note: "same as the base layer" };
       }
     }
+    const decl = declarations(root, base, claims, retiredClaims);
+    bundle.declarations = decl;
+    const baseEqText = base ? tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`]) : null;
+    const rulesChanged = !!decl && (decl.rules.added.length > 0 || decl.rules.removed.length > 0);
+    const eqBase = base ? parseEquivalence(baseEqText) : contract.equivalence;
     const parity = new Map;
+    const parityHeadRules = new Map;
+    const existing = [];
     if (opts.level === "high") {
       if (!originCap)
-        bundle.warnings.push("High level needs an origin: a base commit or an [origin] repo in witness.toml. None was found, so no cross-examination ran.");
+        bundle.warnings.push("High level needs an origin: a base commit or an [origin] repo in witness.toml. None was found, so nothing was compared.");
       else {
-        const pKey = sha(`${bundle.layers.target.key}|${bundle.layers.origin.key}|${JSON.stringify(contract.equivalence)}`);
-        say("cross-examination", `comparing origin and target observations for ${parityClaims.length} claim(s) (${pKey})`);
-        for (const c2 of parityClaims)
-          parity.set(c2.id, compareExchanges(primary(originCap, c2.proof), primary(target, c2.proof), contract.equivalence, c2.expectDiff));
-        bundle.layers.parity = { key: pKey, reused: false, note: `${parity.size} claim(s) compared` };
+        const pKey = sha(`${bundle.layers.target.key}|${bundle.layers.origin.key}|${JSON.stringify(eqBase)}|${JSON.stringify(contract.equivalence)}`);
+        say("cross-examination", `comparing ${migrate ? "the legacy app" : base?.ref ?? "the origin"} with this change for ${parityClaims.length} claim(s)`);
+        for (const c2 of parityClaims) {
+          parity.set(c2.id, compareExchanges(primary(originCap, c2.proof), primary(target, c2.proof), eqBase, c2.expectDiff));
+          if (rulesChanged)
+            parityHeadRules.set(c2.id, compareExchanges(primary(originCap, c2.proof), primary(target, c2.proof), contract.equivalence, c2.expectDiff));
+        }
+        if (!migrate) {
+          const claimedTests = new Set(claims.map((c2) => c2.proof).filter(Boolean));
+          for (const t of target.runs.flatMap((r) => r.results)) {
+            if (claimedTests.has(t.id) || t.status !== "passed")
+              continue;
+            const o = primary(originCap, t.id);
+            if (!o.length)
+              continue;
+            const p = compareExchanges(o, primary(target, t.id), eqBase, []);
+            if (p.status !== "equal")
+              existing.push({ test: t.id, parity: p });
+          }
+        }
+        bundle.layers.parity = { key: pKey, reused: false, note: `${parity.size} claim(s) and ${existing.length} unclaimed difference(s)` };
       }
     }
     const results = claims.map((c2) => {
-      const r = assessClaim(c2, { head, base: baseRes, rerun, parity: parity.get(c2.id), level: opts.level, migrate: !!contract.origin?.repo });
+      const r = assessClaim(c2, { head, base: baseRes, rerun, parity: parity.get(c2.id), level: opts.level, migrate });
       if (c2.proof)
         r.source = testSource(root, c2.proof);
       return r;
+    });
+    existing.forEach(({ test, parity: p }, i) => {
+      const r = assessClaim({ id: `E${i + 1}`, text: `${test} gets the same responses as on ${base?.ref ?? "main"}`, surfaces: ["api"], tags: ["parity"], proof: test, expectDiff: [], feature: "Existing behavior (no claim)", file: "(none)", line: 0 }, { head, base: baseRes, rerun, parity: p, level: opts.level, migrate });
+      r.synthetic = "existing";
+      r.reasons.unshift(`No claim covers this test, but its responses changed compared with ${base?.ref ?? "main"}. Fix the regression, or add a claim tagged changed.`);
+      r.source = testSource(root, test);
+      results.push(r);
     });
     const sources = loadSources(root, contract.home, base, opts.sources, opts.why);
     bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn }));
@@ -4147,6 +4330,44 @@ ${exchangeText(ex.length ? ex : target.exchanges.filter((e) => !r.evidence || e.
         if (r.tags.includes("judged"))
           r.reasons.push("Judge skipped (--no-judge).");
     }
+    for (const r of results) {
+      const hp = parityHeadRules.get(r.id);
+      if (r.status === "failed" && r.parity?.status === "unexplained" && hp && hp.status !== "unexplained") {
+        r.status = "cant_tell";
+        r.reasons.push(`It matches only under the equivalence rules this PR changes (${[...decl.rules.added.map((l) => "+ " + l), ...decl.rules.removed.map((l) => "- " + l)].join("; ")}). A reviewer has to approve the rule change; it counts once merged.`);
+      }
+    }
+    const request2 = [opts.why ?? "", ...sources.filter((s) => s.canOverturn && !s.name.includes("@base")).map((s) => s.text)].join(`
+
+`).trim();
+    if (request2 && opts.judge) {
+      say("deliberation", "checking that the claims cover the request");
+      const list = claims.map((c2) => `${c2.id} [${[...c2.surfaces, ...c2.tags].join(", ")}] ${c2.text}`).join(`
+`);
+      const cov = coverage(request2, list, path8.join(contract.home, "cache", "judge"));
+      if (!cov.cached && !cov.error)
+        bundle.judgeCalls++;
+      bundle.coverage = { checked: !cov.error, note: cov.note, error: cov.error };
+      cov.uncovered.forEach((u, i) => {
+        results.push({
+          id: `U${i + 1}`,
+          text: u.requirement,
+          surfaces: [],
+          tags: [],
+          expectDiff: [],
+          feature: "Not covered by a claim",
+          file: "(request)",
+          line: 0,
+          status: "not_tested",
+          bite: null,
+          synthetic: "uncovered",
+          reasons: [`The request asks for this, but no claim covers it: “${u.quote}”. Add a claim, or tell the reviewer why it's out of scope.`]
+        });
+      });
+    }
+    const problems = (decl?.removed.length ?? 0) + results.filter((r) => r.synthetic === "uncovered").length;
+    if (decl?.removed.length)
+      bundle.warnings.unshift(`Claims deleted in this PR without a retired: reason: ${decl.removed.join(", ")}. Keep them and add "retired: <why>" so the reviewer sees it.`);
     const claimed = new Set(results.map((r) => r.testId).filter(Boolean));
     const all = [...head.values()];
     bundle.regressions = all.filter((t) => !claimed.has(t.id) && t.status === "failed" && rerun.get(t.id)?.status !== "passed");
@@ -4155,7 +4376,7 @@ ${exchangeText(ex.length ? ex : target.exchanges.filter((e) => !r.evidence || e.
       throw new Mistrial("No test results were found after the suites ran.", "Check the suite command and its junit path in witness.toml; see the suite log.", "");
     bundle.claims = results;
     bundle.exchanges = [...baseCap?.exchanges ?? [], ...originCap && originCap !== baseCap ? originCap.exchanges : [], ...target.exchanges].filter((e) => e.run === "primary" || e.run === "rerun");
-    bundle.verdict = overall(results, bundle.regressions);
+    bundle.verdict = overall(results, bundle.regressions, problems);
     bundle.counts = counts(results);
   } catch (e) {
     if (e instanceof Mistrial) {
@@ -4186,7 +4407,7 @@ Usage:
 
 Levels: medium checks the change against its claims; high also cross-examines the
 origin (the base commit) and compares what both apps returned.
-Exit codes: 0 proven · 1 needs a look · 2 mistrial (app or claims couldn't be put on trial) · 3 usage.`;
+Exit codes: 0 proven · 1 needs a look or nothing proven · 2 mistrial (app or claims couldn't be put on trial) · 3 usage.`;
 function args(argv) {
   const flags = {};
   const pos = [];
@@ -4246,7 +4467,7 @@ async function main() {
           console.log(JSON.stringify({ verdict: bundle.verdict, counts: bundle.counts, record: dir }, null, 2));
         else {
           const lines = summaryLines(bundle);
-          const col = bundle.verdict === "proven" ? color.green : bundle.verdict === "mistrial" ? color.yellow : color.red;
+          const col = bundle.verdict === "proven" ? color.green : bundle.verdict === "mistrial" || bundle.verdict === "unproven" ? color.yellow : color.red;
           console.log(`
 ` + col(color.bold(lines[0])));
           for (const l of lines.slice(1))
@@ -4406,7 +4627,17 @@ function hasCodeChanges(r) {
   const s = spawnSync3("git", ["status", "--porcelain", "--", ".", ":(exclude).witness/records", ":(exclude).witness/cache"], { cwd: r, encoding: "utf8" });
   return !!s.stdout.trim();
 }
-var stop = () => process.exit(130);
+var stopping = false;
+var stop = async () => {
+  if (stopping)
+    process.exit(130);
+  stopping = true;
+  process.stderr.write(`
+Interrupted: stopping the apps and removing temporary worktrees...
+`);
+  await runCleanups();
+  process.exit(130);
+};
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 main();

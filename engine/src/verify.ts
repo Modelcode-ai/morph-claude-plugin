@@ -1,14 +1,14 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { type Claim, loadClaims } from "./claims.ts";
-import { type Contract, mapRoute } from "./contract.ts";
-import { judge, type Source } from "./judge.ts";
+import { type Claim, loadClaims, parseClaimFile } from "./claims.ts";
+import { type Contract, type Equivalence, mapRoute, parseEquivalence } from "./contract.ts";
+import { coverage, judge, type Source } from "./judge.ts";
 import type { TestResult } from "./junit.ts";
 import { compareExchanges, type ParityResult } from "./parity.ts";
 import type { Exchange } from "./proxy.ts";
 import { writeRecord } from "./record.ts";
-import { Mistrial, runSuites, Side, type SuiteRun } from "./session.ts";
+import { Mistrial, registerCleanup, runSuites, Side, type SuiteRun } from "./session.ts";
 import { applyJudge, assessClaim, type ClaimResult, counts, overall, type Verdict } from "./verdict.ts";
 import { fmtMs, git, hashFiles, readJson, say, sha, tryGit, worktreeHash, writeJson } from "./util.ts";
 import { lint } from "./lint.ts";
@@ -50,8 +50,44 @@ export interface Bundle {
   sources: { name: string; canOverturn: boolean }[];
   logs: string[];
   judgeCalls: number;
+  declarations?: Declarations;
+  coverage?: { checked: boolean; note: string; error?: string };
   originSide?: "base" | "origin";
   origin?: { kind: "evolve" | "migrate"; repo: string; sha: string | null };
+}
+
+export interface Declarations {
+  /** Lines added/removed in equivalence.toml relative to the base commit. */
+  rules: { added: string[]; removed: string[] };
+  added: string[];
+  changed: string[];
+  removed: string[];
+  retired: string[];
+}
+
+/** What this PR changed in the rules of the game: claims and equivalence rules, relative to the base commit. */
+function declarations(root: string, base: { sha: string } | null, headClaims: Claim[], headRetired: Claim[]): Declarations | undefined {
+  if (!base) return undefined;
+  const list = tryGit(root, ["ls-tree", "--name-only", base.sha, ".witness/claims/"]) ?? "";
+  const baseClaims = list
+    .split("\n")
+    .filter((f) => f.endsWith(".md"))
+    .flatMap((f) => parseClaimFile(f, tryGit(root, ["show", `${base.sha}:${f}`]) ?? "").claims)
+    .filter((c) => !c.retired);
+  const sig = (c: Claim) => JSON.stringify([c.text, c.tags, c.proof, c.expectDiff, c.surfaces]);
+  const byId = new Map(baseClaims.map((c) => [c.id, c]));
+  const headIds = new Set([...headClaims, ...headRetired].map((c) => c.id));
+  const lines = (t: string | null) => (t ?? "").split("\n").map((l) => l.split("#")[0].trim()).filter(Boolean);
+  const baseEq = lines(tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`]));
+  const headEqFile = path.join(root, ".witness", "equivalence.toml");
+  const headEq = lines(fs.existsSync(headEqFile) ? fs.readFileSync(headEqFile, "utf8") : null);
+  return {
+    rules: { added: headEq.filter((l) => !baseEq.includes(l)), removed: baseEq.filter((l) => !headEq.includes(l)) },
+    added: headClaims.filter((c) => !byId.has(c.id)).map((c) => c.id),
+    changed: headClaims.filter((c) => byId.has(c.id) && sig(byId.get(c.id)!) !== sig(c)).map((c) => c.id),
+    removed: baseClaims.filter((c) => !headIds.has(c.id)).map((c) => c.id),
+    retired: headRetired.filter((c) => byId.has(c.id)).map((c) => c.id),
+  };
 }
 
 const cacheDir = (c: Contract, layer: string, key: string) => path.join(c.home, "cache", layer, key);
@@ -201,10 +237,12 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
   const base = resolveBase(root, opts.base);
   const files = loadClaims(contract.home);
   const claims: Claim[] = files.flatMap((f) => f.claims).filter((c) => !c.retired);
+  const retiredClaims: Claim[] = files.flatMap((f) => f.claims).filter((c) => c.retired);
+  const migrate = !!contract.origin?.repo;
   const contractHash = sha(contract.raw);
   const warnings = lint(contract, files).filter((w) => w.level !== "error").map((w) => w.message);
 
-  say("court in session", `level ${opts.level} · head ${branch ?? "?"}@${(headSha ?? "").slice(0, 7)}${dirty ? "+dirty" : ""}${base ? ` · base ${base.ref}@${base.sha.slice(0, 7)}` : " · no base"} · ${claims.length} claims`);
+  say("court in session", `level ${opts.level} · this change: ${branch ?? "?"}@${(headSha ?? "").slice(0, 7)}${dirty ? " + uncommitted edits" : ""} · compared with: ${base ? `${base.ref}@${base.sha.slice(0, 7)}` : "nothing (no base commit)"}${migrate ? ` and the legacy app ${contract.origin!.repo}` : ""} · ${claims.length} claims`);
 
   const bundle: Bundle = {
     schema: "witness.record/v0",
@@ -237,7 +275,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     const tKey = sha(`${captureTree}|${contractHash}`);
     const tFile = path.join(cacheDir(contract, "target", tKey), "capture.json");
     let target = opts.fresh ? null : readJson<SideCapture | null>(tFile, null);
-    if (target) say("record", `target layer reused (${tKey})`);
+    if (target) say("record", "this change is already on record (same code and tests); reused");
     else {
       const t1 = Date.now();
       target = await capture(contract, new Side("head", contract, root, logDir), logDir, opts.rerun);
@@ -250,22 +288,27 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     let baseCap: SideCapture | null = null;
     const testGlobs = contract.suites.map((s) => s.tests);
     const testsKey = testGlobs.every(Boolean) ? hashFiles(testGlobs.flatMap((g) => fs.globSync(path.join(root, g!)))) : captureTree;
-    if (base) {
+    const needsBite = claims.some((c) => c.proof && !c.tags.includes("parity") && !c.tags.includes("judged") && !(migrate && c.tags.includes("changed")));
+    const needBase = !!base && (needsBite || (opts.level === "high" && !migrate));
+    if (base && !needBase) say("subpoena", `skipping ${base.ref}: no claim needs the bite check${migrate ? " (the origin is the legacy app)" : ""}`);
+    if (base && needBase) {
       const bKey = sha(`${base.sha}|${testsKey}|${contractHash}`);
       const bFile = path.join(cacheDir(contract, "base", bKey), "capture.json");
       baseCap = opts.fresh ? null : readJson<SideCapture | null>(bFile, null);
       if (baseCap) {
-        say("subpoena", `base ${base.sha.slice(0, 7)} already on record; reused (${bKey})`);
+        say("subpoena", `${base.ref}@${base.sha.slice(0, 7)} already on record; reused`);
         bundle.layers.base = { key: bKey, reused: true };
       } else {
         const t1 = Date.now();
-        say("subpoena", `booting base ${base.ref}@${base.sha.slice(0, 7)} in a worktree`);
+        say("subpoena", `booting ${base.ref}@${base.sha.slice(0, 7)} (the base commit) in a temporary worktree`);
         const wt = path.join(os.tmpdir(), `witness-base-${base.sha.slice(0, 12)}-${process.pid}`);
         git(root, ["worktree", "add", "--detach", "-f", wt, base.sha]);
+        const unregister = registerCleanup(() => void tryGit(root, ["worktree", "remove", "--force", wt]));
         try {
           baseCap = await capture(contract, new Side("base", contract, wt, logDir), logDir, false);
         } finally {
           tryGit(root, ["worktree", "remove", "--force", wt]);
+          unregister();
         }
         writeJson(bFile, baseCap);
         bundle.layers.base = { key: bKey, reused: false, ms: Date.now() - t1 };
@@ -295,21 +338,53 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     }
 
     // Parity layer (High): pure comparison over stored observations.
+    // Rules come from the base commit, so a PR can't loosen them to pass itself; head rules only mark what awaits approval.
+    const decl = declarations(root, base, claims, retiredClaims);
+    bundle.declarations = decl;
+    const baseEqText = base ? tryGit(root, ["show", `${base.sha}:.witness/equivalence.toml`]) : null;
+    const rulesChanged = !!decl && (decl.rules.added.length > 0 || decl.rules.removed.length > 0);
+    const eqBase: Equivalence = base ? parseEquivalence(baseEqText) : contract.equivalence;
     const parity = new Map<string, ParityResult>();
+    const parityHeadRules = new Map<string, ParityResult>();
+    const existing: { test: string; parity: ParityResult }[] = [];
     if (opts.level === "high") {
-      if (!originCap) bundle.warnings.push("High level needs an origin: a base commit or an [origin] repo in witness.toml. None was found, so no cross-examination ran.");
+      if (!originCap) bundle.warnings.push("High level needs an origin: a base commit or an [origin] repo in witness.toml. None was found, so nothing was compared.");
       else {
-        const pKey = sha(`${bundle.layers.target.key}|${bundle.layers.origin!.key}|${JSON.stringify(contract.equivalence)}`);
-        say("cross-examination", `comparing origin and target observations for ${parityClaims.length} claim(s) (${pKey})`);
-        for (const c of parityClaims) parity.set(c.id, compareExchanges(primary(originCap, c.proof!), primary(target, c.proof!), contract.equivalence, c.expectDiff));
-        bundle.layers.parity = { key: pKey, reused: false, note: `${parity.size} claim(s) compared` };
+        const pKey = sha(`${bundle.layers.target.key}|${bundle.layers.origin!.key}|${JSON.stringify(eqBase)}|${JSON.stringify(contract.equivalence)}`);
+        say("cross-examination", `comparing ${migrate ? "the legacy app" : base?.ref ?? "the origin"} with this change for ${parityClaims.length} claim(s)`);
+        for (const c of parityClaims) {
+          parity.set(c.id, compareExchanges(primary(originCap, c.proof!), primary(target, c.proof!), eqBase, c.expectDiff));
+          if (rulesChanged) parityHeadRules.set(c.id, compareExchanges(primary(originCap, c.proof!), primary(target, c.proof!), contract.equivalence, c.expectDiff));
+        }
+        // Existing tests no claim mentions still guard behavior: compare their traffic with main too.
+        if (!migrate) {
+          const claimedTests = new Set(claims.map((c) => c.proof).filter(Boolean));
+          for (const t of target.runs.flatMap((r) => r.results)) {
+            if (claimedTests.has(t.id) || t.status !== "passed") continue;
+            const o = primary(originCap, t.id);
+            if (!o.length) continue;
+            const p = compareExchanges(o, primary(target, t.id), eqBase, []);
+            if (p.status !== "equal") existing.push({ test: t.id, parity: p });
+          }
+        }
+        bundle.layers.parity = { key: pKey, reused: false, note: `${parity.size} claim(s) and ${existing.length} unclaimed difference(s)` };
       }
     }
 
     const results = claims.map((c) => {
-      const r = assessClaim(c, { head, base: baseRes, rerun, parity: parity.get(c.id), level: opts.level, migrate: !!contract.origin?.repo });
+      const r = assessClaim(c, { head, base: baseRes, rerun, parity: parity.get(c.id), level: opts.level, migrate });
       if (c.proof) r.source = testSource(root, c.proof);
       return r;
+    });
+    existing.forEach(({ test, parity: p }, i) => {
+      const r = assessClaim(
+        { id: `E${i + 1}`, text: `${test} gets the same responses as on ${base?.ref ?? "main"}`, surfaces: ["api"], tags: ["parity"], proof: test, expectDiff: [], feature: "Existing behavior (no claim)", file: "(none)", line: 0 },
+        { head, base: baseRes, rerun, parity: p, level: opts.level, migrate },
+      );
+      r.synthetic = "existing";
+      r.reasons.unshift(`No claim covers this test, but its responses changed compared with ${base?.ref ?? "main"}. Fix the regression, or add a claim tagged changed.`);
+      r.source = testSource(root, test);
+      results.push(r);
     });
 
     // T2: judge.
@@ -338,6 +413,34 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
       for (const r of toJudge) if (r.tags.includes("judged")) r.reasons.push("Judge skipped (--no-judge).");
     }
 
+    for (const r of results) {
+      const hp = parityHeadRules.get(r.id);
+      if (r.status === "failed" && r.parity?.status === "unexplained" && hp && hp.status !== "unexplained") {
+        r.status = "cant_tell";
+        r.reasons.push(`It matches only under the equivalence rules this PR changes (${[...decl!.rules.added.map((l) => "+ " + l), ...decl!.rules.removed.map((l) => "- " + l)].join("; ")}). A reviewer has to approve the rule change; it counts once merged.`);
+      }
+    }
+
+    // Intent: does any requirement in the request lack a claim?
+    const request = [opts.why ?? "", ...sources.filter((s) => s.canOverturn && !s.name.includes("@base")).map((s) => s.text)].join("\n\n").trim();
+    if (request && opts.judge) {
+      say("deliberation", "checking that the claims cover the request");
+      const list = claims.map((c) => `${c.id} [${[...c.surfaces, ...c.tags].join(", ")}] ${c.text}`).join("\n");
+      const cov = coverage(request, list, path.join(contract.home, "cache", "judge"));
+      if (!cov.cached && !cov.error) bundle.judgeCalls++;
+      bundle.coverage = { checked: !cov.error, note: cov.note, error: cov.error };
+      cov.uncovered.forEach((u, i) => {
+        results.push({
+          id: `U${i + 1}`, text: u.requirement, surfaces: [], tags: [], expectDiff: [], feature: "Not covered by a claim", file: "(request)", line: 0,
+          status: "not_tested", bite: null, synthetic: "uncovered",
+          reasons: [`The request asks for this, but no claim covers it: “${u.quote}”. Add a claim, or tell the reviewer why it's out of scope.`],
+        });
+      });
+    }
+
+    const problems = (decl?.removed.length ?? 0) + results.filter((r) => r.synthetic === "uncovered").length;
+    if (decl?.removed.length) bundle.warnings.unshift(`Claims deleted in this PR without a retired: reason: ${decl.removed.join(", ")}. Keep them and add "retired: <why>" so the reviewer sees it.`);
+
     const claimed = new Set(results.map((r) => r.testId).filter(Boolean));
     const all = [...head.values()];
     bundle.regressions = all.filter((t) => !claimed.has(t.id) && t.status === "failed" && rerun.get(t.id)?.status !== "passed");
@@ -345,7 +448,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     if (!all.length) throw new Mistrial("No test results were found after the suites ran.", "Check the suite command and its junit path in witness.toml; see the suite log.", "");
     bundle.claims = results;
     bundle.exchanges = [...(baseCap?.exchanges ?? []), ...(originCap && originCap !== baseCap ? originCap.exchanges : []), ...target.exchanges].filter((e) => e.run === "primary" || e.run === "rerun");
-    bundle.verdict = overall(results, bundle.regressions);
+    bundle.verdict = overall(results, bundle.regressions, problems);
     bundle.counts = counts(results);
   } catch (e) {
     if (e instanceof Mistrial) {

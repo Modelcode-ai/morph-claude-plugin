@@ -6,7 +6,7 @@ import { loadClaims } from "./claims.ts";
 import { ContractError, findRoot, loadContract, TEMPLATE } from "./contract.ts";
 import { lint } from "./lint.ts";
 import { summaryLines, VERDICT_WORD } from "./record.ts";
-import { Mistrial, Side } from "./session.ts";
+import { Mistrial, runCleanups, Side } from "./session.ts";
 import { color, readJson, worktreeHash } from "./util.ts";
 import { verify } from "./verify.ts";
 
@@ -24,7 +24,7 @@ Usage:
 
 Levels: medium checks the change against its claims; high also cross-examines the
 origin (the base commit) and compares what both apps returned.
-Exit codes: 0 proven · 1 needs a look · 2 mistrial (app or claims couldn't be put on trial) · 3 usage.`;
+Exit codes: 0 proven · 1 needs a look or nothing proven · 2 mistrial (app or claims couldn't be put on trial) · 3 usage.`;
 
 function args(argv: string[]) {
   const flags: Record<string, string | boolean | string[]> = {};
@@ -82,7 +82,7 @@ async function main() {
         if (flags.json) console.log(JSON.stringify({ verdict: bundle.verdict, counts: bundle.counts, record: dir }, null, 2));
         else {
           const lines = summaryLines(bundle);
-          const col = bundle.verdict === "proven" ? color.green : bundle.verdict === "mistrial" ? color.yellow : color.red;
+          const col = bundle.verdict === "proven" ? color.green : bundle.verdict === "mistrial" || bundle.verdict === "unproven" ? color.yellow : color.red;
           console.log("\n" + col(color.bold(lines[0])));
           for (const l of lines.slice(1)) console.log(l);
           console.log(`\nRecord:  ${path.join(dir, "index.html")}`);
@@ -221,7 +221,14 @@ function hasCodeChanges(r: string): boolean {
   return !!s.stdout.trim();
 }
 
-const stop = () => process.exit(130);
+let stopping = false;
+const stop = async () => {
+  if (stopping) process.exit(130);
+  stopping = true;
+  process.stderr.write("\nInterrupted: stopping the apps and removing temporary worktrees...\n");
+  await runCleanups();
+  process.exit(130);
+};
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 main();

@@ -18,7 +18,8 @@ pass or fail from the repo's own test reports; your job is to make the claims tr
    ```
    - Add `--level high` when the change must keep existing behavior (refactors, migrations, "don't
      break X"), or when the user asks to compare with the base or origin.
-   - Add `--source <file>` for an issue or spec file the user gave you that lives outside the repo.
+   - Add `--source <file>` for the issue or spec file the user gave you (outside the repo). The
+     judge then checks that your claims cover every requirement in it.
    - It takes about a minute: it boots the app twice (this change and the base commit).
 3. Read the `agent.md` file it prints. For each item:
    - **failed**: the claim doesn't hold. Fix the code. Change the test only if it is clearly wrong, and
@@ -33,11 +34,20 @@ pass or fail from the repo's own test reports; your job is to make the claims tr
    - **mistrial**: the app or the claims couldn't be put on trial. Follow the remedy, run
      `witness doctor`, then retry.
    - **regression**: an existing boundary test now fails. Treat it as a bug in your change.
+   - **E-claims** ("... gets the same responses as on main", high level): an existing test no claim
+     mentions now sees different responses. Fix the regression, or add a claim tagged `changed`.
+   - **U-claims** (not covered by a claim): the request asks for something no claim covers. Add a
+     claim and a test, or tell the user why it's out of scope.
+   - **can't tell, "matches only under the equivalence rules this PR changes"**: you loosened a rule
+     in `.witness/equivalence.toml`. That's allowed, but only a human can approve it. Say so.
+   - **Nothing proven**: there are no claims. Follow the `claims` skill.
 4. Re-run `witness verify` after fixes. Stop after three rounds and report what's left; don't loop.
 5. Report to the user in a few lines:
    - the verdict line and the counts, exactly as printed;
    - the bite line ("N new tests fail on main and pass here");
    - one line per failed, can't tell, overturned or not tested claim;
+   - everything listed under "Changed in this PR" (new or edited claims, rule changes, declared
+     differences): the reviewer has to approve these, so never leave them out;
    - the record path. They can open it with `witness open`.
    If they want a PR comment, print `witness report --format pr`.
 

@@ -91,6 +91,16 @@ const DEFAULT_EQ: Equivalence = {
   allow_added_fields: false,
 };
 
+export function parseEquivalence(text: string | null): Equivalence {
+  if (!text) return { ...DEFAULT_EQ };
+  try {
+    const eq = parseToml(text) as any;
+    return { ...DEFAULT_EQ, ...(eq.http ?? eq) };
+  } catch (e) {
+    throw new ContractError(`equivalence.toml does not parse: ${(e as Error).message}`);
+  }
+}
+
 export function findRoot(start: string): string | null {
   let dir = path.resolve(start);
   for (;;) {
@@ -127,12 +137,8 @@ export function loadContract(root: string): Contract {
   for (const [k, v] of Object.entries(surfaces)) {
     if (!services.find((s) => s.name === v.service)) throw new ContractError(`surface "${k}" points at unknown service "${v.service}"`);
   }
-  let equivalence = { ...DEFAULT_EQ };
   const eqFile = path.join(home, "equivalence.toml");
-  if (fs.existsSync(eqFile)) {
-    const eq = parseToml(fs.readFileSync(eqFile, "utf8")) as any;
-    equivalence = { ...equivalence, ...(eq.http ?? eq) };
-  }
+  const equivalence = parseEquivalence(fs.existsSync(eqFile) ? fs.readFileSync(eqFile, "utf8") : null);
   let origin: OriginConfig | undefined = doc.origin;
   let originRaw = "";
   if (origin?.repo) {

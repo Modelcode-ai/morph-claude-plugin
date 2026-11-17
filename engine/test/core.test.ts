@@ -109,11 +109,20 @@ test("verdict: unexplained parity fails a passing claim; regressions make the ru
   assert.equal(r.status, "failed");
   assert.equal(r.bite, "preserved");
   assert.equal(overall([assessClaim(claim(), { head: res("passed"), level: "medium" })], []), "proven");
-  assert.equal(overall([], [{ id: "x", classname: "", name: "", status: "failed", ms: 0 }]), "needs_a_look");
+  const ok = assessClaim(claim(), { head: res("passed"), level: "medium" });
+  assert.equal(overall([ok], [{ id: "x", classname: "", name: "", status: "failed", ms: 0 }]), "needs_a_look");
+  assert.equal(overall([], []), "unproven", "no claims is never proven");
 });
 
 test("parity: allow_added_fields ignores target-only keys but not removed ones", () => {
   const eq = { ...EQ, allow_added_fields: true };
   assert.equal(compareExchanges([ex(200, { a: 1 })], [ex(200, { a: 1, b: 2 })], eq, []).status, "equal");
   assert.equal(compareExchanges([ex(200, { a: 1, b: 2 })], [ex(200, { a: 1 })], eq, []).status, "unexplained");
+});
+
+import { failureHeadline } from "../src/verdict.ts";
+test("failureHeadline keeps expected/actual lines", () => {
+  const h = failureHeadline("1 expectation failed.\nJSON path firstName doesn't match.\nExpected: iterable containing [\"Harold\"]\n  Actual: <[Betty, Harold]>\n\tat x.y(z)");
+  assert.match(h, /Expected: iterable/);
+  assert.match(h, /Actual: <\[Betty, Harold\]>/);
 });

@@ -25,7 +25,10 @@ code, pre { font-family: var(--mono); font-size: 12px; }
 .dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: none; background: var(--skip); }
 .dot.proven { background: var(--pass); } .dot.failed, .dot.flaky { background: var(--fail); } .dot.cant_tell { background: var(--warn); }
 .dot.overturned { background: var(--over); } .dot.not_tested { background: var(--skip); } .dot.mistrial { background: var(--skip); }
-.dot.needs_a_look { background: var(--fail); }
+.dot.needs_a_look { background: var(--fail); } .dot.unproven { background: var(--warn); }
+.decl { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.decl b { color: var(--warn); }
+.decl ul { margin: 4px 0 0; padding-left: 18px; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill { font: 500 11.5px var(--mono); padding: 2px 9px; border-radius: 999px; background: var(--sunken); color: var(--muted); }
 .pill.proven { background: var(--pass-soft); color: var(--pass); } .pill.failed, .pill.flaky { background: var(--fail-soft); color: var(--fail); }
@@ -84,7 +87,10 @@ td code { word-break: break-word; }
 <footer class="foot" id="foot"></footer>
 <script>
 const B = /*__WITNESS_DATA__*/null;
-const WORD = { proven: "Proven", needs_a_look: "Needs a look", mistrial: "Mistrial" };
+const WORD = { proven: "Proven", needs_a_look: "Needs a look", unproven: "Nothing proven", mistrial: "Mistrial" };
+const BASE = () => (B.base ? `${B.base.ref}@${short(B.base.sha)}` : "base");
+const ORIGIN = () => (B.originSide === "origin" ? `legacy app (${B.origin?.repo})` : BASE());
+const PTAB = () => (B.originSide === "origin" ? "Legacy vs this change" : `${B.base ? B.base.ref : "Base"} vs this change`);
 const SWORD = { proven: "proven", failed: "failed", cant_tell: "can't tell", overturned: "overturned", not_tested: "not tested", flaky: "flaky" };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const short = (s) => (s || "").slice(0, 7);
@@ -97,12 +103,27 @@ function header() {
   const pills = ["proven", "failed", "flaky", "cant_tell", "overturned", "not_tested"].filter((s) => k[s]).map((s) => `<span class="pill ${s}">${k[s]} ${SWORD[s]}</span>`).join("");
   const bites = B.claims.filter((c) => c.bite === "bites").length, vac = B.claims.filter((c) => c.bite === "vacuous").length;
   const others = (B.otherTests || []).filter((t) => t.status === "passed").length;
-  const bite = B.base && B.verdict !== "mistrial" ? `<div class="bite">${bites} new test${bites === 1 ? "" : "s"} fail on <code>${esc(B.base.ref)}@${short(B.base.sha)}</code> and pass here${vac ? ` · <b>${vac} pass on both (don't bite)</b>` : ""} · ${others} other boundary test${others === 1 ? "" : "s"} pass${B.regressions.length ? ` · <b>${B.regressions.length} regression(s)</b>` : ""}</div>` : "";
-  const layers = Object.entries(B.layers || {}).map(([k, v]) => `${k} ${v.reused ? "reused" : "ran" + (v.ms ? " " + ms(v.ms) : "")}`).join(" · ");
+  const biteTxt = B.base && bites + vac ? `Bite check: ${bites} of ${bites + vac} new test${bites + vac === 1 ? "" : "s"} fail on <code>${esc(BASE())}</code> and pass with this change${vac ? ` · <b>${vac} also pass without it (doesn't bite)</b>` : ""}` : "";
+  const otherTxt = (B.otherTests || []).length ? `Existing boundary tests: ${others} of ${B.otherTests.length} pass${B.regressions.length ? ` · <b>${B.regressions.length} regression(s)</b>` : ""}` : "";
+  const bite = B.verdict === "mistrial" || B.verdict === "unproven" ? "" : `<div class="bite">${[biteTxt, otherTxt].filter(Boolean).join("<br>")}</div>`;
+  const d = B.declarations;
+  const dl = [];
+  if (d) {
+    if (d.added.length) dl.push(`New claims: ${d.added.join(", ")}`);
+    if (d.changed.length) dl.push(`Claims edited: ${d.changed.join(", ")}`);
+    if (d.retired.length) dl.push(`Claims retired: ${d.retired.join(", ")}`);
+    if (d.removed.length) dl.push(`<b>Claims deleted without a reason: ${d.removed.join(", ")}</b>`);
+    d.rules.added.forEach((l) => dl.push(`Rule added: <code>${esc(l)}</code>`));
+    d.rules.removed.forEach((l) => dl.push(`Rule removed: <code>${esc(l)}</code>`));
+    B.claims.filter((c) => c.tags.includes("changed") && (d.added.includes(c.id) || d.changed.includes(c.id))).forEach((c) => dl.push(`Declared difference (${esc(c.id)}): ${esc(c.expectDiff.join(", "))}`));
+  }
+  const declHtml = dl.length ? `<div class="decl"><b>Changed in this PR, for the reviewer to approve</b><ul>${dl.map((x) => `<li>${x}</li>`).join("")}</ul></div>` : "";
+  const LN = { target: "this change", base: BASE(), origin: B.originSide === "origin" ? "legacy app" : null, parity: "comparison" };
+  const layers = Object.entries(B.layers || {}).filter(([k]) => LN[k]).map(([k, v]) => `${LN[k]} ${v.reused ? "reused" : "ran" + (v.ms ? " " + ms(v.ms) : "")}`).join(" · ");
   document.getElementById("top").innerHTML = `
     <div class="top-row"><span class="verdict"><span class="dot ${B.verdict}"></span>${WORD[B.verdict]}</span><span class="pills">${pills}</span></div>
-    ${bite}
-    <div class="meta"><span>level ${esc(B.level)}</span><span>head ${esc(B.head.branch || "")}@${short(B.head.sha)}${B.head.dirty ? "+uncommitted" : ""}</span>${B.base ? `<span>base ${esc(B.base.ref)}@${short(B.base.sha)}</span>` : ""}<span>${ms(B.ms)}</span>${layers ? `<span>${esc(layers)}</span>` : ""}${B.judgeCalls ? `<span>${B.judgeCalls} judge call(s)</span>` : ""}<span>${esc(new Date(B.startedAt).toLocaleString())}</span></div>`;
+    ${bite}${declHtml}
+    <div class="meta"><span>level ${esc(B.level)}</span><span>this change ${esc(B.head.branch || "")}@${short(B.head.sha)}${B.head.dirty ? " + uncommitted" : ""}</span>${B.base ? `<span>compared with ${esc(BASE())}</span>` : ""}${B.originSide === "origin" ? `<span>origin ${esc(ORIGIN())}</span>` : ""}<span>${ms(B.ms)}</span>${layers ? `<span>${esc(layers)}</span>` : ""}${B.judgeCalls ? `<span>${B.judgeCalls} judge call(s)</span>` : ""}<span>${esc(new Date(B.startedAt).toLocaleString())}</span></div>`;
   document.title = `${WORD[B.verdict]} · witness`;
 }
 
@@ -110,7 +131,7 @@ function tagsFor(c) {
   let t = c.surfaces.map((s) => `<span class="tag">${esc(s)}</span>`).join("") + c.tags.filter((t) => t !== "judged").map((t) => `<span class="tag">${t}</span>`).join("");
   if (c.bite === "bites") t += `<span class="tag good">bites</span>`;
   if (c.bite === "vacuous") t += `<span class="tag bad">doesn't bite</span>`;
-  if (c.parity) t += `<span class="tag ${c.parity.status === "unexplained" ? "bad" : "good"}">origin: ${c.parity.status}</span>`;
+  if (c.parity) t += `<span class="tag ${c.parity.status === "unexplained" && c.status !== "overturned" ? "bad" : "good"}">${c.parity.status === "equal" ? "same as origin" : c.parity.status === "intended" ? "declared difference" : c.status === "overturned" ? "difference overturned" : "differs from origin"}</span>`;
   if (c.tags.includes("judged") || c.judge) t += `<span class="tag jtag">judged</span>`;
   return t;
 }
@@ -134,8 +155,8 @@ function list() {
 
 function exchanges(c, side) { return B.exchanges.filter((e) => e.test === c.testId && e.side === side && e.run === "primary"); }
 
-function exHtml(e) {
-  return `<div class="ex"><div class="ex-h"><b>${esc(e.method)}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(e.path)}</span><span class="status s${String(e.status)[0]}">${e.status}</span><span>${ms(e.ms)}</span></div>
+function exHtml(e, upstream) {
+  return `<div class="ex"><div class="ex-h"><b>${esc(e.method)}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(e.path)}${upstream ? ` → ${esc(upstream)}` : ""}</span><span class="status s${String(e.status)[0]}">${e.status}</span><span>${ms(e.ms)}</span></div>
     ${e.reqBody ? `<div class="lbl">request</div><pre>${esc(pretty(e.reqBody))}</pre>` : ""}<div class="lbl">response</div><pre>${esc(pretty(e.resBody)) || "(empty)"}</pre></div>`;
 }
 
@@ -144,7 +165,8 @@ function evidenceTab(c) {
   if (!head.length && !base.length) return `<p class="empty">No exchanges were attributed to ${esc(c.testId || "this claim")}. Tests attribute requests by sending the <code>X-Witness-Test</code> header (the witness test helper does this).</p>`;
   if (!base.length) return head.map(exHtml).join("");
   const bs = c.base ? `${c.base.status}` : "not run";
-  return `<div class="cols"><div><div class="col-h"><span class="dot ${c.base?.status === "passed" ? "proven" : "failed"}"></span>base ${short(B.base?.sha)} · test ${bs}</div>${base.map(exHtml).join("") || '<p class="empty">none</p>'}</div>
+  const why = c.base?.status === "failed" && c.base.message ? `<div class="reasons"><b>Why the test fails on ${esc(BASE())}</b> (expected for a new claim): ${esc(c.base.message.split("\n").filter((l) => /expected|actual|doesn't match|status code/i.test(l)).slice(0, 3).join(" · ") || c.base.message.split("\n")[0])}</div>` : "";
+  return `${why}<div class="cols"><div><div class="col-h"><span class="dot ${c.base?.status === "passed" ? "proven" : "failed"}"></span>${esc(BASE())} · test ${bs}</div>${base.map(exHtml).join("") || '<p class="empty">none</p>'}</div>
     <div><div class="col-h"><span class="dot ${c.head?.status === "passed" ? "proven" : "failed"}"></span>this change · test ${c.head?.status || "not run"}</div>${head.map(exHtml).join("") || '<p class="empty">none</p>'}</div></div>`;
 }
 
@@ -152,8 +174,11 @@ function parityTab(c) {
   const p = c.parity;
   if (!p) return `<p class="empty">No origin comparison (run with <code>--level high</code>).</p>`;
   const rows = p.diffs.map((d) => `<tr><td><code>${esc(d.field)}</code></td><td><code>${esc(d.origin)}</code></td><td><code>${esc(d.target)}</code></td></tr>`).join("");
-  return `<p><b>${p.status === "equal" ? "Origin and target match" : p.status === "intended" ? "Differences match the claim's declared change" : "Unexplained differences"}</b>${p.note ? ` · ${esc(p.note)}` : ""}</p>
-    ${rows ? `<table><thead><tr><th>Field</th><th>Origin (base)</th><th>Target (this change)</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+  const oex = B.exchanges.filter((e) => e.test === c.testId && e.side === (B.originSide || "base") && e.run === "primary");
+  const tex = exchanges(c, "head");
+  return `<p><b>${p.status === "equal" ? "Same responses" : p.status === "intended" ? "Differences match the claim's declared change" : "Unexplained differences"}</b>${p.note ? ` · ${esc(p.note)}` : ""}</p>
+    ${rows ? `<table><thead><tr><th>Field</th><th>${esc(ORIGIN())}</th><th>This change</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    ${oex.length || tex.length ? `<div class="cols" style="margin-top:12px"><div><div class="col-h">${esc(ORIGIN())}</div>${oex.map((e) => exHtml(e, e.upstreamPath)).join("")}</div><div><div class="col-h">this change</div>${tex.map((e) => exHtml(e)).join("")}</div></div>` : ""}
     <p class="empty">Compared under <code>.witness/equivalence.toml</code>. Ignored fields and unordered arrays don't count.</p>`;
 }
 
@@ -182,11 +207,11 @@ function detail() {
   if (current === "other") { el.innerHTML = otherDetail(); return; }
   const c = current;
   const tabs = ["Evidence"];
-  if (c.parity) tabs.push("Origin vs target");
+  if (c.parity) tabs.push(PTAB());
   if (c.testId) tabs.push("Test");
   if (c.judge) tabs.push("Judge");
-  if (!tabs.includes(tab)) tab = c.judge && c.status !== "proven" ? "Judge" : c.parity && c.parity.status !== "equal" ? "Origin vs target" : "Evidence";
-  const body = tab === "Evidence" ? evidenceTab(c) : tab === "Origin vs target" ? parityTab(c) : tab === "Test" ? testTab(c) : judgeTab(c);
+  if (!tabs.includes(tab)) tab = c.parity && c.parity.status !== "equal" ? PTAB() : c.judge && c.status !== "proven" ? "Judge" : c.head?.status === "failed" ? "Test" : "Evidence";
+  const body = tab === "Evidence" ? evidenceTab(c) : tab === PTAB() ? parityTab(c) : tab === "Test" ? testTab(c) : judgeTab(c);
   el.innerHTML = `<div class="d-title"><span class="dot ${c.status}"></span><span>${esc(c.text)}</span></div>
     <div class="d-sub">${esc(c.id)} · ${SWORD[c.status]} · feature ${esc(c.feature)} · ${esc(c.file.split("/").slice(-2).join("/"))}:${c.line}${c.testId ? ` · proof ${esc(c.testId)}` : ""}</div>
     ${c.reasons.length ? `<div class="reasons">${c.reasons.map((r) => `<p>${esc(r)}</p>`).join("")}</div>` : ""}
@@ -197,6 +222,10 @@ function detail() {
 function render() {
   header();
   const main = document.getElementById("main");
+  if (B.verdict === "unproven") {
+    main.innerHTML = `<div class="mistrial"><h2>Nothing proven</h2><p>No claims cover this change, so witness had nothing to verify. Existing boundary tests: ${(B.otherTests || []).filter((t) => t.status === "passed").length} of ${(B.otherTests || []).length} pass.</p><p>Add claims in <code>.witness/claims/</code> (the <code>/witness:claims</code> skill helps), then run <code>witness verify</code> again.</p></div>`;
+    return;
+  }
   if (B.verdict === "mistrial") {
     main.innerHTML = `<div class="mistrial"><h2>Mistrial: the case could not be heard</h2><p>${esc(B.mistrial.message)}</p><p><b>Remedy:</b> ${esc(B.mistrial.remedy)}</p>${B.mistrial.logTail ? `<pre>${esc(B.mistrial.logTail)}</pre>` : ""}<p class="empty">Logs: ${B.logs.map((l) => `<a href="logs/${esc(l)}">${esc(l)}</a>`).join(" · ")}</p></div>`;
     return;

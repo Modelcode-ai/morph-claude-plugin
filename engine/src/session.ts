@@ -6,6 +6,25 @@ import { parseJUnit, type TestResult } from "./junit.ts";
 import { type Exchange, RecordingProxy } from "./proxy.ts";
 import { fmtMs, freePort, killTree, parseDuration, runShell, say, sleep, startShell, tail } from "./util.ts";
 
+const cleanups = new Set<() => void | Promise<void>>();
+
+/** Register work to undo if the run is interrupted; returns the unregister function. */
+export function registerCleanup(fn: () => void | Promise<void>): () => void {
+  cleanups.add(fn);
+  return () => cleanups.delete(fn);
+}
+
+export async function runCleanups() {
+  for (const fn of [...cleanups].reverse()) {
+    try {
+      await fn();
+    } catch {
+      /* best effort */
+    }
+  }
+  cleanups.clear();
+}
+
 export class Mistrial extends Error {
   remedy: string;
   logTail: string;
@@ -56,8 +75,11 @@ export class Side {
     return v;
   }
 
+  private unregister?: () => void;
+
   async boot() {
     const t0 = Date.now();
+    this.unregister = registerCleanup(() => this.shutdown());
     for (const svc of this.services) {
       const port = await freePort();
       const vars = this.vars(svc, port);
@@ -142,6 +164,7 @@ export class Side {
     while (Date.now() < deadline && this.running.some((r) => r.child.exitCode === null && r.child.signalCode === null)) await sleep(200);
     for (const r of this.running) killTree(r.child, "SIGKILL");
     this.running = [];
+    this.unregister?.();
   }
 }
 

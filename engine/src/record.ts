@@ -7,7 +7,7 @@ import { fmtMs } from "./util.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-export const VERDICT_WORD = { proven: "Proven", needs_a_look: "Needs a look", mistrial: "Mistrial" } as const;
+export const VERDICT_WORD = { proven: "Proven", needs_a_look: "Needs a look", unproven: "Nothing proven", mistrial: "Mistrial" } as const;
 
 const short = (s?: string | null) => (s ?? "").slice(0, 7);
 
@@ -44,16 +44,39 @@ function countLine(b: Bundle): string {
 function biteLine(b: Bundle): string | null {
   const bites = b.claims.filter((c) => c.bite === "bites").length;
   const vac = b.claims.filter((c) => c.bite === "vacuous").length;
-  if (!b.base) return null;
-  const others = b.otherTests.filter((t) => t.status === "passed").length;
-  return `${bites} new test(s) fail on ${b.base.ref}@${short(b.base.sha)} and pass here${vac ? ` · ${vac} pass on both (don't bite)` : ""} · ${others} other boundary test(s) pass`;
+  if (!b.base || bites + vac === 0) return null;
+  return `Bite check: ${bites} of ${bites + vac} new test(s) fail on ${b.base.ref}@${short(b.base.sha)} and pass with this change${vac ? ` · ${vac} also pass${vac === 1 ? "es" : ""} without it (doesn't bite)` : ""}`;
+}
+
+function otherLine(b: Bundle): string | null {
+  const others = b.otherTests.length;
+  if (!others) return null;
+  return `Existing boundary tests: ${b.otherTests.filter((t) => t.status === "passed").length} of ${others} pass${b.regressions.length ? ` · ${b.regressions.length} regression(s)` : ""}`;
+}
+
+/** What the PR changed in claims and rules: the things a reviewer must approve. */
+export function declarationLines(b: Bundle): string[] {
+  const d = b.declarations;
+  if (!d) return [];
+  const out: string[] = [];
+  if (d.added.length) out.push(`New claims: ${d.added.join(", ")}`);
+  if (d.changed.length) out.push(`Claims edited: ${d.changed.join(", ")}`);
+  if (d.retired.length) out.push(`Claims retired: ${d.retired.join(", ")}`);
+  if (d.removed.length) out.push(`Claims deleted without a reason: ${d.removed.join(", ")}`);
+  for (const l of d.rules.added) out.push(`Rule added in equivalence.toml: ${l}`);
+  for (const l of d.rules.removed) out.push(`Rule removed from equivalence.toml: ${l}`);
+  const declared = b.claims.filter((c) => c.tags.includes("changed") && (d.added.includes(c.id) || d.changed.includes(c.id)));
+  for (const c of declared) out.push(`Declared difference from the origin (${c.id}): ${c.expectDiff.join(", ")}`);
+  return out;
 }
 
 export function summaryLines(b: Bundle): string[] {
   if (b.verdict === "mistrial") return [`Mistrial: ${b.mistrial?.message}`, `Remedy: ${b.mistrial?.remedy}`];
+  if (b.verdict === "unproven") return ["Nothing proven: no claims cover this change.", "Add claims in .witness/claims/ (the /witness:claims skill helps), then run witness verify again."];
   const out = [`${VERDICT_WORD[b.verdict]} · ${countLine(b)} · level ${b.level} · ${fmtMs(b.ms)}`];
-  const bl = biteLine(b);
-  if (bl) out.push(bl);
+  for (const l of [biteLine(b), otherLine(b)]) if (l) out.push(l);
+  const dl = declarationLines(b);
+  if (dl.length) out.push(`Changed in this PR (a reviewer should approve): ${dl.join(" · ")}`);
   for (const c of b.claims.filter((c) => c.status !== "proven")) out.push(`  ${STATUS_WORD[c.status].padEnd(11)} ${c.id} ${c.text}`);
   for (const t of b.regressions) out.push(`  regression  ${t.id}: ${firstLine(t.message)}`);
   return out;
@@ -72,7 +95,13 @@ export function agentDigest(b: Bundle, dir: string): string {
     L.push("", `Logs: ${path.join(dir, "logs")}`);
     return L.join("\n");
   }
-  L.push(summaryLines(b)[0], biteLine(b) ?? "", "");
+  if (b.verdict === "unproven") {
+    L.push(...summaryLines(b));
+    return L.join("\n");
+  }
+  L.push(summaryLines(b)[0], biteLine(b) ?? "", otherLine(b) ?? "", "");
+  const dl = declarationLines(b);
+  if (dl.length) L.push("Changed in this PR (tell the user; a reviewer must approve these):", ...dl.map((x) => `- ${x}`), "");
   const bad = b.claims.filter((c) => c.status !== "proven" && c.status !== "overturned");
   if (!bad.length && !b.regressions.length) L.push("All claims hold. Nothing to fix.");
   for (const c of bad) {
@@ -104,15 +133,20 @@ export function agentDigest(b: Bundle, dir: string): string {
 
 /** Level-0 summary for a pull request comment. */
 export function prComment(b: Bundle): string {
-  const icon = b.verdict === "proven" ? "🟢" : b.verdict === "mistrial" ? "⚪" : "🔴";
+  const icon = b.verdict === "proven" ? "🟢" : b.verdict === "mistrial" || b.verdict === "unproven" ? "⚪" : "🔴";
   const L = [`### ${icon} witness · ${VERDICT_WORD[b.verdict]}`, ""];
   if (b.verdict === "mistrial") {
     L.push(`The app could not be verified: ${b.mistrial?.message}`, "", `**Remedy:** ${b.mistrial?.remedy}`);
     return L.join("\n");
   }
+  if (b.verdict === "unproven") {
+    L.push("No claims cover this change, so nothing was verified.");
+    return L.join("\n");
+  }
   L.push(`**${countLine(b)}** · level ${b.level} · ${fmtMs(b.ms)}`, "");
-  const bl = biteLine(b);
-  if (bl) L.push(`- ${bl}`);
+  for (const l of [biteLine(b), otherLine(b)]) if (l) L.push(`- ${l}`);
+  const dl = declarationLines(b);
+  if (dl.length) L.push("", "**Changed in this PR — please review:**", ...dl.map((x) => `- ${x}`), "");
   for (const c of b.claims.filter((c) => c.status === "failed" || c.status === "flaky")) L.push(`- **${STATUS_WORD[c.status]}:** ${c.text} (${c.id}) — ${c.reasons[0] ?? ""}`);
   for (const c of b.claims.filter((c) => c.status === "cant_tell")) L.push(`- **Can't tell:** ${c.text} (${c.id})${c.judge ? ` — ${c.judge.note}` : ""}`);
   for (const c of b.claims.filter((c) => c.status === "overturned"))

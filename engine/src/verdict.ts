@@ -17,9 +17,11 @@ export interface ClaimResult extends Claim {
   parity?: ParityResult;
   judge?: JudgeResult;
   source?: { file: string; line: number; snippet: string };
+  /** Not written by anyone: an existing test's difference from main, or a requirement no claim covers. */
+  synthetic?: "existing" | "uncovered";
 }
 
-export type Verdict = "proven" | "needs_a_look" | "mistrial";
+export type Verdict = "proven" | "needs_a_look" | "unproven" | "mistrial";
 
 export const STATUS_WORD: Record<ClaimStatus, string> = {
   proven: "proven",
@@ -65,10 +67,10 @@ export function assessClaim(
     r.rerun = again;
     if (again?.status === "passed") {
       r.status = "flaky";
-      r.reasons.push("Failed, then passed on a rerun. Treat as unreliable until it passes consistently.");
+      r.reasons.push(`Failed, then passed when retried once: ${failureHeadline(head.message)}. Treat as unreliable until it passes consistently.`);
     } else {
       r.status = "failed";
-      r.reasons.push(`The proof test failed: ${firstLine(head.message)}`);
+      r.reasons.push(`The proof test failed: ${failureHeadline(head.message)}`);
     }
   }
   if (facts.base) {
@@ -121,7 +123,9 @@ export function applyJudge(r: ClaimResult, j: JudgeResult, kind: "judged" | "par
   r.reasons.push(`Judge: ${j.note}`);
 }
 
-export function overall(claims: ClaimResult[], regressions: TestResult[]): Verdict {
+export function overall(claims: ClaimResult[], regressions: TestResult[], extraProblems = 0): Verdict {
+  if (!claims.filter((c) => !c.synthetic).length) return claims.some((c) => c.status === "failed") || regressions.length ? "needs_a_look" : "unproven";
+  if (extraProblems) return "needs_a_look";
   const bad = claims.some((c) => c.status !== "proven" && c.status !== "overturned" && c.status !== "not_tested");
   return bad || regressions.length ? "needs_a_look" : "proven";
 }
@@ -130,6 +134,14 @@ export function counts(claims: ClaimResult[]) {
   const k: Record<ClaimStatus, number> = { proven: 0, failed: 0, cant_tell: 0, overturned: 0, not_tested: 0, flaky: 0 };
   for (const c of claims) k[c.status]++;
   return k;
+}
+
+/** The useful part of an assertion message: its first line plus any expected/actual lines. */
+export function failureHeadline(msg?: string): string {
+  const lines = (msg ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return "no message";
+  const picked = [lines[0], ...lines.slice(1, 12).filter((l) => /expected|actual|but was|doesn't match|does not match/i.test(l))];
+  return [...new Set(picked)].slice(0, 4).join(" · ").slice(0, 400);
 }
 
 export const firstLine = (s?: string) => (s ?? "").split("\n").find((l) => l.trim())?.trim().slice(0, 300) ?? "no message";
