@@ -3328,7 +3328,7 @@ function summaryLines(b) {
     out.push(`  warning     ${w}`);
   for (const c2 of b.claims.filter((c3) => c3.status !== "proven")) {
     out.push(`  ${STATUS_WORD[c2.status].padEnd(11)} ${c2.id} ${c2.text}`);
-    const why = c2.parity?.diffs.length && c2.status !== "overturned" ? c2.parity.diffs.slice(0, 2).map((d) => `${d.field}: ${d.origin} -> ${d.target}`).join("; ") : c2.reasons[0];
+    const why = c2.status === "overturned" ? c2.reasons[c2.reasons.length - 1] : c2.parity?.diffs.length ? c2.parity.diffs.slice(0, 2).map((d) => `${d.field}: ${d.origin} -> ${d.target}`).join("; ") : c2.reasons[0];
     if (why)
       out.push(`              ${why.slice(0, 200)}`);
   }

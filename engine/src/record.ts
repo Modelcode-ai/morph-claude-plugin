@@ -81,7 +81,7 @@ export function summaryLines(b: Bundle): string[] {
   for (const w of b.warnings.filter((w) => /harness|exited with code|deleted in this PR/.test(w))) out.push(`  warning     ${w}`);
   for (const c of b.claims.filter((c) => c.status !== "proven")) {
     out.push(`  ${STATUS_WORD[c.status].padEnd(11)} ${c.id} ${c.text}`);
-    const why = c.parity?.diffs.length && c.status !== "overturned" ? c.parity.diffs.slice(0, 2).map((d) => `${d.field}: ${d.origin} -> ${d.target}`).join("; ") : c.reasons[0];
+    const why = c.status === "overturned" ? c.reasons[c.reasons.length - 1] : c.parity?.diffs.length ? c.parity.diffs.slice(0, 2).map((d) => `${d.field}: ${d.origin} -> ${d.target}`).join("; ") : c.reasons[0];
     if (why) out.push(`              ${why.slice(0, 200)}`);
   }
   for (const w of b.warnings.filter((w) => /existing test\(s\) get different|No base commit/.test(w))) out.push(`  note        ${w}`);
