@@ -382,7 +382,8 @@ function claimDrawer(c) {
 }
 function opDrawer(o) {
   const cs = B.claims.filter((c) => o.claims.some((x) => x.id === c.id));
-  const ex = B.exchanges.filter((e) => e.side === "head" && e.run === "primary" && o.tests.includes(e.test) && e.method === o.method).slice(0, 6);
+  const re = new RegExp(o.path.replace(/[.+?^$()|[\]\\]/g, "\\$&").replace(/\{[^}]+\}/g, "[^/]+") + "/?$");
+  const ex = B.exchanges.filter((e) => e.side === "head" && e.run === "primary" && e.method === o.method && re.test(e.path.split("?")[0])).slice(0, 8);
   return `<div class="d-kicker">${esc(o.feature)} · ${esc(OPWORD[o.state])}</div><div class="d-title"><span class="m">${o.method}</span> <span class="mono" style="font-size:16px">${esc(o.path)}</span></div><div class="t-why">${esc(o.summary)}</div>
     ${o.changed.length ? `<div class="d-sec"><h4>Why it counts as touched</h4><div class="reasons">${o.changed.map((x) => `<p>${esc(x)}</p>`).join("")}</div></div>` : ""}
     <div class="d-sec"><h4>Claims</h4>${cs.length ? cs.map((c) => claimRow(c, false)).join("") : `<div class="empty">No claim covers this endpoint.${o.calls ? " Existing tests call it." : " No test calls it."}</div>`}</div>
