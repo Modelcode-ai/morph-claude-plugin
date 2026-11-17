@@ -154,8 +154,12 @@ export function prComment(b: Bundle): string {
   for (const l of [biteLine(b), otherLine(b)]) if (l) L.push(`- ${l}`);
   const dl = declarationLines(b);
   if (dl.length) L.push("", "**Changed in this PR — please review:**", ...dl.map((x) => `- ${x}`), "");
-  for (const c of b.claims.filter((c) => c.status === "failed" || c.status === "flaky")) L.push(`- **${STATUS_WORD[c.status]}:** ${c.text} (${c.id}) — ${c.reasons[0] ?? ""}`);
-  for (const c of b.claims.filter((c) => c.status === "cant_tell")) L.push(`- **Can't tell:** ${c.text} (${c.id})${c.judge ? ` — ${c.judge.note}` : ""}`);
+  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+  for (const c of b.claims.filter((c) => c.status === "failed" || c.status === "flaky")) {
+    const diff = c.parity?.diffs.length ? ` (\`${c.parity.diffs[0].field}\`: ${c.parity.diffs[0].origin} → ${c.parity.diffs[0].target})` : "";
+    L.push(`- **${cap(STATUS_WORD[c.status])}:** ${c.text} (${c.id}) — ${(c.judge?.note ?? c.reasons[0] ?? "").slice(0, 300)}${diff}`);
+  }
+  for (const c of b.claims.filter((c) => c.status === "cant_tell")) L.push(`- **Can't tell:** ${c.text} (${c.id}) — ${(c.reasons[c.reasons.length - 1] ?? "").slice(0, 300)}`);
   for (const c of b.claims.filter((c) => c.status === "overturned"))
     L.push(`- **Overturned:** ${c.text} (${c.id}) — judge cited ${(() => { const s = c.judge?.citations.find((x) => x.verified)?.source; const src = b.sources.find((x) => x.name === s); return src?.path ? `${s} (passed with --source: ${src.path})` : s; })()}: “${c.judge?.citations.find((x) => x.verified)?.quote}”`);
   for (const c of b.claims.filter((c) => c.status === "not_tested")) L.push(`- **Not tested:** ${c.text} (${c.id})`);

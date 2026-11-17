@@ -3416,10 +3416,13 @@ function prComment(b) {
   const dl = declarationLines(b);
   if (dl.length)
     L.push("", "**Changed in this PR — please review:**", ...dl.map((x) => `- ${x}`), "");
-  for (const c2 of b.claims.filter((c3) => c3.status === "failed" || c3.status === "flaky"))
-    L.push(`- **${STATUS_WORD[c2.status]}:** ${c2.text} (${c2.id}) — ${c2.reasons[0] ?? ""}`);
+  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  for (const c2 of b.claims.filter((c3) => c3.status === "failed" || c3.status === "flaky")) {
+    const diff = c2.parity?.diffs.length ? ` (\`${c2.parity.diffs[0].field}\`: ${c2.parity.diffs[0].origin} → ${c2.parity.diffs[0].target})` : "";
+    L.push(`- **${cap(STATUS_WORD[c2.status])}:** ${c2.text} (${c2.id}) — ${(c2.judge?.note ?? c2.reasons[0] ?? "").slice(0, 300)}${diff}`);
+  }
   for (const c2 of b.claims.filter((c3) => c3.status === "cant_tell"))
-    L.push(`- **Can't tell:** ${c2.text} (${c2.id})${c2.judge ? ` — ${c2.judge.note}` : ""}`);
+    L.push(`- **Can't tell:** ${c2.text} (${c2.id}) — ${(c2.reasons[c2.reasons.length - 1] ?? "").slice(0, 300)}`);
   for (const c2 of b.claims.filter((c3) => c3.status === "overturned"))
     L.push(`- **Overturned:** ${c2.text} (${c2.id}) — judge cited ${(() => {
       const s = c2.judge?.citations.find((x) => x.verified)?.source;
