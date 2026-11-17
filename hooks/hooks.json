@@ -1,0 +1,12 @@
+{
+  "description": "Before Claude finishes in a repo with .witness/, ask for a fresh verdict if the code changed since the last one (once per stop).",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/witness\" status --hook", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}

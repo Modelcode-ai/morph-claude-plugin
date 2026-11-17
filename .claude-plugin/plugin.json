@@ -1,0 +1,7 @@
+{
+  "name": "witness",
+  "version": "0.1.0",
+  "description": "Verify a change at its API boundary with the repo's own tests: boot the app, prove each claim, check new tests bite against the base commit, cross-examine the base app at high level, and keep a record a reviewer can trust.",
+  "author": { "name": "Modelcode" },
+  "keywords": ["verification", "testing", "evidence", "api", "agents"]
+}

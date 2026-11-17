@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Witness record</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #fff; --sunken: #eceef3; --fg: #151a23; --muted: #5b6474; --line: #d9dde5;
+  --accent: #3346c4; --accent-soft: #e6e9fb; --pass: #157a4a; --pass-soft: #e1f3e9; --fail: #c0362c; --fail-soft: #fbe7e5;
+  --warn: #9a6400; --warn-soft: #fbf0d9; --skip: #6b7280; --skip-soft: #eef0f3; --over: #7a3fb8; --over-soft: #f1e8fb; --code: #f0f2f6;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #0f1218; --surface: #171b23; --sunken: #1e232d; --fg: #e6e9ef; --muted: #9aa3b4; --line: #2b3240; --accent: #8b9bff; --accent-soft: #232a4d;
+  --pass: #4cc38a; --pass-soft: #15301f; --fail: #ff7a6e; --fail-soft: #3a1b18; --warn: #e7b04a; --warn-soft: #362a12; --skip: #9aa3b4; --skip-soft: #232833;
+  --over: #c49bff; --over-soft: #2c1f40; --code: #12161d; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); }
+code, pre { font-family: var(--mono); font-size: 12px; }
+.top { padding: 18px 24px; border-bottom: 1px solid var(--line); background: var(--surface); display: grid; gap: 8px; }
+.top-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.verdict { font-size: 22px; font-weight: 750; display: flex; align-items: center; gap: 10px; }
+.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; flex: none; background: var(--skip); }
+.dot.proven { background: var(--pass); } .dot.failed, .dot.flaky { background: var(--fail); } .dot.cant_tell { background: var(--warn); }
+.dot.overturned { background: var(--over); } .dot.not_tested { background: var(--skip); } .dot.mistrial { background: var(--skip); }
+.dot.needs_a_look { background: var(--fail); }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { font: 500 11.5px var(--mono); padding: 2px 9px; border-radius: 999px; background: var(--sunken); color: var(--muted); }
+.pill.proven { background: var(--pass-soft); color: var(--pass); } .pill.failed, .pill.flaky { background: var(--fail-soft); color: var(--fail); }
+.pill.cant_tell { background: var(--warn-soft); color: var(--warn); } .pill.overturned { background: var(--over-soft); color: var(--over); }
+.meta { font: 12px var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.bite { font-size: 13.5px; }
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: calc(100vh - 120px); }
+.list { border-right: 1px solid var(--line); padding: 8px 0 24px; background: var(--surface); overflow-y: auto; }
+.group { font: 500 10.5px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 14px 18px 6px; }
+.item { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; width: 100%; text-align: left; background: none; border: 0; border-left: 3px solid transparent;
+  padding: 9px 16px 9px 15px; cursor: pointer; color: inherit; font: inherit; font-size: 13.5px; line-height: 1.4; }
+.item:hover { background: var(--sunken); } .item.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.item .dot { margin-top: 5px; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag { font: 10.5px var(--mono); padding: 0 6px; border-radius: 4px; background: var(--sunken); color: var(--muted); border: 1px solid var(--line); }
+.tag.good { color: var(--pass); border-color: var(--pass); background: transparent; }
+.tag.bad { color: var(--fail); border-color: var(--fail); background: transparent; }
+.tag.jtag { color: var(--warn); border-color: var(--warn); background: transparent; }
+.detail { padding: 22px 26px; min-width: 0; }
+.d-title { font-size: 19px; font-weight: 700; line-height: 1.3; display: flex; gap: 10px; align-items: flex-start; }
+.d-title .dot { margin-top: 8px; }
+.d-sub { font: 12px var(--mono); color: var(--muted); margin: 6px 0 14px; }
+.reasons { background: var(--sunken); border-radius: 8px; padding: 10px 14px; margin: 0 0 16px; }
+.reasons p { margin: 3px 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 10px; font: inherit; color: var(--muted); cursor: pointer; }
+.tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.col-h { font: 500 10.5px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
+.ex { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+.ex-h { display: flex; gap: 8px; align-items: center; padding: 7px 10px; background: var(--sunken); font: 12px var(--mono); }
+.status { font-weight: 600; } .s2 { color: var(--pass); } .s4, .s5 { color: var(--fail); }
+.ex pre { margin: 0; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; max-height: 260px; overflow: auto; }
+.ex .lbl { font: 10.5px var(--mono); color: var(--muted); padding: 6px 10px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface); }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 10.5px var(--mono); text-transform: uppercase; color: var(--muted); background: var(--sunken); }
+td code { word-break: break-word; }
+.src { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; }
+.src .hl { background: var(--accent-soft); display: inline-block; min-width: 100%; }
+.judge { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 12px 14px; }
+.judge.over { border-color: var(--over); background: var(--over-soft); }
+.cite { font: 12px var(--mono); }
+.cite .ok { color: var(--pass); } .cite .no { color: var(--fail); }
+.empty { color: var(--muted); padding: 10px 0; }
+.mistrial { margin: 24px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); max-width: 900px; }
+.mistrial pre { background: var(--code); padding: 10px; border-radius: 6px; overflow: auto; max-height: 400px; }
+.foot { padding: 16px 24px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } .list { border-right: 0; border-bottom: 1px solid var(--line); max-height: 320px; } .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="top" id="top"></header>
+<main id="main"></main>
+<footer class="foot" id="foot"></footer>
+<script>
+const B = /*__WITNESS_DATA__*/null;
+const WORD = { proven: "Proven", needs_a_look: "Needs a look", mistrial: "Mistrial" };
+const SWORD = { proven: "proven", failed: "failed", cant_tell: "can't tell", overturned: "overturned", not_tested: "not tested", flaky: "flaky" };
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const short = (s) => (s || "").slice(0, 7);
+const ms = (n) => (n < 1000 ? n + "ms" : (n / 1000).toFixed(1) + "s");
+const pretty = (s) => { if (!s) return ""; try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
+let current = null, tab = null;
+
+function header() {
+  const k = B.counts || {};
+  const pills = ["proven", "failed", "flaky", "cant_tell", "overturned", "not_tested"].filter((s) => k[s]).map((s) => `<span class="pill ${s}">${k[s]} ${SWORD[s]}</span>`).join("");
+  const bites = B.claims.filter((c) => c.bite === "bites").length, vac = B.claims.filter((c) => c.bite === "vacuous").length;
+  const others = (B.otherTests || []).filter((t) => t.status === "passed").length;
+  const bite = B.base && B.verdict !== "mistrial" ? `<div class="bite">${bites} new test${bites === 1 ? "" : "s"} fail on <code>${esc(B.base.ref)}@${short(B.base.sha)}</code> and pass here${vac ? ` · <b>${vac} pass on both (don't bite)</b>` : ""} · ${others} other boundary test${others === 1 ? "" : "s"} pass${B.regressions.length ? ` · <b>${B.regressions.length} regression(s)</b>` : ""}</div>` : "";
+  const layers = Object.entries(B.layers || {}).map(([k, v]) => `${k} ${v.reused ? "reused" : "ran" + (v.ms ? " " + ms(v.ms) : "")}`).join(" · ");
+  document.getElementById("top").innerHTML = `
+    <div class="top-row"><span class="verdict"><span class="dot ${B.verdict}"></span>${WORD[B.verdict]}</span><span class="pills">${pills}</span></div>
+    ${bite}
+    <div class="meta"><span>level ${esc(B.level)}</span><span>head ${esc(B.head.branch || "")}@${short(B.head.sha)}${B.head.dirty ? "+uncommitted" : ""}</span>${B.base ? `<span>base ${esc(B.base.ref)}@${short(B.base.sha)}</span>` : ""}<span>${ms(B.ms)}</span>${layers ? `<span>${esc(layers)}</span>` : ""}${B.judgeCalls ? `<span>${B.judgeCalls} judge call(s)</span>` : ""}<span>${esc(new Date(B.startedAt).toLocaleString())}</span></div>`;
+  document.title = `${WORD[B.verdict]} · witness`;
+}
+
+function tagsFor(c) {
+  let t = c.surfaces.map((s) => `<span class="tag">${esc(s)}</span>`).join("") + c.tags.filter((t) => t !== "judged").map((t) => `<span class="tag">${t}</span>`).join("");
+  if (c.bite === "bites") t += `<span class="tag good">bites</span>`;
+  if (c.bite === "vacuous") t += `<span class="tag bad">doesn't bite</span>`;
+  if (c.parity) t += `<span class="tag ${c.parity.status === "unexplained" ? "bad" : "good"}">origin: ${c.parity.status}</span>`;
+  if (c.tags.includes("judged") || c.judge) t += `<span class="tag jtag">judged</span>`;
+  return t;
+}
+
+const ORDER = { failed: 0, flaky: 1, cant_tell: 2, overturned: 3, not_tested: 4, proven: 5 };
+function list() {
+  const sorted = [...B.claims].sort((a, b) => ORDER[a.status] - ORDER[b.status]);
+  const groups = {};
+  for (const c of sorted) (groups[c.feature] ||= []).push(c);
+  let html = "";
+  for (const [g, cs] of Object.entries(groups)) {
+    html += `<div class="group">${esc(g)}</div>`;
+    for (const c of cs) html += `<button class="item${current === c ? " active" : ""}" data-id="${esc(c.id)}"><span class="dot ${c.status}"></span><span>${esc(c.text)}<span class="tags"><span class="tag">${esc(c.id)}</span>${tagsFor(c)}</span></span></button>`;
+  }
+  if (B.regressions.length || (B.otherTests || []).length) {
+    html += `<div class="group">Other boundary tests</div><button class="item${current === "other" ? " active" : ""}" data-id="__other"><span class="dot ${B.regressions.length ? "failed" : "proven"}"></span><span>${B.regressions.length ? `${B.regressions.length} existing test(s) fail` : "Existing boundary tests still pass"}<span class="tags"><span class="tag">${B.otherTests.length} tests</span></span></span></button>`;
+  }
+  if (B.warnings.length) html += `<div class="group">Warnings</div>` + B.warnings.map((w) => `<div class="item" style="cursor:default"><span class="dot cant_tell"></span><span>${esc(w)}</span></div>`).join("");
+  return html;
+}
+
+function exchanges(c, side) { return B.exchanges.filter((e) => e.test === c.testId && e.side === side && e.run === "primary"); }
+
+function exHtml(e) {
+  return `<div class="ex"><div class="ex-h"><b>${esc(e.method)}</b><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">${esc(e.path)}</span><span class="status s${String(e.status)[0]}">${e.status}</span><span>${ms(e.ms)}</span></div>
+    ${e.reqBody ? `<div class="lbl">request</div><pre>${esc(pretty(e.reqBody))}</pre>` : ""}<div class="lbl">response</div><pre>${esc(pretty(e.resBody)) || "(empty)"}</pre></div>`;
+}
+
+function evidenceTab(c) {
+  const head = exchanges(c, "head"), base = exchanges(c, "base");
+  if (!head.length && !base.length) return `<p class="empty">No exchanges were attributed to ${esc(c.testId || "this claim")}. Tests attribute requests by sending the <code>X-Witness-Test</code> header (the witness test helper does this).</p>`;
+  if (!base.length) return head.map(exHtml).join("");
+  const bs = c.base ? `${c.base.status}` : "not run";
+  return `<div class="cols"><div><div class="col-h"><span class="dot ${c.base?.status === "passed" ? "proven" : "failed"}"></span>base ${short(B.base?.sha)} · test ${bs}</div>${base.map(exHtml).join("") || '<p class="empty">none</p>'}</div>
+    <div><div class="col-h"><span class="dot ${c.head?.status === "passed" ? "proven" : "failed"}"></span>this change · test ${c.head?.status || "not run"}</div>${head.map(exHtml).join("") || '<p class="empty">none</p>'}</div></div>`;
+}
+
+function parityTab(c) {
+  const p = c.parity;
+  if (!p) return `<p class="empty">No origin comparison (run with <code>--level high</code>).</p>`;
+  const rows = p.diffs.map((d) => `<tr><td><code>${esc(d.field)}</code></td><td><code>${esc(d.origin)}</code></td><td><code>${esc(d.target)}</code></td></tr>`).join("");
+  return `<p><b>${p.status === "equal" ? "Origin and target match" : p.status === "intended" ? "Differences match the claim's declared change" : "Unexplained differences"}</b>${p.note ? ` · ${esc(p.note)}` : ""}</p>
+    ${rows ? `<table><thead><tr><th>Field</th><th>Origin (base)</th><th>Target (this change)</th></tr></thead><tbody>${rows}</tbody></table>` : ""}
+    <p class="empty">Compared under <code>.witness/equivalence.toml</code>. Ignored fields and unordered arrays don't count.</p>`;
+}
+
+function testTab(c) {
+  if (!c.source) return `<p class="empty">Test source not found for ${esc(c.testId || "this claim")}.</p>`;
+  const msg = c.head?.message ? `<div class="reasons"><b>Failure</b><pre style="white-space:pre-wrap;margin:6px 0 0">${esc(c.head.message.split("\n").slice(0, 14).join("\n"))}</pre></div>` : "";
+  const lines = c.source.snippet.split("\n").map((l, i) => { const n = String(c.source.line + i).padStart(4); const hot = /assert|expect|statusCode|body\(|then\(/.test(l); return `<span${hot ? ' class="hl"' : ""}>${n}  ${esc(l)}</span>`; }).join("\n");
+  return `${msg}<div class="col-h">${esc(c.source.file)} · native test</div><pre class="src">${lines}</pre>`;
+}
+
+function judgeTab(c) {
+  const j = c.judge;
+  if (!j) return `<p class="empty">The judge did not rule on this claim.</p>`;
+  const cites = j.citations.map((x) => `<div class="cite"><span class="${x.verified ? "ok" : "no"}">${x.verified ? "✓ verified" : "✗ not found in source"}</span> · ${esc(x.source)}: “${esc(x.quote)}”</div>`).join("");
+  return `<div class="judge${j.accepted === "overturned" ? " over" : ""}"><b>Judge · ${esc(j.accepted)}</b> <span class="empty">(isolated: saw only the claim, the evidence and the sources)</span>
+    <p>${esc(j.note)}</p>${cites}${j.rejectedOverturn ? `<p><b>Overturn rejected:</b> ${esc(j.rejectedOverturn)}</p>` : ""}${j.suggested_claim ? `<p><b>Suggested claim:</b> ${esc(j.suggested_claim)}</p>` : ""}${j.error ? `<p class="empty">${esc(j.error)}</p>` : ""}</div>`;
+}
+
+function otherDetail() {
+  const rows = (B.otherTests || []).map((t) => `<tr><td><span class="dot ${t.status === "passed" ? "proven" : t.status === "skipped" ? "not_tested" : "failed"}"></span></td><td><code>${esc(t.id)}</code></td><td>${esc(t.status)}</td><td>${ms(t.ms)}</td></tr>`).join("");
+  return `<div class="d-title">Other boundary tests</div><div class="d-sub">Tests not linked to a claim in this change. They guard existing behavior.</div><table><thead><tr><th></th><th>Test</th><th>Result</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function detail() {
+  const el = document.getElementById("detail");
+  if (current === "other") { el.innerHTML = otherDetail(); return; }
+  const c = current;
+  const tabs = ["Evidence"];
+  if (c.parity) tabs.push("Origin vs target");
+  if (c.testId) tabs.push("Test");
+  if (c.judge) tabs.push("Judge");
+  if (!tabs.includes(tab)) tab = c.judge && c.status !== "proven" ? "Judge" : c.parity && c.parity.status !== "equal" ? "Origin vs target" : "Evidence";
+  const body = tab === "Evidence" ? evidenceTab(c) : tab === "Origin vs target" ? parityTab(c) : tab === "Test" ? testTab(c) : judgeTab(c);
+  el.innerHTML = `<div class="d-title"><span class="dot ${c.status}"></span><span>${esc(c.text)}</span></div>
+    <div class="d-sub">${esc(c.id)} · ${SWORD[c.status]} · feature ${esc(c.feature)} · ${esc(c.file.split("/").slice(-2).join("/"))}:${c.line}${c.testId ? ` · proof ${esc(c.testId)}` : ""}</div>
+    ${c.reasons.length ? `<div class="reasons">${c.reasons.map((r) => `<p>${esc(r)}</p>`).join("")}</div>` : ""}
+    <div class="tabs">${tabs.map((t) => `<button class="tab${t === tab ? " active" : ""}" data-tab="${t}">${t}</button>`).join("")}</div><div>${body}</div>`;
+  el.querySelectorAll(".tab").forEach((b) => b.addEventListener("click", () => { tab = b.dataset.tab; detail(); }));
+}
+
+function render() {
+  header();
+  const main = document.getElementById("main");
+  if (B.verdict === "mistrial") {
+    main.innerHTML = `<div class="mistrial"><h2>Mistrial: the case could not be heard</h2><p>${esc(B.mistrial.message)}</p><p><b>Remedy:</b> ${esc(B.mistrial.remedy)}</p>${B.mistrial.logTail ? `<pre>${esc(B.mistrial.logTail)}</pre>` : ""}<p class="empty">Logs: ${B.logs.map((l) => `<a href="logs/${esc(l)}">${esc(l)}</a>`).join(" · ")}</p></div>`;
+    return;
+  }
+  main.innerHTML = `<div class="layout"><nav class="list" id="list"></nav><section class="detail" id="detail"></section></div>`;
+  const draw = () => {
+    document.getElementById("list").innerHTML = list();
+    document.querySelectorAll(".item[data-id]").forEach((b) => b.addEventListener("click", () => { current = b.dataset.id === "__other" ? "other" : B.claims.find((c) => c.id === b.dataset.id); tab = null; draw(); }));
+    detail();
+  };
+  current = [...B.claims].sort((a, b) => ORDER[a.status] - ORDER[b.status])[0] || "other";
+  draw();
+  document.getElementById("foot").innerHTML = `Sources the judge could see: ${B.sources.map((s) => esc(s.name) + (s.canOverturn ? " (may justify overturn)" : "")).join(", ") || "none"} · Logs: ${B.logs.map((l) => `<a href="logs/${esc(l)}">${esc(l)}</a>`).join(" · ")} · <a href="bundle.json">bundle.json</a>`;
+}
+render();
+</script>
+</body>
+</html>
