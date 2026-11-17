@@ -35,7 +35,7 @@ export const STATUS_WORD: Record<ClaimStatus, string> = {
 /** Per-claim outcome from the runner's facts (T1, bite, parity). The judge is applied afterwards. */
 export function assessClaim(
   c: Claim,
-  facts: { head: Map<string, TestResult>; base?: Map<string, TestResult>; rerun?: Map<string, TestResult>; parity?: ParityResult; level: string; migrate?: boolean },
+  facts: { head: Map<string, TestResult>; base?: Map<string, TestResult>; rerun?: Map<string, TestResult>; parity?: ParityResult; level: string; migrate?: boolean; observed?: number },
 ): ClaimResult {
   const r: ClaimResult = { ...c, status: "proven", reasons: [], bite: null };
   if (!c.proof) {
@@ -72,6 +72,10 @@ export function assessClaim(
       r.status = "failed";
       r.reasons.push(`The proof test failed: ${failureHeadline(head.message)}`);
     }
+  }
+  if (r.status === "proven" && facts.observed === 0) {
+    r.status = "cant_tell";
+    r.reasons.push("The proof test passed but made no request to the app that witness could see, so it proves nothing about the app. Make it call the app through the witness helper (it sends the X-Witness-Test header).");
   }
   if (facts.base) {
     const base = facts.base.get(id);

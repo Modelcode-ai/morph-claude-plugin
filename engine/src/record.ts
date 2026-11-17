@@ -150,7 +150,7 @@ export function prComment(b: Bundle): string {
   for (const c of b.claims.filter((c) => c.status === "failed" || c.status === "flaky")) L.push(`- **${STATUS_WORD[c.status]}:** ${c.text} (${c.id}) — ${c.reasons[0] ?? ""}`);
   for (const c of b.claims.filter((c) => c.status === "cant_tell")) L.push(`- **Can't tell:** ${c.text} (${c.id})${c.judge ? ` — ${c.judge.note}` : ""}`);
   for (const c of b.claims.filter((c) => c.status === "overturned"))
-    L.push(`- **Overturned:** ${c.text} (${c.id}) — judge cited ${c.judge?.citations.find((x) => x.verified)?.source}: “${c.judge?.citations.find((x) => x.verified)?.quote}”`);
+    L.push(`- **Overturned:** ${c.text} (${c.id}) — judge cited ${(() => { const s = c.judge?.citations.find((x) => x.verified)?.source; const src = b.sources.find((x) => x.name === s); return src?.path ? `${s} (passed with --source: ${src.path})` : s; })()}: “${c.judge?.citations.find((x) => x.verified)?.quote}”`);
   for (const c of b.claims.filter((c) => c.status === "not_tested")) L.push(`- **Not tested:** ${c.text} (${c.id})`);
   for (const t of b.regressions) L.push(`- **Regression:** ${t.id}`);
   L.push("", "<details><summary>Claims</summary>", "", "| | Claim | Proof |", "|---|---|---|");

@@ -9,6 +9,8 @@ export interface Source {
   text: string;
   /** Can a quote from this source justify overturning a parity failure? */
   canOverturn: boolean;
+  /** Absolute path, for sources passed with --source. */
+  path?: string;
 }
 
 export interface Citation {

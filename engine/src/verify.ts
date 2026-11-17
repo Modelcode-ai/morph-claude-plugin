@@ -47,7 +47,7 @@ export interface Bundle {
   exchanges: Exchange[];
   layers: Record<string, { key: string; reused: boolean; ms?: number; note?: string }>;
   warnings: string[];
-  sources: { name: string; canOverturn: boolean }[];
+  sources: { name: string; canOverturn: boolean; path?: string }[];
   logs: string[];
   judgeCalls: number;
   declarations?: Declarations;
@@ -201,7 +201,7 @@ function loadSources(root: string, home: string, base: { sha: string } | null, e
   for (const f of extra) {
     const abs = fs.realpathSync(path.resolve(f));
     const inside = abs.startsWith(realRoot + path.sep);
-    out.push({ name: path.basename(f), text: fs.readFileSync(abs, "utf8"), canOverturn: !inside });
+    out.push({ name: path.basename(f), text: fs.readFileSync(abs, "utf8"), canOverturn: !inside, path: abs });
   }
   for (const f of fs.existsSync(path.join(home, "claims")) ? fs.readdirSync(path.join(home, "claims")) : [])
     out.push({ name: `claims/${f}`, text: fs.readFileSync(path.join(home, "claims", f), "utf8"), canOverturn: false });
@@ -372,7 +372,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
     }
 
     const results = claims.map((c) => {
-      const r = assessClaim(c, { head, base: baseRes, rerun, parity: parity.get(c.id), level: opts.level, migrate });
+      const r = assessClaim(c, { head, base: baseRes, rerun, parity: parity.get(c.id), level: opts.level, migrate, observed: c.proof ? primary(target, c.proof).length : undefined });
       if (c.proof) r.source = testSource(root, c.proof);
       return r;
     });
@@ -389,7 +389,7 @@ export async function verify(contract: Contract, opts: VerifyOpts): Promise<{ bu
 
     // T2: judge.
     const sources = loadSources(root, contract.home, base, opts.sources, opts.why);
-    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn }));
+    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn, path: s.path }));
     const toJudge = results.filter((r) => (r.tags.includes("judged") && r.status === "cant_tell") || (r.parity?.status === "unexplained" && r.status === "failed"));
     if (toJudge.length && opts.judge) {
       say("deliberation", `the judge reviews ${toJudge.length} item(s)`);

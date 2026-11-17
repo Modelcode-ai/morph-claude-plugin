@@ -126,3 +126,8 @@ test("failureHeadline keeps expected/actual lines", () => {
   assert.match(h, /Expected: iterable/);
   assert.match(h, /Actual: <\[Betty, Harold\]>/);
 });
+
+test("verdict: a passing proof test that never reached the app can't prove the claim", () => {
+  const r = assessClaim(claim(), { head: res("passed"), level: "medium", observed: 0 });
+  assert.equal(r.status, "cant_tell");
+});

@@ -2986,6 +2986,10 @@ function assessClaim(c, facts) {
       r.reasons.push(`The proof test failed: ${failureHeadline(head.message)}`);
     }
   }
+  if (r.status === "proven" && facts.observed === 0) {
+    r.status = "cant_tell";
+    r.reasons.push("The proof test passed but made no request to the app that witness could see, so it proves nothing about the app. Make it call the app through the witness helper (it sends the X-Witness-Test header).");
+  }
   if (facts.base) {
     const base = facts.base.get(id);
     r.base = base;
@@ -3380,7 +3384,11 @@ function prComment(b) {
   for (const c2 of b.claims.filter((c3) => c3.status === "cant_tell"))
     L.push(`- **Can't tell:** ${c2.text} (${c2.id})${c2.judge ? ` — ${c2.judge.note}` : ""}`);
   for (const c2 of b.claims.filter((c3) => c3.status === "overturned"))
-    L.push(`- **Overturned:** ${c2.text} (${c2.id}) — judge cited ${c2.judge?.citations.find((x) => x.verified)?.source}: “${c2.judge?.citations.find((x) => x.verified)?.quote}”`);
+    L.push(`- **Overturned:** ${c2.text} (${c2.id}) — judge cited ${(() => {
+      const s = c2.judge?.citations.find((x) => x.verified)?.source;
+      const src = b.sources.find((x) => x.name === s);
+      return src?.path ? `${s} (passed with --source: ${src.path})` : s;
+    })()}: “${c2.judge?.citations.find((x) => x.verified)?.quote}”`);
   for (const c2 of b.claims.filter((c3) => c3.status === "not_tested"))
     L.push(`- **Not tested:** ${c2.text} (${c2.id})`);
   for (const t of b.regressions)
@@ -4124,7 +4132,7 @@ function loadSources(root, home, base, extra, why) {
   for (const f of extra) {
     const abs = fs8.realpathSync(path8.resolve(f));
     const inside = abs.startsWith(realRoot + path8.sep);
-    out.push({ name: path8.basename(f), text: fs8.readFileSync(abs, "utf8"), canOverturn: !inside });
+    out.push({ name: path8.basename(f), text: fs8.readFileSync(abs, "utf8"), canOverturn: !inside, path: abs });
   }
   for (const f of fs8.existsSync(path8.join(home, "claims")) ? fs8.readdirSync(path8.join(home, "claims")) : [])
     out.push({ name: `claims/${f}`, text: fs8.readFileSync(path8.join(home, "claims", f), "utf8"), canOverturn: false });
@@ -4290,7 +4298,7 @@ cache/
       }
     }
     const results = claims.map((c2) => {
-      const r = assessClaim(c2, { head, base: baseRes, rerun, parity: parity.get(c2.id), level: opts.level, migrate });
+      const r = assessClaim(c2, { head, base: baseRes, rerun, parity: parity.get(c2.id), level: opts.level, migrate, observed: c2.proof ? primary(target, c2.proof).length : undefined });
       if (c2.proof)
         r.source = testSource(root, c2.proof);
       return r;
@@ -4303,7 +4311,7 @@ cache/
       results.push(r);
     });
     const sources = loadSources(root, contract.home, base, opts.sources, opts.why);
-    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn }));
+    bundle.sources = sources.map((s) => ({ name: s.name, canOverturn: s.canOverturn, path: s.path }));
     const toJudge = results.filter((r) => r.tags.includes("judged") && r.status === "cant_tell" || r.parity?.status === "unexplained" && r.status === "failed");
     if (toJudge.length && opts.judge) {
       say("deliberation", `the judge reviews ${toJudge.length} item(s)`);
