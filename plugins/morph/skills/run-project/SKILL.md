@@ -38,7 +38,7 @@ Morph's results carry links to the same things in the Morph UI: the project (`pr
 
 ## Retrying
 
-Retry a failed run when the user asks, with `retry_milestone_run`. It re-runs only the step that failed (the agent run, the automated review or the PR report) and keeps the work already done. Retrying the agent run follows the price rules of a start; a review or report retry needs no confirmation. Say which step was retried.
+Retry a failed run when the user asks, with `retry_milestone_run`. It re-runs only the step that failed (the agent run, the automated review or the PR report) and keeps the work already done. Retrying the agent run follows the price rules of a start; a report retry needs no confirmation, and neither does a review retry unless Morph refuses it with a price (a review bought before the tenant was billed): then show that price and retry with it as `approved_credits` once the user confirmed it. Say which step was retried.
 
 A failed agent run keeps its review choice when retried: don't ask about the review. Its price isn't the start quote's (a run that chose its review costs its implementation share, one that made no choice the full price), so don't quote from `credits` or `credits_without_review`. Call `retry_milestone_run` with `approved_credits` null: on a billed tenant Morph refuses and names the retry's price. Show that price, and retry with it as `approved_credits` once the user confirmed it.
 
