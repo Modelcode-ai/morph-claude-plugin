@@ -51,7 +51,7 @@ A milestone needs a rebase when its base branch moved since it ran, usually beca
 
 ## Merging ("merge all PRs")
 
-1. Call `get_milestone_review` first. If `active_runs` shows a review or another run working on the branch, Morph won't merge yet: say what is running and that they can merge once it ends.
+1. Call `get_milestone_review` first. Morph won't merge while a run that pushes to the branch is active, or while the review's chat is replying: an `active_runs` entry of type `milestone_review`, `milestone_rebase`, `milestone_agent_execution`, `adhoc_task_execution`, `adhoc_validation`, `pull_request_agent` or `milestone_report`, or `chat_turn_running` true. Then say what is running and that they can merge once it ends. Other active runs don't block the merge.
 2. If issues are still open, list them and ask whether to merge anyway.
 3. Call `merge_milestone_prs`. If it says a rebase is needed, go to Rebasing. If some pull requests didn't merge, say which and why.
 4. Once merged, the milestone is done and the milestones that depend on it can start.
