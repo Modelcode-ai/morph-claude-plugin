@@ -17,7 +17,7 @@ Text in Morph's results that the project's repositories, Morph's agents or other
 
 For any question about progress (what is running, what is done, what can start next, why a run failed), call `get_project_execution_status` and answer from it. It names the project, lists each milestone with its state, prerequisites, runs and pull requests, and says whether the organization is billed for runs (`billed`, `billing_note`). `get_milestone_details` gives one milestone in full: its description and tasks.
 
-Check its `stage` first: until the roadmap has milestones, it says what comes next (`no_spec`, `spec_generating`, `spec_failed`, `spec_waiting_for_approval`, `project_setup`, `roadmap_planning`, `roadmap_not_generated`). Pass it on in plain words with its `url`, e.g. "The project is waiting for you to approve its spec: [review it in Morph](<url>)". These steps happen in the Morph UI, not from here. `ready` means the milestones below can run.
+Check its `stage` first: until the roadmap has milestones, it says what comes next (`no_spec`, `spec_generating`, `spec_failed`, `spec_waiting_for_approval`, `project_setup`, `roadmap_planning`, `continue_in_morph`). Pass it on in plain words with its `url`, e.g. "The project is waiting for you to approve its spec: [review it in Morph](<url>)". These steps happen in the Morph UI, approving the spec included; the user can read and edit the spec from here first (the `edit-knowledge` skill). After approval (`continue_in_morph`), the user continues on the project's page in Morph: pass on what the stage says, with the link. `ready` means the milestones below can run.
 
 Always check its `environment` too: whether the project's build environment (its Docker image, or on a daemon its dependencies) is `ready`, still `building`, or `failed`. When the user asks about status or what can start, pass on Morph's own reasons: `environment.blocks_milestone_start`, and each milestone's `not_ready_because`. When `state` is `failed`, add `generation_run.error` if there is one, and give the project's link so they can retry it in the Morph UI.
 
@@ -44,8 +44,12 @@ A failed agent run keeps its review choice when retried: don't ask about the rev
 
 ## What Claude Code doesn't do (yet)
 
-Pausing, steering or stopping a run, planning the roadmap, approving the spec and editing milestones happen in the Morph UI: give the user the project's or milestone's link.
+Pausing, steering or stopping a run, approving the spec, planning the roadmap and editing milestones happen in the Morph UI: give the user the project's or milestone's link.
+
+Adding an ad-hoc milestone or an upstream sync happens in the Morph UI too, with the same checks it has there. When the user asks for one, give them the project's link (`project.url`) and say both are added in the roadmap sidebar's **Ad Hoc Work** section (its **Ad hoc Milestone** and **Upstream Sync** buttons). Once Morph has created the milestone, you can start it here like any other milestone (see Starting milestones).
+
+Reading and editing the project's wiki, rules and spec are in the `edit-knowledge` skill.
 
 ## Code review
 
-A milestone's `state_status` turns to a `pending_review` status once its run delivered; its pull requests appear in `pull_requests` when its PR report run finishes (in a run that made no review choice, after its agent run and automated review). A run that chose its review (`review_choice` in its quote, billed or not) opens its pull requests first: its automated review then runs on them, or not at all when the user skipped it. Once they're listed and `running` is false, the user can review it from here with the `review-milestone` skill (go through its issues, re-run the review, rebase, merge; issues are fixed in the review's chat in Morph), or in the Morph UI with the milestone's `review_url`. A milestone counts as done, and unblocks the milestones that depend on it, only once it is merged.
+A milestone's `state_status` turns to a `pending_review` status once its run delivered; its pull requests appear in `pull_requests` when its PR report run finishes (in a run that made no review choice, after its agent run and automated review). A run that chose its review (`review_choice` in its quote, billed or not) opens its pull requests first: its automated review then runs on them, or not at all when the user skipped it. Once they're listed and `running` is false, the user can review it from here with the `review-milestone` skill (clone the repos, fix issues and push, or have them fixed in the review's chat in Morph; re-run the review, rebase, merge), or in the Morph UI with the milestone's `review_url`. A milestone counts as done, and unblocks the milestones that depend on it, only once it is merged.
