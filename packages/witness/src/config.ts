@@ -68,6 +68,22 @@ export interface ListTemplate {
   report?: string;
 }
 
+export type ServiceOverride = Partial<Pick<Service, "cwd" | "setup" | "start" | "stop" | "pidfile" | "ports" | "ready" | "env" | "dependsOn" | "external">>;
+
+/** How to get the app that `--against` compares with: this repo at another ref, or another repo. */
+export interface Reference {
+  ref?: string;
+  /** A path (relative to the config root) or a git URL; unset: this repo. */
+  repo?: string;
+  /** Runs once in the reference checkout before its services. */
+  setup?: string;
+  setupTimeoutMs: number;
+  /** Where the suites' test code comes from: the reference checkout, or this checkout pointed at the reference services. */
+  tests: "reference" | "target";
+  /** Per target service; unset keys come from the target's service. `env` is merged. */
+  services: Record<string, ServiceOverride>;
+}
+
 export interface Config {
   version: 1;
   root: string;
@@ -77,6 +93,7 @@ export interface Config {
   dependencies: Dependency[];
   services: Service[];
   suites: Suite[];
+  reference?: Reference;
   run: { stallMs: number; heartbeatMs: number; keepRuns: number; graceMs: number };
 }
 
@@ -91,7 +108,9 @@ export class ConfigError extends Error {
 const NAME = /^[A-Za-z][\w-]*$/;
 
 const KEYS = {
-  top: ["version", "env", "dependency", "service", "suite", "run"],
+  top: ["version", "env", "dependency", "service", "suite", "reference", "run"],
+  reference: ["ref", "repo", "setup", "setup_timeout", "tests", "service"],
+  override: ["cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external"],
   env: ["file", "required"],
   dependency: ["name", "check", "check_http", "start", "stop", "timeout"],
   service: ["name", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for"],
@@ -184,6 +203,44 @@ function tables(doc: Obj, k: string): Obj[] {
   });
 }
 
+function parseReady(r: unknown, where: string): Ready | undefined {
+  if (r === undefined) return undefined;
+  if (!isObj(r)) throw new ConfigError(where, "expected { http = ... } or { cmd = ... }");
+  checkKeys(r, KEYS.ready, where);
+  const ready: Ready = { http: str(r, "http", where), cmd: str(r, "cmd", where), status: typeof r.status === "number" ? r.status : undefined, timeoutMs: dur(r, "timeout", where, 120_000)! };
+  if (!ready.http === !ready.cmd) throw new ConfigError(where, "set exactly one of http or cmd");
+  if (r.status !== undefined && typeof r.status !== "number") throw new ConfigError(`${where}.status`, "expected a number");
+  return ready;
+}
+
+function parseReference(v: unknown): Reference | undefined {
+  if (v === undefined) return undefined;
+  if (!isObj(v)) throw new ConfigError("reference", "expected a table");
+  checkKeys(v, KEYS.reference, "reference");
+  const svcT = v.service ?? {};
+  if (!isObj(svcT)) throw new ConfigError("reference.service", "expected [reference.service.<name>] tables");
+  const services: Record<string, ServiceOverride> = {};
+  for (const [name, o] of Object.entries(svcT)) {
+    const where = `reference.service.${name}`;
+    if (!isObj(o)) throw new ConfigError(where, "expected a table");
+    checkKeys(o, KEYS.override, where);
+    const ov: ServiceOverride = {};
+    for (const k of ["cwd", "setup", "start", "stop", "pidfile", "external"] as const) if (o[k] !== undefined) ov[k] = str(o, k, where);
+    if (o.ports !== undefined) ov.ports = parsePorts(o.ports, where);
+    if (o.ready !== undefined) ov.ready = parseReady(o.ready, `${where}.ready`);
+    if (o.env !== undefined) ov.env = strMap(o, "env", where);
+    if (o.depends_on !== undefined) ov.dependsOn = strList(o, "depends_on", where);
+    if (ov.external && !/^https?:\/\//.test(ov.external)) throw new ConfigError(`${where}.external`, "expected an http(s) URL");
+    services[name] = ov;
+  }
+  const ref = str(v, "ref", "reference");
+  const repo = str(v, "repo", "reference");
+  const tests = str(v, "tests", "reference") ?? (repo || !ref ? "target" : "reference");
+  if (tests !== "reference" && tests !== "target") throw new ConfigError("reference.tests", `expected "reference" (the reference checkout's tests) or "target" (this checkout's tests, run against the reference services), got "${tests}"`);
+  if (!ref && !repo && !Object.keys(services).length) throw new ConfigError("reference", "needs ref (a branch, tag or commit), repo (another repo's path or git URL), or a [reference.service.<name>] override");
+  return { ref, repo, setup: str(v, "setup", "reference"), setupTimeoutMs: dur(v, "setup_timeout", "reference", 30 * 60_000)!, tests, services };
+}
+
 function parsePorts(v: unknown, where: string): [number, number] | undefined {
   if (v === undefined || v === "") return undefined;
   const s = typeof v === "number" ? String(v) : v;
@@ -256,20 +313,7 @@ export function parseConfig(doc: Obj, file: string): Config {
     const name = str(s, "name", where, true)!;
     if (!NAME.test(name)) throw new ConfigError(`${where}.name`, `"${name}" must start with a letter and use only letters, digits, - and _`);
     where = `service.${name}`;
-    let ready: Ready | undefined;
-    if (s.ready !== undefined) {
-      if (!isObj(s.ready)) throw new ConfigError(`${where}.ready`, "expected { http = ... } or { cmd = ... }");
-      checkKeys(s.ready, KEYS.ready, `${where}.ready`);
-      const r = s.ready;
-      ready = {
-        http: str(r, "http", `${where}.ready`),
-        cmd: str(r, "cmd", `${where}.ready`),
-        status: typeof r.status === "number" ? r.status : undefined,
-        timeoutMs: dur(r, "timeout", `${where}.ready`, 120_000)!,
-      };
-      if (!ready.http === !ready.cmd) throw new ConfigError(`${where}.ready`, "set exactly one of http or cmd");
-      if (r.status !== undefined && typeof r.status !== "number") throw new ConfigError(`${where}.ready.status`, "expected a number");
-    }
+    const ready = parseReady(s.ready, `${where}.ready`);
     const role = str(s, "role", where) ?? "target";
     if (role !== "target" && role !== "origin") throw new ConfigError(`${where}.role`, `expected "target" or "origin", got "${role}"`);
     const svc: Service = {
@@ -337,6 +381,7 @@ export function parseConfig(doc: Obj, file: string): Config {
     dependencies,
     services,
     suites,
+    reference: parseReference(doc.reference),
     run: {
       stallMs: dur(runT, "stall_timeout", "run", 5 * 60_000)!,
       heartbeatMs: dur(runT, "heartbeat", "run", 60_000)!,
@@ -373,6 +418,17 @@ function validateRefs(cfg: Config) {
     if (s.originFor && !names.has(s.originFor)) throw new ConfigError(`service.${s.name}.origin_for`, `unknown service "${s.originFor}"`);
   }
   topoOrder(cfg.services, cfg.services.map((s) => s.name));
+  if (cfg.reference) {
+    if (cfg.services.some((s) => s.role === "origin")) throw new ConfigError("reference", 'use [reference] or role = "origin" services, not both');
+    for (const [n, o] of Object.entries(cfg.reference.services)) {
+      if (!cfg.services.some((s) => s.name === n && s.role === "target")) throw new ConfigError(`reference.service.${n}`, `no target service "${n}" to override${closest(n, cfg.services.map((s) => s.name)) ? ` (did you mean "${closest(n, cfg.services.map((s) => s.name))}"?)` : ""}`);
+      for (const d of o.dependsOn ?? []) if (!names.has(d)) throw new ConfigError(`reference.service.${n}.depends_on`, `unknown service "${d}"`);
+    }
+    for (const s of referenceServices(cfg)) {
+      if (!s.start && !s.external) throw new ConfigError(`reference.service.${s.name}`, "leaves the service without start or external");
+      if (!s.ready && !s.external) throw new ConfigError(`reference.service.${s.name}.ready`, "leaves the service without a readiness check");
+    }
+  }
   const suites = new Set<string>();
   for (const s of cfg.suites) {
     if (suites.has(s.name)) throw new ConfigError(`suite.${s.name}`, "duplicate suite name");
@@ -460,4 +516,14 @@ export function substitute(text: string, vars: Vars): string {
     const v = vars[name];
     return v === undefined ? m : v;
   });
+}
+
+/** The target services as the reference side runs them: each with its [reference.service] override applied. */
+export function referenceServices(cfg: Config): Service[] {
+  return cfg.services
+    .filter((s) => s.role === "target")
+    .map((s) => {
+      const o = cfg.reference?.services[s.name] ?? {};
+      return { ...s, ...o, env: { ...s.env, ...(o.env ?? {}) }, dependsOn: o.dependsOn ?? s.dependsOn };
+    });
 }

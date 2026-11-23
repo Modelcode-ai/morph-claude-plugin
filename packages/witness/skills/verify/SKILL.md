@@ -26,9 +26,16 @@ same or differs. Otherwise do not use `--against` for full runs.
 Morph records your last `witness run` (`.witness/runs/latest`) when you finish, so the last run
 must be a full run, never a `--select` run.
 <!-- else -->
-When the plan has `parity` items and the repo has a base branch or an origin service configured,
-add `--against <base-ref>` (for example `--against origin/main`). Witness then runs the same suites
-on the base too and records, for each test, whether its outcome is the same or differs.
+When the plan has `parity` items, add `--against <base-ref>` (for example `--against origin/main`),
+or `--against reference` when the config has a `[reference]` section. Witness then runs the same
+suites on the base too and records, for each test, whether its outcome is the same or differs.
+
+- When the VERDICT says the origin side was not compared (`origin error` or `origin mistrial`)
+  because the base lacks a step this checkout's setup added (a report package, a build flag), add
+  that step as `setup` in `[reference]` and run again.
+- When the reference app lives in another repo or starts differently (a port or rewrite), ask the
+  user where it is and how it runs, and record it in `[reference]`: `repo`, `ref`, `setup` and
+  `[reference.service.<name>]` with the commands that differ.
 <!-- endif -->
 
 ## 2. Read the result

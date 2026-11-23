@@ -144,6 +144,37 @@ URL that keeps answering the same 4xx fails after min(30s, timeout/2) as a wrong
 `.witness/scratch/` is created with a `.gitignore` of `*`: a place for agents' temporary files
 (for example a redirected `witness run` output) that never shows up in `git status`.
 
+### The reference app: `[reference]`
+
+`--against` runs the same suites on a second copy of the app and records, for each test, whether
+its outcome is the same as on this checkout. Without a `[reference]` section, `--against <ref>`
+checks `<ref>` out in a temporary worktree and runs it with this checkout's config. When the
+reference needs something else (a base that lacks a setup change, a port in another repo), say how
+to get it running:
+
+```toml
+[reference]
+ref = "main"                     # branch, tag or commit; unset: the checkout as it is
+repo = "../legacy-app"           # optional: another repo, a path or a git URL; unset: this repo
+setup = "dotnet add tests/Api package Microsoft.Testing.Extensions.TrxReport"   # once, in the reference checkout
+tests = "reference"              # "reference": its own tests (default for this repo at a ref)
+                                 # "target": this checkout's tests, against the reference's services
+                                 #           (default with repo, or with no ref)
+
+[reference.service.web]          # per target service; unset keys come from the target's service
+cwd = "legacy/web"
+start = "./run-legacy.sh --port ${PORT}"
+env = { MODE = "legacy" }        # merged into the target service's env; "" clears a key's value
+```
+
+`witness run --against reference` uses the section as written. `--against <ref>` keeps the rest of
+the section and checks out `<ref>` instead. A git URL is cloned once into
+`.witness/cache/reference/` and fetched on later runs. Commands in the reference get `${CHECKOUT}`
+(the reference root) and `${TARGET_CHECKOUT}` (this one). A failing `setup` makes the origin side a
+`mistrial`; the VERDICT names the cause and the suite whenever the origin side could not be
+compared. `[reference]` and `role = "origin"` services are two ways to say the same thing; a config
+uses one.
+
 ## Test plans, lint and agent skills
 
 ```bash
@@ -285,7 +316,7 @@ ran, are `error` with cause `setup_failed` (no listing or reruns after a build f
 
 A service that fails to boot or dies makes the run a `mistrial`, but suites that don't need it still run.
 `--against <ref>` and `check --against <ref>` copy this checkout's `.witness/` (minus runs, cache and
-scratch) into the temporary worktree, because the config is this checkout's. The VERDICT line counts
+scratch) into a temporary worktree of this repo, because the config is this checkout's. The VERDICT line counts
 failed, error (fixture errors, timeouts), missing and skipped tests per suite, and tests that exist
 only on the origin separately.
 

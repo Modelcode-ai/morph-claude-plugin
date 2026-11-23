@@ -1,5 +1,4 @@
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { ADAPTERS, selectCommand } from "./adapters.ts";
 import { type Config, loadEnv, type Service, type Suite, topoOrder } from "./config.ts";
@@ -10,6 +9,7 @@ import { applyParity, EXIT, type Outcome, type Parity, type SuiteSummary, suiteO
 import { acquireLock, killTracked, LockError, newRunId, pruneRuns, reapStale, RunDir, type Status } from "./rundir.ts";
 import { Failure, readUp, Stack } from "./stack.ts";
 import { type ArtifactEntry, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
+import { referenceSetup, releaseReference, resolveReference } from "./reference.ts";
 import { fmtDuration, git, gitInfo, writeJson } from "./util.ts";
 
 export interface RunOptions {
@@ -93,8 +93,9 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   let suites = pickSuites(cfg, opts.suites);
   const select = splitSelect(suites, opts.select);
   if (select && !opts.suites?.length) suites = suites.filter((s) => select.has(s.name));
-  if (opts.against && !originMap(cfg).size && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
-    throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`)`);
+  if (opts.against === "reference" && !cfg.reference) throw new UsageError("--against reference: the config has no [reference] section (add one, or pass a branch, tag or commit)");
+  if (opts.against && opts.against !== "reference" && !originMap(cfg).size && !cfg.reference?.repo && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
+    throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`, or --against reference)`);
   if (!suites.length) throw new UsageError("no [[suite]] in the config");
   for (const [name, ids] of select ?? []) {
     const s = suites.find((x) => x.name === name)!;
@@ -174,7 +175,10 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
         against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis };
         target.artifacts.push(...origin.artifacts);
         progress.line(`against ${opts.against} · origin ${origin.outcome} · parity: ${counts.same} same, ${counts.differs} differ, ${counts.target_only} only on target, ${counts.origin_only} only on origin`);
-        if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed") for (const l of formatDiagnosis(origin.diagnosis)) progress.plain(`  origin ${l}`);
+        if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed") {
+          for (const l of formatDiagnosis(origin.diagnosis)) progress.plain(`  origin ${l}`);
+          if (!originMap(cfg).size) progress.plain("  origin the reference side runs from [reference] in the config: when it lacks a change this checkout's setup made (a report package, a build flag), add that step as [reference] setup");
+        }
       }
     }
   } catch (e) {
@@ -241,7 +245,11 @@ export function verdictSummary(status: Status, ms?: number): string {
     if (status.against?.parity?.origin_only) parts.push(`${status.against.parity.origin_only} only on origin`);
   }
   parts.push(`${status.suites.length} suite(s)`);
-  if (status.against) parts.push(`against ${status.against.ref}: origin ${status.against.outcome}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
+  if (status.against) {
+    const d = status.against.diagnosis;
+    const why = d ? ` (${d.cause}${d.suite ? ` in ${d.suite}` : d.service ? ` in ${d.service}` : ""}: no comparison${d.suite ? " for that suite" : ""})` : "";
+    parts.push(`against ${status.against.ref}: origin ${status.against.outcome}${why}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
+  }
   if (ms != null) parts.push(fmtDuration(ms));
   return parts.join(" · ");
 }
@@ -256,6 +264,8 @@ export function printVerdict(progress: Progress, status: Status, ms: number, dir
 
 interface SideOpts {
   root: string;
+  /** Where suites run from when it isn't `root` ([reference] tests = "target"). */
+  suiteRoot?: string;
   run: RunDir;
   outDir: string;
   progress: Progress;
@@ -305,7 +315,7 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
       }
     }
     if (isTarget) o.run.setPhase("suite", "running suites");
-    const ctx: SuiteCtx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
+    const ctx: SuiteCtx = { cfg, root: o.suiteRoot ?? o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
     const died = (d: Diagnosis) => {
       bootFailed.set(d.service!, d);
       side.outcome = worst(side.outcome, "mistrial");
@@ -349,7 +359,7 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
   return side;
 }
 
-/** Run the same suites on `ref`: origin services when the config has them, else a temporary git worktree. */
+/** Run the same suites on the reference: origin services when the config has them, else [reference] or `ref` in a temporary git worktree. */
 async function runAgainst(cfg: Config, opts: RunOptions, o: Omit<SideOpts, "root" | "outDir" | "retries" | "noSetup" | "setupCacheDir" | "reuseUp">): Promise<Side> {
   const outDir = path.join(o.run.dir, "against");
   const origin = originMap(cfg);
@@ -357,50 +367,26 @@ async function runAgainst(cfg: Config, opts: RunOptions, o: Omit<SideOpts, "root
     o.progress.line(`against ${opts.against} · using role = "origin" services: ${[...origin.values()].map((s) => s.name).join(", ")}`);
     return runSide(cfg, { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup, setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin });
   }
-  const ref = opts.against!;
-  const w = addWorktree(cfg, ref);
-  if ("diagnosis" in w) return { outcome: "mistrial", suites: [], tests: [], diagnosis: w.diagnosis, artifacts: [] };
-  o.run.state.worktrees.push(w.wt);
-  o.run.saveState();
-  o.progress.line(`against ${ref} · checked out ${w.sha.slice(0, 10)} in ${w.wt}`);
-  if (w.copied) o.progress.line(`against ${ref} · copied the target's .witness/ (config helpers) into the worktree`);
-  try {
-    return await runSide(cfg, { ...o, root: w.root, outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
-  } finally {
-    removeWorktree(cfg, w.wt);
-    o.run.state.worktrees = o.run.state.worktrees.filter((x) => x !== w.wt);
+  const side = resolveReference(cfg, opts.against!);
+  if ("diagnosis" in side) return { outcome: "mistrial", suites: [], tests: [], diagnosis: side.diagnosis, artifacts: [] };
+  if (side.worktree) {
+    o.run.state.worktrees.push(side.worktree);
     o.run.saveState();
+    o.progress.line(`against ${side.label} · checked out ${side.sha!.slice(0, 10)} in ${side.worktree}`);
+    if (side.copied) o.progress.line(`against ${side.label} · copied the target's .witness/ (config helpers) into the worktree`);
+  } else o.progress.line(`against ${side.label} · reference services run in ${side.root}`);
+  if (side.suiteRoot !== side.root) o.progress.line(`against ${side.label} · suites run from this checkout against the reference services`);
+  try {
+    const failed = await referenceSetup(side, { cfg, baseEnv: o.baseEnv, logDir: path.join(outDir, "logs"), abort: o.abort, run: o.run });
+    if (failed) return { outcome: "mistrial", suites: [], tests: [], diagnosis: failed, artifacts: [] };
+    return await runSide(side.cfg, { ...o, root: side.root, suiteRoot: side.suiteRoot, outDir, retries: 0, noSetup: side.setupCacheDir ? opts.noSetup : false, setupCacheDir: side.setupCacheDir, reuseUp: false, prefix: "origin " });
+  } finally {
+    releaseReference(side);
+    if (side.worktree) {
+      o.run.state.worktrees = o.run.state.worktrees.filter((x) => x !== side.worktree);
+      o.run.saveState();
+    }
   }
-}
-
-/** A temporary detached worktree of `ref` with the target's .witness/ copied in; `root` is the config root inside it. */
-export function addWorktree(cfg: Config, ref: string): { wt: string; root: string; sha: string; copied: boolean } | { diagnosis: Diagnosis } {
-  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
-  if (!resolved.ok) return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` }) };
-  const wt = fs.mkdtempSync(path.join(os.tmpdir(), "witness-against-"));
-  const add = git(cfg.root, ["worktree", "add", "--detach", wt, resolved.out]);
-  if (!add.ok) {
-    fs.rmSync(wt, { recursive: true, force: true });
-    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` }) };
-  }
-  const root = path.join(wt, path.relative(gitTop(cfg.root), fs.realpathSync(cfg.root)));
-  const copied = copyWitnessDir(path.join(cfg.root, ".witness"), path.join(root, ".witness"));
-  return { wt, root, sha: resolved.out, copied };
-}
-
-export function removeWorktree(cfg: Config, wt: string) {
-  git(cfg.root, ["worktree", "remove", "--force", wt]);
-  fs.rmSync(wt, { recursive: true, force: true });
-  git(cfg.root, ["worktree", "prune"]);
-}
-
-const NOT_COPIED = new Set(["runs", "check", "cache", "up", "up.json", "run.lock", "scratch"]);
-
-/** The worktree runs the target's config, so it needs the target's helper files next to it, not the ref's. */
-export function copyWitnessDir(src: string, dst: string): boolean {
-  if (!fs.existsSync(src)) return false;
-  fs.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path.relative(src, p).split(path.sep)[0]) });
-  return true;
 }
 
 /** `.witness/scratch/` is for agents' temporary files; it ignores itself so nothing in it gets committed. */
@@ -412,9 +398,4 @@ export function ensureScratch(root: string) {
   } catch {
     /* read-only checkout */
   }
-}
-
-function gitTop(dir: string): string {
-  const r = git(dir, ["rev-parse", "--show-toplevel"]);
-  return r.ok ? fs.realpathSync(r.out) : dir;
 }

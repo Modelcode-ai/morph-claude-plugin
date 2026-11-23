@@ -16,8 +16,8 @@ import { ensureScratch, runCommand, UsageError } from "./run.ts";
 const HELP = `witness ${VERSION}: boot the app, run its own tests, and record results you can trust.
 
 Usage:
-  witness check  [--stage config|deps|boot|suite] [--service s] [--suite s] [--no-setup] [--against <git-ref>]
-  witness run    [--suite s]... [--select id,...] [--retries n] [--no-setup] [--against <git-ref>] [--label name]
+  witness check  [--stage config|deps|boot|suite] [--service s] [--suite s] [--no-setup] [--against <git-ref>|reference]
+  witness run    [--suite s]... [--select id,...] [--retries n] [--no-setup] [--against <git-ref>|reference] [--label name]
   witness up     [--service s] [--no-setup]        start services and leave them running (run reuses them)
   witness down                                    stop what \`witness up\` started
   witness status [run-id|latest]

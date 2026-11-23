@@ -17,9 +17,16 @@ It boots the services, runs every suite and can take many minutes. Follow the "L
 rules of the `test-change` skill: let it run to the end, read its output as it goes, and check
 `.witness/runs/latest/status.json` for progress.
 
-When the plan has `parity` items and the repo has a base branch or an origin service configured,
-add `--against <base-ref>` (for example `--against origin/main`). Witness then runs the same suites
-on the base too and records, for each test, whether its outcome is the same or differs.
+When the plan has `parity` items, add `--against <base-ref>` (for example `--against origin/main`),
+or `--against reference` when the config has a `[reference]` section. Witness then runs the same
+suites on the base too and records, for each test, whether its outcome is the same or differs.
+
+- When the VERDICT says the origin side was not compared (`origin error` or `origin mistrial`)
+  because the base lacks a step this checkout's setup added (a report package, a build flag), add
+  that step as `setup` in `[reference]` and run again.
+- When the reference app lives in another repo or starts differently (a port or rewrite), ask the
+  user where it is and how it runs, and record it in `[reference]`: `repo`, `ref`, `setup` and
+  `[reference.service.<name>]` with the commands that differ.
 
 ## 2. Read the result
 

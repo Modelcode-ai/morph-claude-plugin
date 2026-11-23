@@ -9,7 +9,8 @@ import { color, outcomeColor, Progress } from "./output.ts";
 import { childEnv, groupAlive, killGroup, runCapture } from "./proc.ts";
 import { EXIT } from "./reconcile.ts";
 import { acquireLock, LockError, newRunId, reapStale, RunDir, resolveRun, type Status } from "./rundir.ts";
-import { addWorktree, neededServices, pickSuites, removeWorktree, verdictSummary } from "./run.ts";
+import { type ReferenceSide, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
+import { neededServices, pickSuites, verdictSummary } from "./run.ts";
 import { Failure, readUp, Stack, upFile, type UpState } from "./stack.ts";
 import { runSuite } from "./suite.ts";
 import { gitInfo, pidAlive, readJson, sleep, writeJson } from "./util.ts";
@@ -71,23 +72,31 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   const onSig = () => (abort.aborted = true);
   process.on("SIGINT", onSig);
   process.on("SIGTERM", onSig);
-  let root = cfg.root;
-  let wt: string | undefined;
+  let side: ReferenceSide | undefined;
   if (o.against) {
-    const w = addWorktree(cfg, o.against);
-    if ("diagnosis" in w) {
+    const r = resolveReference(cfg, o.against);
+    if ("diagnosis" in r) {
       release();
-      p.line(color.red(`check  --against ${o.against} · ${w.diagnosis.evidence}`));
+      p.line(color.red(`check  --against ${o.against} · ${r.diagnosis.evidence}`));
       return done(EXIT_USAGE);
     }
-    ({ wt, root } = w);
-    run.state.worktrees.push(wt);
-    run.saveState();
-    p.line(`check  against ${o.against} · checked out ${w.sha.slice(0, 10)} in ${wt}${w.copied ? " (with this checkout's .witness/)" : ""}`);
+    side = r;
+    if (r.worktree) {
+      run.state.worktrees.push(r.worktree);
+      run.saveState();
+      p.line(`check  against ${r.label} · checked out ${r.sha!.slice(0, 10)} in ${r.worktree}${r.copied ? " (with this checkout's .witness/)" : ""}`);
+    } else p.line(`check  against ${r.label} · reference services run in ${r.root}`);
   }
-  const stack = new Stack({ cfg, root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !wt, setupCacheDir: wt ? null : path.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: wt ? null : readUp(cfg.root) });
+  const root = side?.root ?? cfg.root;
+  const suiteRoot = side?.suiteRoot ?? cfg.root;
+  const fresh = !!side?.worktree;
+  const stack = new Stack({ cfg: side?.cfg ?? cfg, root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !fresh, setupCacheDir: side ? side.setupCacheDir : path.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: side ? null : readUp(cfg.root) });
   let code = 0;
   try {
+    if (side) {
+      const failed = await referenceSetup(side, { cfg, baseEnv: env, logDir: run.file("logs"), abort, run });
+      if (failed) throw new Failure(failed);
+    }
     await stack.checkDeps();
     report.push({ stage: "deps", ok: true, detail: `${cfg.dependencies.length} dependency check(s) passed` });
     if (upTo < 2) {
@@ -107,10 +116,10 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
       return done(0);
     }
     const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
-    const ctx = { cfg, root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
+    const ctx = { cfg, root: suiteRoot, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
     for (const s of suites) {
       const ad = ADAPTERS[s.adapter];
-      const hint = s.report ? undefined : ad.reportHint?.(path.resolve(root, s.cwd), s.cmd);
+      const hint = s.report ? undefined : ad.reportHint?.(path.resolve(suiteRoot, s.cwd), s.cmd);
       if (hint) {
         const d = diagnose({ stage: "report", cause: "report_missing", suite: s.name, command: s.cmd, evidence: hint, extraTry: [hint] });
         report.push({ stage: "suite", ok: false, detail: `${s.name}: cannot write a per-test report`, diagnosis: d });
@@ -119,7 +128,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
         code = Math.max(code, EXIT.error);
         continue;
       }
-      const cwd = path.resolve(root, s.cwd);
+      const cwd = path.resolve(suiteRoot, s.cwd);
       const cenv = childEnv(env, { ...stack.serviceUrlEnv(), ...ad.env, ...Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, substitute(v, stack.vars())])) });
       let pluginMissing = false;
       for (const pl of ad.plugins ?? []) {
@@ -161,8 +170,8 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
     code = EXIT.mistrial;
   } finally {
     await stack.teardown();
-    if (wt) {
-      removeWorktree(cfg, wt);
+    if (side) {
+      releaseReference(side);
       run.state.worktrees = [];
       run.saveState();
     }

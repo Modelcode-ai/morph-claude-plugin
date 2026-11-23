@@ -21,7 +21,7 @@ For each suite your plan uses (see `.witness/witness.toml`):
 - Prefer tests that call the app witness started. Witness gives every suite each running
   service's URL as `WITNESS_<SERVICE>_URL` (`WITNESS_WEB_URL` for a service named `web`), and
   `${web.url}` works in the suite's `cmd` and `env`. Such tests exercise the configured app, and
-  `--against` with an origin service runs them against both apps; tests that start their own
+  `--against` with a reference app runs them against both apps; tests that start their own
   copy (`service = []`) test the same code twice. Never hard-code a host or port.
 - Use the framework the repo already uses for that kind of test. Add a new framework only if the
   repo has none for that kind of test, and say so in your report.
