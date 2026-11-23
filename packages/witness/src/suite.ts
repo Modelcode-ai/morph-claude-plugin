@@ -161,7 +161,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
     expected = await listTests(ctx, suite, adapter, cwd, log);
   }
   let res: ReconcileResult = broken
-    ? { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken }
+    ? { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it" }
     : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
 
   if (res.rerun?.length && !ctx.abort.aborted) {

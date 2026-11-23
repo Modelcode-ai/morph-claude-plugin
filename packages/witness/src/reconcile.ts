@@ -151,7 +151,9 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
     for (const id of absent) tests.push(missing(id, adapter, suite, "missing"));
     const failed = tests.filter((t) => t.status === "failed");
     if (failed.length && failed.every((t) => t.statusDetail === "error")) {
-      return { tests, state: "error", cause: "setup_failed", note: `${failed.length} test(s) errored in fixture setup; none failed its own checks`, evidence: failed[0].message?.split("\n")[0].slice(0, 500) };
+      const lines = (failed[0].message ?? "").split("\n").map((l) => l.replace(/^[-\s]+/, "").trim()).filter(Boolean);
+      const inner = lines.slice(1).find((l) => /exception|error|did not|timed? ?out|refused|not found/i.test(l));
+      return { tests, state: "error", cause: "setup_failed", note: `${failed.length} test(s) errored in fixture setup; none failed its own checks`, evidence: [lines[0], inner].filter(Boolean).join(" · ").slice(0, 500), hint: "a test fixture's setup failed (it starts a browser, app, container or database), so no test ran its own checks: fix what the fixture needs, then run the suite again" };
     }
     if (failed.length) return { tests, state: "failed", note: unreadable.length ? `${unreadable.length} report file(s) unreadable` : undefined };
     if (exitCode !== 0) return { tests, state: "error", cause: "report_incomplete", note: `exit code ${exitCode} but the report shows no failures` };

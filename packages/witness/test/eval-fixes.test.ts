@@ -112,6 +112,7 @@ describe("eShopOnWeb eval fixes: suites", { concurrency: 4 }, () => {
     assert.equal(r.json?.diagnosis.stage, "suite");
     assert.match(r.json?.diagnosis.evidence, /error CS1525/);
     assert.ok(!r.json?.diagnosis.try.some((t: string) => /writes its report/.test(t)));
+    assert.ok(r.json?.diagnosis.try.some((t: string) => /failed before any test ran/.test(t)));
     assert.doesNotMatch(r.stderr, /listing tests|rerunning/);
   });
 
@@ -138,6 +139,8 @@ describe("eShopOnWeb eval fixes: suites", { concurrency: 4 }, () => {
     assert.equal(r.code, 2, r.stderr);
     assert.equal(r.json?.diagnosis.cause, "setup_failed");
     assert.match(r.json?.diagnosis.evidence, /threw in InitializeAsync/);
+    assert.ok(r.json?.diagnosis.try.some((t: string) => /fixture's setup failed/.test(t)));
+    assert.ok(!r.json?.diagnosis.try.some((t: string) => /build error/.test(t)));
     assert.match(r.stderr, /VERDICT error · 0 passed, 0 failed · 3 error/);
   });
 

@@ -134,7 +134,6 @@ function suggestions(d: Diagnosis, inp: DiagnoseInput, missingTool: boolean): st
     case "setup_failed":
       if (log) t.push(log);
       if (inp.command) t.push(inCwd(inp.command)!);
-      if (inp.stage === "suite") t.push(`the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it`);
       break;
     case "exited_before_ready":
     case "service_died":
