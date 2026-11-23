@@ -123,7 +123,8 @@ export function initCommand(root: string, json: boolean): number {
   const example = path.join(dir, "witness.example.toml");
   fs.writeFileSync(example, renderExample(g));
   const gi = path.join(dir, ".gitignore");
-  if (!fs.existsSync(gi)) fs.writeFileSync(gi, "runs/\ncheck/\ncache/\nup/\nup.json\nrun.lock\n.env\n");
+  if (!fs.existsSync(gi)) fs.writeFileSync(gi, "runs/\ncheck/\ncache/\nup/\nup.json\nrun.lock\nscratch/\n.env\n");
+  else if (!/^scratch\/$/m.test(fs.readFileSync(gi, "utf8"))) fs.appendFileSync(gi, "scratch/\n");
   if (json) process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + "\n");
   else {
     process.stderr.write(`witness  wrote ${example}\n`);

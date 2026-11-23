@@ -34,6 +34,7 @@ env = { API_URL = "\${api.url}" }
 [[service]]
 name = "web"
 start = "npm run web"
+ready = { cmd = "true" }
 depends_on = ["api"]
 [[service]]
 name = "api-origin"
@@ -81,9 +82,10 @@ describe("config v1", () => {
     assert.match(err(`version = 1\n[[suite]]\nname = "s"\ncmd = "x"\nadapter = "nose"`), /^suite\.s\.adapter: unknown adapter "nose"/);
     assert.match(err(`version = 1\n[[suite]]\nname = "s"\ncmd = "x"\ntimeout = "forever"`), /^suite\.s\.timeout: expected a duration/);
     assert.match(err(`version = 1\n[[suite]]\nname = "s"\ncmd = "x"\nservice = "nope"`), /^suite\.s\.service: unknown service "nope"/);
-    assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "x"\ndepends_on = ["b"]\n[[service]]\nname = "b"\nstart = "x"\ndepends_on = ["a"]`), /dependency cycle: a -> b -> a/);
-    assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "\${b.url}"`), /^service\.a\.start: \$\{b\.url\} refers to an unknown service/);
+    assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "x"\nready = { cmd = "true" }\ndepends_on = ["b"]\n[[service]]\nname = "b"\nstart = "x"\nready = { cmd = "true" }\ndepends_on = ["a"]`), /dependency cycle: a -> b -> a/);
+    assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "\${b.url}"\nready = { cmd = "true" }`), /^service\.a\.start: \$\{b\.url\} refers to an unknown service/);
     assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "x"\nready = { http = "/", cmd = "true" }`), /^service\.a\.ready: set exactly one of http or cmd/);
+    assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "x"`), /^service\.a\.ready: is required: a service counts as up only after its readiness check passes/);
     assert.match(err(`version = 1\n[[dependency]]\nname = "db"`), /^dependency\[0\]: "db" needs check or check_http/);
     assert.match(err(`version = 1\n[runn]\nx = 1`), /^runn: unknown key \(did you mean "run"\?\)/);
   });

@@ -44,6 +44,11 @@ export interface DiagnoseInput {
   envMissing?: string[];
   evidence?: string;
   extraTry?: string[];
+  /** The adapter can pass a per-test timeout for this suite. */
+  perTestTimeout?: boolean;
+  adapter?: string;
+  /** The ready URL kept answering with this 4xx status: the URL, not the timeout, is wrong. */
+  steadyStatus?: number;
 }
 
 interface Pattern {
@@ -96,7 +101,7 @@ export function diagnose(inp: DiagnoseInput): Diagnosis {
   const d: Diagnosis = {
     stage: inp.stage,
     cause,
-    retryable: RETRYABLE.has(cause),
+    retryable: RETRYABLE.has(cause) && !(cause === "ready_timeout" && inp.steadyStatus),
     try: [],
   };
   if (inp.service) d.service = inp.service;
@@ -129,6 +134,7 @@ function suggestions(d: Diagnosis, inp: DiagnoseInput, missingTool: boolean): st
     case "setup_failed":
       if (log) t.push(log);
       if (inp.command) t.push(inCwd(inp.command)!);
+      if (inp.stage === "suite") t.push(`the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it`);
       break;
     case "exited_before_ready":
     case "service_died":
@@ -140,7 +146,8 @@ function suggestions(d: Diagnosis, inp: DiagnoseInput, missingTool: boolean): st
     case "ready_timeout":
       if (inp.url) t.push(`curl -i ${inp.url}`);
       if (log) t.push(log);
-      t.push(`raise ready.timeout for service ${svc ?? ""}`.trim());
+      if (inp.steadyStatus) t.push(`the app answers HTTP ${inp.steadyStatus} at the ready URL, so it is up but the URL ${inp.steadyStatus === 404 ? "does not exist" : "is refused"}: fix ready.http (or ready.status) for service ${svc ?? ""}; a longer timeout will not help`.trim());
+      else t.push(`raise ready.timeout for service ${svc ?? ""}`.trim());
       break;
     case "port_in_use":
       if (inp.port) t.push(`lsof -nP -iTCP:${inp.port} -sTCP:LISTEN`);
@@ -161,7 +168,9 @@ function suggestions(d: Diagnosis, inp: DiagnoseInput, missingTool: boolean): st
       break;
     case "stalled":
       if (log) t.push(log);
-      t.push(`set per_test_timeout for suite ${inp.suite ?? ""} so a hung test fails instead of hanging`);
+      if (inp.perTestTimeout !== false) t.push(`set per_test_timeout for suite ${inp.suite ?? ""} so a hung test fails instead of hanging`);
+      else if (inp.adapter === "dotnet") t.push(`per_test_timeout does nothing for this dotnet project (Microsoft.Testing.Platform); to name the hung test add the Microsoft.Testing.Extensions.HangDump package and append --hangdump --hangdump-timeout 5m to the suite cmd`);
+      if (inp.perTestTimeout === false) t.push(`narrow it down: witness run --suite ${inp.suite ?? "<suite>"} --select <test-id>,...`);
       t.push("raise [run] stall_timeout if the suite is legitimately quiet for long");
       break;
     case "report_missing":

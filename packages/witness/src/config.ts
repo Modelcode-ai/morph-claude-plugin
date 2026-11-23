@@ -270,6 +270,7 @@ export function parseConfig(doc: Obj, file: string): Config {
     };
     if (!svc.start && !svc.external) throw new ConfigError(where, "needs start (a command) or external (a URL)");
     if (svc.external && !/^https?:\/\//.test(svc.external)) throw new ConfigError(`${where}.external`, "expected an http(s) URL");
+    if (!svc.ready && !svc.external) throw new ConfigError(`${where}.ready`, 'is required: a service counts as up only after its readiness check passes; set ready = { http = "${self.url}/health" } or ready = { cmd = "..." } (ready = { cmd = "true" } for a worker with nothing to probe)');
     return svc;
   });
 

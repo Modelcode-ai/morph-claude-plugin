@@ -7,7 +7,7 @@ import { color, outcomeColor, Progress } from "./output.ts";
 import { childEnv, groupAlive, killGroup, runCapture } from "./proc.ts";
 import { EXIT } from "./reconcile.ts";
 import { acquireLock, LockError, newRunId, reapStale, RunDir, resolveRun, type Status } from "./rundir.ts";
-import { neededServices, pickSuites, verdictSummary } from "./run.ts";
+import { addWorktree, neededServices, pickSuites, removeWorktree, verdictSummary } from "./run.ts";
 import { Failure, readUp, Stack, upFile, type UpState } from "./stack.ts";
 import { runSuite } from "./suite.ts";
 import { gitInfo, pidAlive, readJson, sleep, writeJson } from "./util.ts";
@@ -20,7 +20,7 @@ function printDiag(p: Progress, d: Diagnosis) {
 }
 
 /** Validate config, env, deps, boot each service, then list or smoke-run each suite. */
-export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: string; suites?: string[]; json: boolean; noSetup: boolean }): Promise<number> {
+export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: string; suites?: string[]; json: boolean; noSetup: boolean; against?: string }): Promise<number> {
   const p = new Progress();
   const upTo = STAGES.indexOf(o.stage ?? "suite");
   const report: { stage: Stage; ok: boolean; detail: string; diagnosis?: Diagnosis }[] = [];
@@ -61,13 +61,27 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   const onSig = () => (abort.aborted = true);
   process.on("SIGINT", onSig);
   process.on("SIGTERM", onSig);
-  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup, setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: readUp(cfg.root) });
+  let root = cfg.root;
+  let wt: string | undefined;
+  if (o.against) {
+    const w = addWorktree(cfg, o.against);
+    if ("diagnosis" in w) {
+      release();
+      p.line(color.red(`check  --against ${o.against} · ${w.diagnosis.evidence}`));
+      return done(EXIT_USAGE);
+    }
+    ({ wt, root } = w);
+    run.state.worktrees.push(wt);
+    run.saveState();
+    p.line(`check  against ${o.against} · checked out ${w.sha.slice(0, 10)} in ${wt}${w.copied ? " (with this checkout's .witness/)" : ""}`);
+  }
+  const stack = new Stack({ cfg, root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !wt, setupCacheDir: wt ? null : path.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: wt ? null : readUp(cfg.root) });
   let code = 0;
   try {
     await stack.checkDeps();
     report.push({ stage: "deps", ok: true, detail: `${cfg.dependencies.length} dependency check(s) passed` });
     if (upTo < 2) {
-      p.plain(color.green("CHECK ok · up to deps"));
+      p.plain(color.green(`CHECK ok · up to deps${o.against ? ` · against ${o.against}` : ""}`));
       return done(0);
     }
     const services = o.service ? [o.service] : cfg.services.filter((s) => s.role === "target").map((s) => s.name);
@@ -75,16 +89,25 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
     await stack.boot(services);
     report.push({ stage: "boot", ok: true, detail: [...stack.live.values()].map((l) => `${l.svc.name} at ${l.url}`).join(", ") || "no services" });
     if (upTo < 3) {
-      p.plain(color.green("CHECK ok · up to boot"));
+      p.plain(color.green(`CHECK ok · up to boot${o.against ? ` · against ${o.against}` : ""}`));
       return done(0);
     }
     const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
-    const ctx = { cfg, root: cfg.root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
+    const ctx = { cfg, root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
     for (const s of suites) {
       const ad = ADAPTERS[s.adapter];
+      const hint = s.report ? undefined : ad.reportHint?.(path.resolve(root, s.cwd), s.cmd);
+      if (hint) {
+        const d = diagnose({ stage: "report", cause: "report_missing", suite: s.name, command: s.cmd, evidence: hint, extraTry: [hint] });
+        report.push({ stage: "suite", ok: false, detail: `${s.name}: cannot write a per-test report`, diagnosis: d });
+        p.line(color.red(`check  suite ${s.name} · cannot write a per-test report`));
+        printDiag(p, d);
+        code = Math.max(code, EXIT.error);
+        continue;
+      }
       const listCmd = ad.list?.cmd(s.cmd);
       if (listCmd) {
-        const r = await runCapture(listCmd, { cwd: path.resolve(cfg.root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.list.log`) });
+        const r = await runCapture(listCmd, { cwd: path.resolve(root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.list.log`) });
         const ids = r.code === 0 ? ad.list!.parse(r.out) : [];
         if (ids.length) {
           report.push({ stage: "suite", ok: true, detail: `${s.name}: ${ids.length} test(s) listed` });
@@ -111,6 +134,11 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
     code = EXIT.mistrial;
   } finally {
     await stack.teardown();
+    if (wt) {
+      removeWorktree(cfg, wt);
+      run.state.worktrees = [];
+      run.saveState();
+    }
     run.status.phase = "finished";
     run.saveStatus();
     release();
@@ -118,9 +146,12 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
     process.off("SIGTERM", onSig);
   }
   if (abort.aborted) code = EXIT.interrupted;
-  p.plain(code === 0 ? color.green("CHECK ok") : color.yellow(`CHECK failed · logs: ${run.file("logs")}`));
+  const on = o.against ? ` · against ${o.against}` : "";
+  p.plain(code === 0 ? color.green(`CHECK ok${on}`) : color.yellow(`CHECK failed${on} · logs: ${run.file("logs")}`));
   return done(code);
 }
+
+const EXIT_USAGE = 64;
 
 /** Start deps and services and leave them running; `run` reuses them. */
 export async function upCommand(cfg: Config, o: { service?: string; noSetup: boolean; json: boolean; runDirRoot: string }): Promise<number> {

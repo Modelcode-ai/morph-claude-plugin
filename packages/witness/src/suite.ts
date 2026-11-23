@@ -41,6 +41,64 @@ interface Exec {
 
 const MAX_RERUNS = 200;
 
+const BUILD_FAILED = [
+  /\berror (CS|FS|BC|MSB|NU|NETSDK)\d{4}\b/,
+  /\bBuild FAILED\b/,
+  /\[ERROR\] (COMPILATION ERROR|Failed to execute goal \S+:(compile|testCompile|resources))/,
+  /^FAILURE: Build failed with an exception/,
+  /^e: .*\.kts?:\d+/,
+  /\berror TS\d{4}\b/,
+  /^(FAIL|ok)\s+\S+\s+\[(build|setup) failed\]/,
+  /^No test projects were found\.?$/,
+  /: command not found$|^bash: .*: No such file or directory$/,
+];
+
+/** The first line of `text` that shows the suite command failed before any test ran (compile error, missing command). */
+export function buildFailure(text: string, exitCode: number | null): string | undefined {
+  const lines = text.split(/\r?\n/);
+  for (const re of BUILD_FAILED) {
+    const hit = lines.find((l) => re.test(l.trim()));
+    if (hit) return hit.trim().slice(0, 500);
+  }
+  return exitCode === 127 ? lines.filter((l) => l.trim()).at(-1)?.trim().slice(0, 500) : undefined;
+}
+
+/** A report file the framework says it wrote; it explains a missing report when that path is empty here. */
+export function reportPathEvidence(text: string): string | undefined {
+  const paths: string[] = [];
+  let listing = false;
+  for (const line of text.split(/\r?\n/)) {
+    const named = /Results File:\s*(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
+    if (named) paths.push(named[1]);
+    if (/artifacts produced:?\s*$/i.test(line)) listing = true;
+    else if (listing) {
+      const m = /^\s*-\s+(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
+      if (m) paths.push(m[1]);
+      else if (line.trim()) listing = false;
+    }
+  }
+  const p = paths.find((x) => path.isAbsolute(x));
+  if (!p) return undefined;
+  return fs.existsSync(p) ? `the test run wrote its report to ${p}, outside the folders witness reads; set report = "<glob>" for the suite` : `the test run says it wrote ${p}, but there is no such file here (written inside a container, or on another filesystem?)`;
+}
+
+function readFrom(file: string, offset: number): string {
+  try {
+    const fd = fs.openSync(file, "r");
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = Math.max(offset, size - 512 * 1024);
+      const buf = Buffer.alloc(Math.max(0, size - start));
+      fs.readSync(fd, buf, 0, buf.length, start);
+      return buf.toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
+
 export const safeId = (id: string) => id.replace(/[^\w.@-]+/g, "_").slice(0, 180);
 
 function dirSize(dir: string): number {
@@ -89,16 +147,21 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
   ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
   ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
+  const logStart = fileSize(log);
   const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
   const files = collect(ctx, suite, adapter, cwd, reportDir, log, t0);
   let expected = select;
   const usable = files.some((f) => f.cases.length);
   const hint = adapter.reportHint?.(cwd, cmd);
-  if (!expected && !usable && !hint && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
+  const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
+  const output = !usable && exec.end === "exit" && !exitCodeOnly ? readFrom(log, logStart) : "";
+  const broken = output && exec.code !== 0 ? buildFailure(output, exec.code) : undefined;
+  if (!expected && !usable && !hint && !broken && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
     expected = await listTests(ctx, suite, adapter, cwd, log);
   }
-  const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
-  let res: ReconcileResult = reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
+  let res: ReconcileResult = broken
+    ? { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken }
+    : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
 
   if (res.rerun?.length && !ctx.abort.aborted) {
     if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select) && !hint) {
@@ -141,7 +204,9 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   if (exec.died) diagnosis = exec.died;
   else if (res.cause && res.state !== "failed" && res.state !== "passed") {
     const h = res.cause === "report_missing" ? hint : undefined;
-    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence: h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : undefined), extraTry: h ? [h] : undefined });
+    const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
+    const extraTry = [h, res.hint].filter((x): x is string => !!x);
+    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeout && adapter.perTestTimeout(60_000, cwd, cmd)), adapter: suite.adapter });
   }
   ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
   const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");

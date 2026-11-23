@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ADAPTERS, selectCommand } from "./adapters.ts";
-import { type Config, loadEnv, type Service, type Suite } from "./config.ts";
+import { type Config, loadEnv, type Service, type Suite, topoOrder } from "./config.ts";
 import { buildCtrf } from "./ctrf.ts";
 import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { color, outcomeColor, Progress } from "./output.ts";
@@ -141,6 +141,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   const { env: baseEnv, missing } = loadEnv(cfg);
   let target: Side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
   let against: { ref: string; outcome: Outcome; parity?: Record<Parity, number>; diagnosis?: Diagnosis } | undefined;
+  let internalError: string | undefined;
 
   try {
     if (missing.length) {
@@ -172,6 +173,10 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
         if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed") for (const l of formatDiagnosis(origin.diagnosis)) progress.plain(`  origin ${l}`);
       }
     }
+  } catch (e) {
+    internalError = (e as Error).stack ?? String(e);
+    progress.plain(color.red(`witness internal error: ${internalError}`));
+    target = { ...target, outcome: "error" };
   } finally {
     clearInterval(hb);
   }
@@ -183,6 +188,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   status.suites = target.suites;
   status.outcome = target.outcome;
   if (target.diagnosis) status.diagnosis = target.diagnosis;
+  if (internalError) status.internal_error = internalError.split("\n")[0];
   if (against) status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...(against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {}) };
   const ctrf = buildCtrf(
     {
@@ -219,12 +225,14 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
 }
 
 export function verdictSummary(status: Status, ms?: number): string {
-  const s = status.summary;
   const parts: string[] = [];
-  if (s) {
-    parts.push(`${s.passed} passed, ${s.failed} failed`);
-    if (s.skipped) parts.push(`${s.skipped} skipped`);
-    if (s.other) parts.push(`${s.other} other`);
+  if (status.summary) {
+    const sum = (k: "passed" | "failed" | "error" | "missing" | "skipped") => status.suites.reduce((a, x) => a + (x[k] ?? 0), 0);
+    parts.push(`${sum("passed")} passed, ${sum("failed")} failed`);
+    if (sum("error")) parts.push(`${sum("error")} error`);
+    if (sum("missing")) parts.push(`${sum("missing")} missing`);
+    if (sum("skipped")) parts.push(`${sum("skipped")} skipped`);
+    if (status.against?.parity?.origin_only) parts.push(`${status.against.parity.origin_only} only on origin`);
   }
   parts.push(`${status.suites.length} suite(s)`);
   if (status.against) parts.push(`against ${status.against.ref}: origin ${status.against.outcome}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
@@ -269,20 +277,36 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
     if (isTarget) o.run.setPhase("deps", "checking dependencies");
     await stack.checkDeps();
     if (isTarget) o.run.setPhase("boot", "booting services");
-    const wanted = neededServices(cfg, o.suites);
-    if (o.origin?.size) {
-      const alias = new Map<string, string>();
-      const names = wanted.map((n) => {
-        const org = o.origin!.get(n);
-        if (org) alias.set(org.name, n);
-        return org?.name ?? n;
-      });
-      await stack.boot(names, alias);
-    } else await stack.boot(wanted);
+    const alias = new Map<string, string>();
+    const bootName = (n: string) => {
+      const org = o.origin?.get(n);
+      if (org) alias.set(org.name, n);
+      return org?.name ?? n;
+    };
+    const chain = (names: string[]) => topoOrder(cfg.services, names.map(bootName)).map((x) => x.name);
+    const bootFailed = new Map<string, Diagnosis>();
+    const blocker = (names: string[]) => chain(names).find((n) => bootFailed.has(n));
+    for (const n of neededServices(cfg, o.suites)) {
+      if (o.abort.aborted || blocker([n])) continue;
+      try {
+        await stack.boot([bootName(n)], alias);
+      } catch (e) {
+        if (!(e instanceof Failure)) throw e;
+        bootFailed.set(e.diagnosis.service && chain([n]).includes(e.diagnosis.service) ? e.diagnosis.service : bootName(n), e.diagnosis);
+        o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
+        side.outcome = "mistrial";
+        side.diagnosis ??= e.diagnosis;
+      }
+    }
     if (isTarget) o.run.setPhase("suite", "running suites");
     const ctx: SuiteCtx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
     for (const s of o.suites) {
       if (o.abort.aborted) break;
+      const blocked = blocker(neededServices(cfg, [s]));
+      if (blocked) {
+        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: `not run: service ${blocked} ${bootFailed.get(blocked)!.cause}` });
+        continue;
+      }
       const r = await runSuite(ctx, s, o.select?.get(s.name), o.retries);
       side.suites.push(r.summary);
       side.tests.push(...r.tests);
@@ -322,30 +346,59 @@ async function runAgainst(cfg: Config, opts: RunOptions, o: Omit<SideOpts, "root
     return runSide(cfg, { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup, setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin });
   }
   const ref = opts.against!;
-  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
-  if (!resolved.ok) {
-    const d = diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` });
-    return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
+  const w = addWorktree(cfg, ref);
+  if ("diagnosis" in w) return { outcome: "mistrial", suites: [], tests: [], diagnosis: w.diagnosis, artifacts: [] };
+  o.run.state.worktrees.push(w.wt);
+  o.run.saveState();
+  o.progress.line(`against ${ref} · checked out ${w.sha.slice(0, 10)} in ${w.wt}`);
+  if (w.copied) o.progress.line(`against ${ref} · copied the target's .witness/ (config helpers) into the worktree`);
+  try {
+    return await runSide(cfg, { ...o, root: w.root, outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
+  } finally {
+    removeWorktree(cfg, w.wt);
+    o.run.state.worktrees = o.run.state.worktrees.filter((x) => x !== w.wt);
+    o.run.saveState();
   }
+}
+
+/** A temporary detached worktree of `ref` with the target's .witness/ copied in; `root` is the config root inside it. */
+export function addWorktree(cfg: Config, ref: string): { wt: string; root: string; sha: string; copied: boolean } | { diagnosis: Diagnosis } {
+  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  if (!resolved.ok) return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` }) };
   const wt = fs.mkdtempSync(path.join(os.tmpdir(), "witness-against-"));
   const add = git(cfg.root, ["worktree", "add", "--detach", wt, resolved.out]);
   if (!add.ok) {
     fs.rmSync(wt, { recursive: true, force: true });
-    const d = diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` });
-    return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
+    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` }) };
   }
-  o.run.state.worktrees.push(wt);
-  o.run.saveState();
-  o.progress.line(`against ${ref} · checked out ${resolved.out.slice(0, 10)} in ${wt}`);
+  const root = path.join(wt, path.relative(gitTop(cfg.root), fs.realpathSync(cfg.root)));
+  const copied = copyWitnessDir(path.join(cfg.root, ".witness"), path.join(root, ".witness"));
+  return { wt, root, sha: resolved.out, copied };
+}
+
+export function removeWorktree(cfg: Config, wt: string) {
+  git(cfg.root, ["worktree", "remove", "--force", wt]);
+  fs.rmSync(wt, { recursive: true, force: true });
+  git(cfg.root, ["worktree", "prune"]);
+}
+
+const NOT_COPIED = new Set(["runs", "check", "cache", "up", "up.json", "run.lock", "scratch"]);
+
+/** The worktree runs the target's config, so it needs the target's helper files next to it, not the ref's. */
+export function copyWitnessDir(src: string, dst: string): boolean {
+  if (!fs.existsSync(src)) return false;
+  fs.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path.relative(src, p).split(path.sep)[0]) });
+  return true;
+}
+
+/** `.witness/scratch/` is for agents' temporary files; it ignores itself so nothing in it gets committed. */
+export function ensureScratch(root: string) {
+  const dir = path.join(root, ".witness", "scratch");
   try {
-    const sub = path.relative(gitTop(cfg.root), fs.realpathSync(cfg.root));
-    return await runSide(cfg, { ...o, root: path.join(wt, sub), outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
-  } finally {
-    git(cfg.root, ["worktree", "remove", "--force", wt]);
-    fs.rmSync(wt, { recursive: true, force: true });
-    git(cfg.root, ["worktree", "prune"]);
-    o.run.state.worktrees = o.run.state.worktrees.filter((w) => w !== wt);
-    o.run.saveState();
+    fs.mkdirSync(dir, { recursive: true });
+    if (!fs.existsSync(path.join(dir, ".gitignore"))) fs.writeFileSync(path.join(dir, ".gitignore"), "*\n");
+  } catch {
+    /* read-only checkout */
   }
 }
 

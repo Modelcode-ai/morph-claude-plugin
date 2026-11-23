@@ -10,12 +10,12 @@ import { lintCommand } from "./lint.ts";
 import { skillsCommand } from "./skills.ts";
 import { type Plan, parsePlan, planCheckCommand } from "./plan.ts";
 import { EXIT } from "./reconcile.ts";
-import { runCommand, UsageError } from "./run.ts";
+import { ensureScratch, runCommand, UsageError } from "./run.ts";
 
 const HELP = `witness ${VERSION}: boot the app, run its own tests, and record results you can trust.
 
 Usage:
-  witness check  [--stage config|deps|boot|suite] [--service s] [--suite s] [--no-setup]
+  witness check  [--stage config|deps|boot|suite] [--service s] [--suite s] [--no-setup] [--against <git-ref>]
   witness run    [--suite s]... [--select id,...] [--retries n] [--no-setup] [--against <git-ref>] [--label name]
   witness up     [--service s] [--no-setup]        start services and leave them running (run reuses them)
   witness down                                    stop what \`witness up\` started
@@ -132,13 +132,14 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (!needsConfig) throw new UsageError(`unknown command "${cmd}"`);
     cfg = loadConfig(configPath(flags));
+    ensureScratch(cfg.root);
     const rr = runRoot(flags, cfg.root);
     switch (cmd) {
       case "check": {
         const stage = flags.stage as string | undefined;
         if (stage && !["config", "deps", "boot", "suite"].includes(stage)) throw new UsageError(`--stage must be config, deps, boot or suite`);
         if (typeof flags.service === "string" && !cfg.services.some((s) => s.name === flags.service)) throw new UsageError(`unknown service "${flags.service}"`);
-        return await checkCommand(cfg, { stage: stage as "config" | undefined, service: flags.service as string | undefined, suites: lists.suite, json, noSetup: !!flags["no-setup"] });
+        return await checkCommand(cfg, { stage: stage as "config" | undefined, service: flags.service as string | undefined, suites: lists.suite, json, noSetup: !!flags["no-setup"], against: flags.against as string | undefined });
       }
       case "run": {
         const retries = flags.retries === undefined ? 0 : Number(flags.retries);

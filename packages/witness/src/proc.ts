@@ -123,6 +123,20 @@ export async function httpProbe(url: string, status?: number, timeoutMs = 3000):
   }
 }
 
+/** True when something already accepts TCP connections on host:port. */
+export function portAnswers(host: string, port: number, timeoutMs = 1000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port });
+    const done = (v: boolean) => {
+      sock.destroy();
+      resolve(v);
+    };
+    sock.setTimeout(timeoutMs, () => done(false));
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+}
+
 export function portFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const srv = net.createServer();

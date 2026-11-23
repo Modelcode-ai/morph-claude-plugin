@@ -60,6 +60,8 @@ export interface ReconcileResult {
   note?: string;
   /** No usable report: the caller should rerun these ids one by one. */
   rerun?: string[];
+  evidence?: string;
+  hint?: string;
 }
 
 const SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
@@ -146,11 +148,16 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
     const have = new Set(tests.map((t) => t.id));
     const absent = expected.filter((id) => !presentIn(have, id));
     for (const id of absent) tests.push(missing(id, adapter, suite, "missing"));
-    const failed = tests.some((t) => t.status === "failed");
-    if (failed) return { tests, state: "failed", note: unreadable.length ? `${unreadable.length} report file(s) unreadable` : undefined };
+    const failed = tests.filter((t) => t.status === "failed");
+    if (failed.length && failed.every((t) => t.statusDetail === "error")) {
+      return { tests, state: "error", cause: "setup_failed", note: `${failed.length} test(s) errored in fixture setup; none failed its own checks`, evidence: failed[0].message?.split("\n")[0].slice(0, 500) };
+    }
+    if (failed.length) return { tests, state: "failed", note: unreadable.length ? `${unreadable.length} report file(s) unreadable` : undefined };
     if (exitCode !== 0) return { tests, state: "error", cause: "report_incomplete", note: `exit code ${exitCode} but the report shows no failures` };
     if (absent.length) return { tests, state: "error", cause: "report_incomplete", note: `${absent.length} expected test(s) missing from the report` };
     if (unreadable.length) return { tests, state: "error", cause: "report_unreadable", note: `${unreadable.length} report file(s) unreadable: ${unreadable[0].error}` };
+    if (tests.every((t) => t.status === "skipped" || t.status === "pending"))
+      return { tests, state: "error", cause: "report_incomplete", note: `all ${tests.length} test(s) were skipped; nothing was checked`, hint: "every test was skipped: look for a skip condition that fired (a fixture that skips when the app or a dependency is unreachable, a missing marker or env var)" };
     return { tests, state: "passed" };
   }
 
@@ -173,16 +180,22 @@ export function fromReruns(results: { id: string; exitCode: number | null; files
   for (const r of results) {
     const sid = stableId(adapter.name, r.id);
     const cases = r.files.flatMap((f) => f.cases.map((c) => toRecord(c, adapter, suite, cwd, "per-test-rerun")));
-    const hit = cases.find((c) => c.id === sid) ?? (cases.length === 1 ? { ...cases[0], id: sid } : undefined);
+    const exact = cases.find((c) => c.id === sid);
+    const params = cases.filter((c) => presentIn(new Set([c.id]), sid));
+    const hit = exact ?? (params.length ? { ...params[0], id: sid, status: params.some((c) => c.status === "failed") ? ("failed" as const) : params[0].status } : cases.length === 1 ? { ...cases[0], id: sid } : undefined);
     if (hit) tests.push(hit);
-    else {
-      const t: TestRecord = { id: sid, name: r.id, suite, adapter: adapter.name, status: r.exitCode === 0 ? "passed" : "failed", durationMs: 0, obtained: "per-test-rerun", message: r.timedOut ? "timed out when run alone" : `run alone: exit code ${r.exitCode}` };
+    else if (r.timedOut || r.exitCode !== 0) {
+      const t: TestRecord = { id: sid, name: r.id, suite, adapter: adapter.name, status: "failed", durationMs: 0, obtained: "per-test-rerun", message: r.timedOut ? "timed out when run alone" : `run alone: exit code ${r.exitCode}` };
       if (r.timedOut) t.statusDetail = "timeout";
       tests.push(t);
+    } else {
+      // exit 0 without the test in a report can mean the filter matched nothing: never a pass
+      tests.push({ id: sid, name: r.id, suite, adapter: adapter.name, status: "other", statusDetail: "missing", durationMs: 0, obtained: "per-test-rerun", message: "run alone: exit code 0 but the test is not in its report (the filter may have matched nothing)" });
     }
   }
   const failed = tests.some((t) => t.status === "failed");
   if (failed) return { tests, state: "failed", cause, note: "suite report unusable; tests rerun one by one" };
+  if (tests.some((t) => t.status === "other")) return { tests, state: "error", cause, note: "suite report unusable; some tests rerun alone are missing from their reports" };
   if (originalExit !== 0) return { tests, state: "error", cause: "report_incomplete", note: `suite exited ${originalExit} without a usable report, but each test passes alone` };
   return { tests, state: "passed", cause, note: "suite report unusable; tests rerun one by one" };
 }
@@ -231,6 +244,7 @@ export function applyParity(target: TestRecord[], origin: TestRecord[]): { tests
     return { ...t, parity: p, originStatus: ot.status };
   });
   for (const ot of o.values()) {
+    if (ot.obtained === "suite-level") continue;
     counts.origin_only++;
     out.push({ id: ot.id, name: ot.name, suite: ot.suite, adapter: ot.adapter, status: "other", statusDetail: "missing", durationMs: 0, obtained: ot.obtained, filePath: ot.filePath, parity: "origin_only", originStatus: ot.status, message: "present on the origin, absent on the target" });
   }

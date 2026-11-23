@@ -199,6 +199,19 @@ export function dotnetProject(cwd: string, cmd: string): string | undefined {
   return m ? path.resolve(cwd, m[1]) : undefined;
 }
 
+/** How to add a TRX reporter to an MTP project, including the central PackageVersion when the repo uses central package management. */
+export function trxHint(cwd: string, cmd: string): string {
+  const proj = dotnetProject(cwd, cmd);
+  const where = (proj && path.relative(cwd, proj)) || "the test project";
+  const add = `add <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" /> to ${where}`;
+  const start = proj ? path.dirname(proj) : cwd;
+  const props = readUp(start, "Directory.Packages.props");
+  if (!props.text || !/<ManagePackageVersionsCentrally>\s*true\s*</i.test(props.text + readUp(start, "Directory.Build.props").text)) return `this Microsoft.Testing.Platform project has no TRX reporter: ${add.replace(" />", ' Version="<version>" />')}`;
+  const file = props.dirs.at(-1) ? path.relative(cwd, path.join(props.dirs.at(-1)!, "Directory.Packages.props")) : "Directory.Packages.props";
+  const ver = /<PackageVersion\s+Include="Microsoft\.Testing\.(?:Platform|Extensions\.[\w.]+)"\s+Version="([^"]+)"/.exec(props.text)?.[1];
+  return `this Microsoft.Testing.Platform project has no TRX reporter: ${add}, and <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="${ver ?? "<version>"}" /> to ${file} (the repo uses central package management)`;
+}
+
 /** VSTest vs Microsoft.Testing.Platform (global.json test.runner), and which TRX flag the test project supports. */
 export function dotnetMode(cwd: string, cmd = ""): DotnetMode {
   const gj = readUp(cwd, "global.json").text;
@@ -261,10 +274,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
       if (mode === "mtp-none") return "";
       return `${mode === "vstest" ? "--logger trx" : mode === "mtp-xunit" ? "--report-xunit-trx" : "--report-trx"} --results-directory ${shq(d)}`;
     },
-    reportHint: (cwd, cmd) =>
-      dotnetMode(cwd, cmd) === "mtp-none"
-        ? `this Microsoft.Testing.Platform project has no TRX reporter: add <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" /> to ${path.relative(cwd, dotnetProject(cwd, cmd) ?? "the test project") || "the test project"}`
-        : undefined,
+    reportHint: (cwd, cmd) => (dotnetMode(cwd, cmd) === "mtp-none" ? trxHint(cwd, cmd) : undefined),
     reportMarker: /--logger[ =:]+["']?trx|--report-(xunit-)?trx/,
     reportGlobs: [
       { base: "report-dir", glob: "**/*.trx" },
