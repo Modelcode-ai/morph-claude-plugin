@@ -7,6 +7,7 @@ import { VERSION } from "./ctrf.ts";
 import { diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { initCommand } from "./init.ts";
 import { lintCommand } from "./lint.ts";
+import { skillsCommand } from "./skills.ts";
 import { type Plan, parsePlan, planCheckCommand } from "./plan.ts";
 import { EXIT } from "./reconcile.ts";
 import { runCommand, UsageError } from "./run.ts";
@@ -23,8 +24,9 @@ Usage:
   witness init                                    write .witness/witness.example.toml guessed from the repo
   witness plan check [file] [--draft] [--no-list] validate a test plan (default .witness/plan.yaml)
   witness lint [files...] [--plan file]           static checks on test files (default: changed test files)
-  witness skills path                             print where the agent skills are
-  witness skills install --dir <path> [--link]    copy (or link) the skills into an agent's skills folder
+  witness skills path | list                      where the agent skills are / what they are
+  witness skills install --dir <path> [--link] [--prefix witness-]
+                                                  copy (or link) the skills into an agent's skills folder
 
 Common: --json (machine output on stdout) · --config <path> (default .witness/witness.toml)
         --run-dir-root <path> (default .witness/runs)
@@ -96,6 +98,8 @@ export async function main(argv: string[]): Promise<number> {
   const needsConfig = ["check", "run", "up", "down"].includes(cmd);
   try {
     if (cmd === "init") return initCommand(process.cwd(), json);
+    if (cmd === "skills")
+      return skillsCommand(pos[0], { dir: flags.dir as string | undefined, link: !!flags.link, prefix: flags.prefix as string | undefined, json, log: (s) => process.stderr.write(`witness  ${s}\n`) });
     if (cmd === "lint") {
       const cp = typeof flags.config === "string" ? path.resolve(flags.config) : findConfig(process.cwd());
       const lintCfg = cp ? loadConfig(cp) : undefined;
