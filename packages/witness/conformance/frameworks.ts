@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import type { AdapterName } from "../src/adapters.ts";
+import type { Kind } from "../src/config.ts";
 
 export const KIT = import.meta.dirname;
 export const IN_DOCKER = path.join(KIT, "bin", "in-docker");
@@ -16,6 +17,8 @@ export const SCENARIOS: Scenario[] = ["full", "select", "list", "missing", "brok
 export interface Framework {
   name: string;
   adapter: AdapterName;
+  /** The suite's kind; api unless set. */
+  kind?: Kind;
   project: string;
   /** Stable ids (without the adapter prefix) of the four kit tests. */
   ids: { pass: string; fail: string; skip: string; hang: string };
@@ -101,6 +104,7 @@ export const FRAMEWORKS: Framework[] = [
   {
     name: "playwright",
     adapter: "playwright",
+    kind: "ui",
     project: "playwright",
     ids: { pass: "page.spec.ts > items page > shows the items", fail: "page.spec.ts > items page > heading", skip: "page.spec.ts > items page > skipped", hang: "page.spec.ts > items page > hangs" },
     prepare: () => `npm ci --no-audit --no-fund --loglevel=error && ${node("playwright")} install${process.env.CI ? " --with-deps" : ""} chromium`,
@@ -109,6 +113,19 @@ export const FRAMEWORKS: Framework[] = [
     versions: () => `node --version && ${node("playwright")} --version`,
     list: "native",
     timeout: { perTest: "5s" },
+  },
+  {
+    name: "cli-bats",
+    adapter: "bats",
+    kind: "cli",
+    project: "cli-bats",
+    ids: { pass: "items.bats#lists items", fail: "items.bats#item name", skip: "items.bats#skipped", hang: "items.bats#hangs" },
+    prepare: () => "npm ci --no-audit --no-fund --loglevel=error",
+    cmd: () => `${node("bats")} test`,
+    compound: () => `true && ${node("bats")} test \${WITNESS_SELECT} && echo kit-done`,
+    versions: () => `node --version && ${node("bats")} --version`,
+    list: "last-report",
+    timeout: { perTest: "3s" },
   },
   {
     name: "junit-maven",
