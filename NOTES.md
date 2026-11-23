@@ -1,3 +1,116 @@
+# Review and fix pass (ENG-10540 + ENG-10541, on `eng-10541`)
+
+This pass reviewed the engine and skills against the contract's principles, fixed every bug the
+eShopOnWeb evaluation listed that could be fixed in witness, and re-ran the affected eval steps. All
+fixes are on `eng-10541` (the top of the stack); `eng-10540` is unchanged. Results of the re-run are in
+`eval/targets/eshoponweb/README.md`, section "Re-run after the review fixes".
+
+## Principle violations found (file:line at 41c150c, before this pass)
+
+| Principle | Where | Problem | Fix |
+| --- | --- | --- | --- |
+| 1 results only from what this run collected | `src/suite.ts:241` | a report outside the run dir (e.g. `TestResults/`, `target/surefire-reports/`, a `report` glob) was accepted when its mtime was within 2s before the suite started, so a previous suite's or run's file could become this suite's result | snapshot of the matching files before each command; a file that was there and is unchanged is ignored |
+| 1 no pass without evidence | `src/reconcile.ts:117`, `:170` | the suite-level row for "no report, exit 0" had status `passed` (counted in CTRF `passed`) while the suite was `error` | `other` / `missing` |
+| 1 | `src/reconcile.ts:179` | a test rerun alone that exited 0 but was not in its report (a filter that matched nothing exits 0 in VSTest and jest) was recorded `passed` | `other` / `missing`; parametrized cases of the id count |
+| 1 | `src/reconcile.ts:154` | a suite whose every test was skipped was `passed` | `error`, `report_incomplete`, with a hint about skip conditions |
+| 2 up only after readiness | `src/config.ts:241`, `src/stack.ts:236` | `ready` was optional; a service without it counted as up after a 1s sleep, and an `external` service was never probed | `ready` is required for started services (`{ cmd = "true" }` to opt out explicitly); external services are probed at their URL |
+| 2 | `src/stack.ts:157-177` | when the start command binds a fixed port someone else holds, the probe talked to that process (eval bug 1) | `port_in_use` before start when the ready URL's fixed local port already answers |
+| 2 | `src/stack.ts:258` | `ready.cmd` probes ran without the service's `env` (worked around in morph by ENG-10543) | probes get the service env |
+| 2 process cleanup | `src/proc.ts:91`, `src/suite.ts:259`, `src/stack.ts:111` | `runCapture` (test listing up to 5 min, dependency start) ignored Ctrl-C and was not in `state.json`, so an interrupt waited for it and a crash leaked it | `abort` and `track` options; listings and dependency starts use both |
+| 2 process cleanup | `src/rundir.ts:149`, `src/run.ts:126` | the reaper and the second Ctrl-C only killed process groups; a pidfile daemon (left the group) and its `stop` command were ignored though `state.json` recorded them | `killTracked`: stop command, pidfile pid, then group; `stop` is stored substituted |
+| 2 | `src/commands.ts:57` | `witness check` deleted `.witness/check` without reaping a crashed earlier check | reap first |
+| no silent failures | `src/run.ts:145` | an internal error left the run dir in a running phase with no outcome | caught: outcome `error`, `status.internal_error`, results written, exit 2 |
+| no silent failures | `src/stack.ts:290`, `:321` | a failing `stop` command (service or dependency) was ignored | reported as a progress line |
+| exit codes / counts | `src/reconcile.ts:108` | timed-out tests counted as `failed` in suite counts and the VERDICT | counted as `error` |
+| 5 skills backend-agnostic | `skills/test-change/SKILL.md:29`, `skills/triage/SKILL.md:39-44` | `/tmp` paths and a 6-line shell recipe for checking the base boot | `.witness/scratch/` (self-ignoring) and the new `witness check --stage boot --against <ref>` |
+
+Principles 3, 4 and 6 had no violations in this package (4 is morph's storage; no model calls exist).
+
+## Eval bugs fixed (numbers as in `eval/targets/eshoponweb/README.md`)
+
+1. Fixed port held by another process: `port_in_use` up front (was `ready_timeout` after 3 min). The
+   progress line now says `starting (PORT=…, ready check <url>)` instead of "starting on port N".
+2. Steady 4xx at the ready URL: fails after min(30s, timeout/2), not retryable, says to fix the URL.
+3. `--against` worktree runs the ref's helper files: the target's `.witness/` (minus runs, check,
+   cache, up, scratch) is copied into the worktree. A missing command (exit 127) is `setup_failed`.
+4. Weak evidence for a missing report: when the log names the report path (`Results File:`, dotnet's
+   `In process file artifacts produced:`), the evidence says where it was written and that it isn't
+   there (or that it is outside the folders witness reads).
+6. Origin suite-level rows no longer added as `origin_only`; the VERDICT shows "N only on origin".
+7. `witness check` fails a suite whose adapter knows it cannot write a report (dotnet `mtp-none`).
+8. The TrxReport hint names the `<PackageVersion>` and `Directory.Packages.props` under central
+   package management (and a version when the props pin any `Microsoft.Testing.*`).
+9. Build/compile failures (dotnet `error CS…`, `Build FAILED`, maven/gradle/kotlin/tsc/go build
+   errors, "No test projects were found") and exit 127 before any test: `setup_failed`, evidence is
+   the first error line, no test listing and no per-test reruns.
+10. Stalled suite advice: `per_test_timeout` is suggested only when the adapter can pass one; dotnet
+    on MTP gets the HangDump extension and `--select` to narrow down instead.
+11. A service that fails to boot skips only the suites that need it; the others run; the outcome
+    stays `mistrial`.
+12. Only fixture-setup failures: suite `error`, cause `setup_failed`, evidence includes the inner
+    exception, fixture-specific advice. VERDICT counts them as `error`.
+13. New lint rule `status-only` (plan-driven): the item's `expect` asks for more than a status, the
+    test checks only status codes (`EnsureSuccessStatusCode()`, `status_code == 200`, ...).
+14. Plan ids `Class#method` match only tests declared in that class (C#, Java/Kotlin, PHP).
+15. VERDICT counts `error` and `missing` apart from `failed`.
+
+Also fixed: `--select` split ids on every comma, breaking `Method(a: 1, b: 2)` and titles with commas
+(ENG-10541 known gap); the skills' `/tmp` paths (ENG-10543 known gap).
+
+## Scope changes in this pass
+
+- Added `witness check --against <ref>` (temporary worktree with this checkout's `.witness/`). Reason:
+  the triage skill needed a 6-line shell recipe that copied only `witness.toml`, so helper scripts
+  were missing in the base, the same bug as eval #3.
+- Added `.witness/scratch/` (created with a `.gitignore` of `*` on every command) for agents'
+  temporary files. Reason: skills must not assume `/tmp`.
+- Added lint rule `status-only`; `ready` is now required (config change: configs with a started
+  service and no `ready` are rejected with `service.<name>.ready: is required`). morph's ENG-10543
+  renderer always emits `ready`, so it is unaffected, but its vendored bundle (VERSION 6bacb7e) needs
+  `scripts/refresh_witness.sh` to pick up these fixes; that is outside this worktree and was not done.
+- Interpretation: `setup_failed` is also used at stage `suite` (build errors, missing commands,
+  fixture-only failures); the contract has no build cause code.
+- Interpretation: `all skipped` is `report_incomplete`; a run that selects only skipped tests is `error`.
+
+## How it was tested
+
+```
+cd packages/witness
+npm test               # 151 tests, 151 pass (~16s); new: test/eval-fixes.test.ts plus additions in
+                       # reconcile, diagnosis, adapters, lint and config tests
+npm run typecheck      # clean
+npm run check:skills   # ok (write 750 words, the largest)
+npm run build          # dist/witness.mjs 0.56 MB; WITNESS_USE_DIST=1 bin/witness check --stage config ok on eShopOnWeb
+```
+
+eShopOnWeb: every step the fixes touched was re-run in
+`~/work/witness-targets/eShopOnWeb-witness-eval` (Docker SDK 11); the table is in
+`eval/targets/eshoponweb/README.md`. Summary: baseline passed (291), port fault 181s -> 1s with the
+right cause, wrong URL 180s -> 34s and not retryable, compile error `setup_failed` in 4s, `--against
+main` now passes (87 same), `check --against main` flags the missing TRX reporter with the CPM hint,
+wrong start project still runs the 4 suites that don't need Web (290 passed, mistrial), hang advice
+correct, e2e fixture errors `setup_failed` with the inner exception, the weak draft is caught by
+`status-only` and no longer mis-matched, verify `--against witness-eval-base` passed (289 same, 2
+target_only), SIGINT interrupted (exit 5). No container was left running after any step.
+
+## Still not working / not done
+
+- Eval #5: in worktree mode the ref runs its own tests, so new tests are always `target_only`; there
+  is no way to run the target's test files against the base code.
+- Eval #10: a hung test is not named unless the project adds HangDump; witness only advises it.
+- Eval #15: CTRF `name` equals the id; `filePath` is empty for dotnet; xunit v3 ids keep escaped
+  quotes from the TRX; per-test reruns cost ~6s each in Docker.
+- Eval #4 is improved only when the framework logs the report path.
+- An agent can still write files under `.witness/runs/`; nothing signs a run (morph ingests whatever
+  `latest/results.ctrf.json` says). Not addressed here.
+- Build-failure detection is pattern-based (listed in `src/suite.ts` `BUILD_FAILED`); other
+  toolchains fall back to `report_missing` with the log's evidence line.
+- The steady-4xx early failure assumes an app that answers the same 4xx for 30s is up; an app that
+  serves 404 during a long warm-up would need `ready.cmd` or a different URL.
+- The ENG-10541 and ENG-10540 gaps below that are not listed as fixed above still apply.
+- Not re-run: the service-died (`docker kill`/`pause`) and up/down faults (their code paths were not
+  changed apart from the shared reaper).
+
 # ENG-10541: Witness agent skills and test plan checks
 
 Branch `eng-10541`, stacked on `eng-10540` (the run engine; its notes follow this section). This
