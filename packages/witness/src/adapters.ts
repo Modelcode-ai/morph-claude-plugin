@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type { RawCase, ReportFormat } from "./parsers/types.ts";
 import { escapeRegExp, shellWords, shq } from "./util.ts";
@@ -25,7 +26,7 @@ export interface Adapter {
   name: AdapterName;
   format: ReportFormat;
   /** Args that make the framework write a machine report into dir. */
-  reportArgs?: (dir: string) => string;
+  reportArgs?: (dir: string, cwd: string) => string;
   reportEnv?: (dir: string) => Record<string, string>;
   /** When the command already matches, the user wired the report; append nothing. */
   reportMarker?: RegExp;
@@ -34,7 +35,7 @@ export interface Adapter {
   fromStdout?: boolean;
   select?: (cmd: string, ids: string[]) => string | null;
   list?: { cmd: (cmd: string) => string | null; parse: (out: string) => string[] };
-  perTestTimeout?: (ms: number) => string;
+  perTestTimeout?: (ms: number, cwd: string) => string | null;
   id: (c: RawCase) => string;
 }
 
@@ -174,6 +175,31 @@ function playwrightListParse(out: string): string[] {
   return [...new Set(rows.map((r) => (multi && r.project ? `${r.rest} [${r.project}]` : r.rest)))];
 }
 
+export type DotnetMode = "vstest" | "mtp" | "mtp-xunit";
+
+/** global.json `test.runner` decides VSTest vs Microsoft.Testing.Platform; xunit v3 has its own TRX flag. */
+export function dotnetMode(cwd: string): DotnetMode {
+  let mtp = false;
+  const lookups: string[] = [];
+  for (let d = path.resolve(cwd); ; d = path.dirname(d)) {
+    lookups.push(d);
+    const gj = path.join(d, "global.json");
+    if (fs.existsSync(gj)) {
+      try {
+        mtp = /Microsoft\.Testing\.Platform/.test(JSON.parse(fs.readFileSync(gj, "utf8"))?.test?.runner ?? "");
+      } catch {
+        mtp = false;
+      }
+      break;
+    }
+    if (path.dirname(d) === d || fs.existsSync(path.join(d, ".git"))) break;
+  }
+  if (!mtp) return "vstest";
+  const props = lookups.map((d) => path.join(d, "Directory.Packages.props")).find((f) => fs.existsSync(f));
+  const text = props ? fs.readFileSync(props, "utf8") : "";
+  return /"xunit\.v3"/.test(text) ? "mtp-xunit" : "mtp";
+}
+
 export const ADAPTERS: Record<AdapterName, Adapter> = {
   pytest: {
     name: "pytest",
@@ -211,8 +237,11 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   dotnet: {
     name: "dotnet",
     format: "trx",
-    reportArgs: (d) => `--logger trx --results-directory ${shq(d)}`,
-    reportMarker: /--logger[ =:]+["']?trx|--report-trx/,
+    reportArgs: (d, cwd) => {
+      const mode = dotnetMode(cwd);
+      return `${mode === "vstest" ? "--logger trx" : mode === "mtp-xunit" ? "--report-xunit-trx" : "--report-trx"} --results-directory ${shq(d)}`;
+    },
+    reportMarker: /--logger[ =:]+["']?trx|--report-(xunit-)?trx/,
     reportGlobs: [
       { base: "report-dir", glob: "**/*.trx" },
       { base: "cwd", glob: "**/TestResults/**/*.trx" },
@@ -224,14 +253,14 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
         const ids: string[] = [];
         let on = false;
         for (const line of out.split(/\r?\n/)) {
-          if (/The following Tests are available/.test(line)) on = true;
+          if (/The following Tests are available|^Discovered \d+ tests? in/.test(line)) on = true;
           else if (on && /^\s{2,}\S/.test(line)) ids.push(dotnetFqnToId(line.trim()));
           else if (on && line.trim() && !/^\s/.test(line)) on = false;
         }
         return [...new Set(ids)];
       },
     },
-    perTestTimeout: (ms) => `--blame-hang-timeout ${Math.ceil(ms / 1000)}s`,
+    perTestTimeout: (ms, cwd) => (dotnetMode(cwd) === "vstest" ? `--blame-hang-timeout ${Math.ceil(ms / 1000)}s` : null),
     id: classHash,
   },
   jest: {

@@ -63,15 +63,16 @@ function dirSize(dir: string): number {
 }
 
 /** Build the command a suite runs: select, report args, per-test timeout. */
-export function suiteCommand(suite: Suite, adapter: Adapter, vars: Record<string, string | undefined>, reportDir: string, select?: string[]): string {
+export function suiteCommand(suite: Suite, adapter: Adapter, vars: Record<string, string | undefined>, reportDir: string, select?: string[], cwd = "."): string {
   let cmd = substitute(suite.cmd, vars);
   if (select?.length) {
     const sel = selectCommand(adapter, cmd, select, suite.select ? substitute(suite.select, vars) : undefined);
     if (!sel) throw new Error(`suite ${suite.name}: adapter ${adapter.name} cannot select single tests; add select = "... {ids}" to the suite`);
     cmd = sel;
   }
-  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd))) cmd = appendArgs(cmd, adapter.reportArgs(reportDir));
-  if (suite.perTestTimeoutMs && adapter.perTestTimeout) cmd = appendArgs(cmd, adapter.perTestTimeout(suite.perTestTimeoutMs));
+  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd))) cmd = appendArgs(cmd, adapter.reportArgs(reportDir, cwd));
+  const ptt = suite.perTestTimeoutMs && adapter.perTestTimeout ? adapter.perTestTimeout(suite.perTestTimeoutMs, cwd) : null;
+  if (ptt) cmd = appendArgs(cmd, ptt);
   return cmd;
 }
 
@@ -85,7 +86,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   fs.mkdirSync(reportDir, { recursive: true });
   const t0 = Date.now();
   const vars = { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir };
-  const cmd = suiteCommand(suite, adapter, vars, reportDir, select);
+  const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
   ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
   ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
   const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
@@ -106,7 +107,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
         if (ctx.abort.aborted) break;
         const dir = path.join(reportDir, "rerun", String(i + 1));
         fs.mkdirSync(dir, { recursive: true });
-        const c = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id]);
+        const c = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
         const e = await execWatched(ctx, suite, adapter, c, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60_000));
         if (e.died) {
           exec.died = e.died;
@@ -260,7 +261,7 @@ async function retryFailed(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: s
     const ids = failing.map((t) => t.id.slice(adapter.name.length + 1));
     const dir = path.join(reportDir, "retry", String(k));
     fs.mkdirSync(dir, { recursive: true });
-    const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids);
+    const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids, cwd);
     ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids.length} failed test(s)`);
     const rlog = path.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
     const t0 = Date.now();

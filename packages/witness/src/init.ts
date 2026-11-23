@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { AdapterName } from "./adapters.ts";
+import { type AdapterName, dotnetMode } from "./adapters.ts";
 import { globFiles } from "./util.ts";
 
 export interface Guess {
@@ -47,9 +47,10 @@ export function guess(root: string): Guess {
   const csproj = has(/\.csproj$/);
   const testProjects = csproj.filter((f) => /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i.test(read(path.join(root, f))));
   const sln = has(/\.(sln|slnx)$/).sort((a, b) => a.length - b.length)[0];
+  const mtp = dotnetMode(root) !== "vstest";
   if (testProjects.length && testProjects.length <= 6) {
-    for (const f of testProjects) g.suites.push({ name: name(path.basename(f, ".csproj")), adapter: "dotnet", cwd: ".", cmd: `dotnet test ${f}`, why: `test project ${f}` });
-  } else if (testProjects.length || sln) g.suites.push({ name: name("dotnet-tests"), adapter: "dotnet", cwd: sln ? dirOf(sln) : ".", cmd: sln ? `dotnet test ${path.basename(sln)}` : "dotnet test", why: sln ? `found ${sln}` : "test projects found" });
+    for (const f of testProjects) g.suites.push({ name: name(path.basename(f, ".csproj")), adapter: "dotnet", cwd: ".", cmd: `dotnet test ${mtp ? "--project " : ""}${f}`, why: `test project ${f}${mtp ? " (Microsoft.Testing.Platform)" : ""}` });
+  } else if (testProjects.length || sln) g.suites.push({ name: name("dotnet-tests"), adapter: "dotnet", cwd: sln ? dirOf(sln) : ".", cmd: sln ? `dotnet test ${mtp ? "--solution " : ""}${path.basename(sln)}` : "dotnet test", why: sln ? `found ${sln}` : "test projects found" });
   for (const f of csproj.filter((f) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(read(path.join(root, f)))).slice(0, 3)) {
     g.services.push({ name: name(path.basename(f, ".csproj")), cwd: ".", setup: `dotnet build ${f}`, start: `dotnet run --no-build --project ${f} --urls http://127.0.0.1:\${PORT}`, ready: "${self.url}/", why: `web project ${f}` });
   }
