@@ -9,7 +9,10 @@ No AI model calls happen inside the CLI.
 
 Functional tests only: a suite's tests drive the app through its HTTP API (`kind = "api"`, with the
 app in the test process, such as `WebApplicationFactory`, FastAPI `TestClient`, supertest or
-`MockMvc`, or at a URL) or in a browser (`kind = "ui"`: Playwright, Cypress, Selenium, Capybara).
+`MockMvc`, or at a URL), in a browser (`kind = "ui"`: Playwright, Cypress, Selenium, Capybara) or
+through its built binary or command (`kind = "cli"`: subprocess, execa, `os/exec`, assert_cmd,
+bats). `kind = "desktop"` and `kind = "mobile"` are accepted and detected; their drivers and
+devices are modelled with today's `[[service]]` and `[[dependency]]` (`docs/witness/APP-KINDS.md`).
 Unit tests, and integration tests that call a repository or database directly, are left to the
 project's own build and test scripts.
 
@@ -58,7 +61,7 @@ ready = { http = "${self.url}/health", timeout = "120s" }   # required; { cmd = 
 
 [[suite]]
 name = "api-e2e"
-kind = "api"                             # required: "api" (HTTP) or "ui" (browser)
+kind = "api"                             # required: api (HTTP), ui (browser), cli, desktop or mobile
 service = "api"                          # omit: all target services; [] : none (tests host the app)
 adapter = "pytest"
 cmd = "pytest tests/e2e"
@@ -77,7 +80,10 @@ Additions beyond the shared contract: `service.origin_for` (which target an `rol
 service stands in for; defaults to the name minus `-origin`), `run.kill_grace` (SIGTERM to SIGKILL
 delay, default 5s), and the per-suite overrides below.
 
-Adapters are presets. Each capability can be set per suite:
+Adapters are presets. The dotnet preset runs every command with the MSBuild server, node reuse and
+the compiler servers off (`DOTNET_CLI_USE_MSBUILD_SERVER=0`, `MSBUILDDISABLENODEREUSE=1`,
+`UseSharedCompilation=false`, `UseRazorBuildServer=false`): they leave the suite's process group and
+outlive a stalled suite. A suite's own `env` overrides them. Each capability can be set per suite:
 
 | key | what it does |
 | --- | --- |
@@ -97,10 +103,15 @@ per suite with where `report`, `list`, `select` and the per-test timeout come fr
 missing one costs. `docs/witness/FRAMEWORKS.md` has the tested support matrix.
 
 `witness init` reads each test project (per csproj, pytest root, package.json, Maven/Gradle
-build, go module, Gemfile, phpunit.xml) and classifies its test files from imports, package
-references and calls (`src/functional.ts`). It proposes a suite only for projects whose tests drive
-the app, sets `kind` (`ui` when a browser driver is used) and `service = []` when the tests start the
-app themselves. A mixed project gets a filtered command when a folder, tag or a few test classes
+build, go module, Cargo.toml, `.bats` files, Gemfile, phpunit.xml, Android `src/androidTest`,
+Flutter `integration_test`, `*UITests`, Maestro flows, Detox) and classifies its test files from
+imports, package references and calls (`src/functional.ts`). A CLI test runs the app's own command:
+the console scripts, package `bin`, `cmd/` binaries and cargo bins that the manifests name, a built
+binary path, `go run`, or `python -m <pkg>`; a test that calls the command's functions is a unit
+test. It proposes a suite only for projects whose tests drive the app, sets `kind` (desktop, mobile,
+ui, api, cli: the first one any file needs) and `service = []` when the tests start the app or run
+its command themselves. A service that no proposed suite uses is written commented out, with the
+reason. A mixed project gets a filtered command when a folder, tag or a few test classes
 separate the functional tests; otherwise it is listed as "needs a filter" with its suite commented
 out. Every project left out is printed with its reason and written into the file as a comment.
 `witness check` warns (it does not fail) when a configured suite's test files don't drive the app.
@@ -166,6 +177,7 @@ copies them as `witness-<name>` (or links them with `--link`, keeping their own 
 | mocha | `--reporter xunit` | `--grep` | `--dry-run` | `--timeout --exit` |
 | rspec | `RspecJunitFormatter` (gem required) | `-e` | `--dry-run` | - |
 | phpunit | `--log-junit` | `--filter` | `--list-tests` | `--enforce-time-limit --default-time-limit` (php-invoker) |
+| bats | `--report-formatter junit --output` | `--filter '^(name)$'` | last report | `BATS_TEST_TIMEOUT` (environment) |
 | generic | any JUnit/TRX/JSON in `$WITNESS_REPORT_DIR` or `report = "<glob>"`; else the exit code | `select` template | `list` template | `per_test_timeout_arg` |
 
 If the command already wires a report (for example `--junitxml=...`), witness adds nothing and
@@ -184,7 +196,9 @@ The CTRF file carries `results.extra.witness` (run id, outcome, commit, branch, 
 against, diagnosis) and per-test `extra.witness` (id, suite, kind, services, adapter, obtained, status_detail,
 parity, origin_status). Each suite in `status.json` has `kind` and `services`: the services witness
 started for it, empty when the tests host the app themselves (they don't exercise those services,
-and `--against` with origin services tests the same code twice). `witness report` shows both.
+and `--against` with origin services tests the same code twice). `witness report` shows both, and
+both `witness status` and `witness report` say why a skipped suite did not run (`not run: service web
+service_died`).
 
 Reconciliation, in short: failures in the report are trusted; a clean report with a non-zero exit is
 `error` (report_incomplete); a test that was asked for but isn't in the report is `other/missing`; an
@@ -220,7 +234,8 @@ npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario
 
 `npm run conformance` is the conformance kit (`conformance/`): one small HTTP app and a real test
 project per framework (pytest, jest, vitest, mocha, Playwright, JUnit with Maven and Gradle, go,
-RSpec, PHPUnit, xunit v3 on Microsoft.Testing.Platform, MSTest on VSTest). For each it runs witness
+RSpec, PHPUnit, xunit v3 on Microsoft.Testing.Platform, MSTest on VSTest, and a CLI tested with
+bats). For each it runs witness
 through a full run, `--select`, listing, a deleted and a truncated report, a per-test timeout and a
 `${WITNESS_SELECT}` compound command, checks the CTRF and `status.json`, and prints a framework ×
 scenario matrix (results in `conformance/.results/`). It uses the local toolchain when there is one,
@@ -229,4 +244,5 @@ CI runs it per framework on native toolchains.
 
 Fixtures live in `testdata/`: report corpus per framework (including broken files) under
 `testdata/reports/`, small node apps for the integration tests under `testdata/apps/`, and one
-unit, functional and mixed repo per stack for the `init` classifier under `testdata/functional/`.
+unit, functional and mixed repo per stack for the `init` classifier under `testdata/functional/`
+(CLI stacks under `testdata/functional/cli/`).
