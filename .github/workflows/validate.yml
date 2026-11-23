@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        framework: [pytest, jest, vitest, mocha, playwright, junit-maven, junit-gradle, go, rspec, phpunit, dotnet-xunit, dotnet-mstest]
+        framework: [pytest, jest, vitest, mocha, playwright, cli-bats, junit-maven, junit-gradle, go, rspec, phpunit, dotnet-xunit, dotnet-mstest]
     defaults:
       run:
         working-directory: packages/witness
