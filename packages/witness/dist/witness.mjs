@@ -19,2087 +19,25 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/fast-xml-parser/src/util.js
-var require_util = __commonJS((exports) => {
-  var nameStartChar = ":A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
-  var nameChar = nameStartChar + "\\-.\\d\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
-  var nameRegexp = "[" + nameStartChar + "][" + nameChar + "]*";
-  var regexName = new RegExp("^" + nameRegexp + "$");
-  var getAllMatches = function(string, regex) {
-    const matches = [];
-    let match = regex.exec(string);
-    while (match) {
-      const allmatches = [];
-      allmatches.startIndex = regex.lastIndex - match[0].length;
-      const len = match.length;
-      for (let index = 0;index < len; index++) {
-        allmatches.push(match[index]);
-      }
-      matches.push(allmatches);
-      match = regex.exec(string);
-    }
-    return matches;
-  };
-  var isName = function(string) {
-    const match = regexName.exec(string);
-    return !(match === null || typeof match === "undefined");
-  };
-  exports.isExist = function(v) {
-    return typeof v !== "undefined";
-  };
-  exports.isEmptyObject = function(obj) {
-    return Object.keys(obj).length === 0;
-  };
-  exports.merge = function(target, a, arrayMode) {
-    if (a) {
-      const keys = Object.keys(a);
-      const len = keys.length;
-      for (let i = 0;i < len; i++) {
-        if (arrayMode === "strict") {
-          target[keys[i]] = [a[keys[i]]];
-        } else {
-          target[keys[i]] = a[keys[i]];
-        }
-      }
-    }
-  };
-  exports.getValue = function(v) {
-    if (exports.isExist(v)) {
-      return v;
-    } else {
-      return "";
-    }
-  };
-  var DANGEROUS_PROPERTY_NAMES = [
-    "hasOwnProperty",
-    "toString",
-    "valueOf",
-    "__defineGetter__",
-    "__defineSetter__",
-    "__lookupGetter__",
-    "__lookupSetter__"
-  ];
-  var criticalProperties = ["__proto__", "constructor", "prototype"];
-  exports.isName = isName;
-  exports.getAllMatches = getAllMatches;
-  exports.nameRegexp = nameRegexp;
-  exports.DANGEROUS_PROPERTY_NAMES = DANGEROUS_PROPERTY_NAMES;
-  exports.criticalProperties = criticalProperties;
-});
-
-// node_modules/fast-xml-parser/src/validator.js
-var require_validator = __commonJS((exports) => {
-  var util = require_util();
-  var defaultOptions = {
-    allowBooleanAttributes: false,
-    unpairedTags: []
-  };
-  exports.validate = function(xmlData, options) {
-    options = Object.assign({}, defaultOptions, options);
-    const tags = [];
-    let tagFound = false;
-    let reachedRoot = false;
-    if (xmlData[0] === "\uFEFF") {
-      xmlData = xmlData.substr(1);
-    }
-    for (let i = 0;i < xmlData.length; i++) {
-      if (xmlData[i] === "<" && xmlData[i + 1] === "?") {
-        i += 2;
-        i = readPI(xmlData, i);
-        if (i.err)
-          return i;
-      } else if (xmlData[i] === "<") {
-        let tagStartPos = i;
-        i++;
-        if (xmlData[i] === "!") {
-          i = readCommentAndCDATA(xmlData, i);
-          continue;
-        } else {
-          let closingTag = false;
-          if (xmlData[i] === "/") {
-            closingTag = true;
-            i++;
-          }
-          let tagName = "";
-          for (;i < xmlData.length && xmlData[i] !== ">" && xmlData[i] !== " " && xmlData[i] !== "\t" && xmlData[i] !== `
-` && xmlData[i] !== "\r"; i++) {
-            tagName += xmlData[i];
-          }
-          tagName = tagName.trim();
-          if (tagName[tagName.length - 1] === "/") {
-            tagName = tagName.substring(0, tagName.length - 1);
-            i--;
-          }
-          if (!validateTagName(tagName)) {
-            let msg;
-            if (tagName.trim().length === 0) {
-              msg = "Invalid space after '<'.";
-            } else {
-              msg = "Tag '" + tagName + "' is an invalid name.";
-            }
-            return getErrorObject("InvalidTag", msg, getLineNumberForPosition(xmlData, i));
-          }
-          const result = readAttributeStr(xmlData, i);
-          if (result === false) {
-            return getErrorObject("InvalidAttr", "Attributes for '" + tagName + "' have open quote.", getLineNumberForPosition(xmlData, i));
-          }
-          let attrStr = result.value;
-          i = result.index;
-          if (attrStr[attrStr.length - 1] === "/") {
-            const attrStrStart = i - attrStr.length;
-            attrStr = attrStr.substring(0, attrStr.length - 1);
-            const isValid = validateAttributeString(attrStr, options);
-            if (isValid === true) {
-              tagFound = true;
-            } else {
-              return getErrorObject(isValid.err.code, isValid.err.msg, getLineNumberForPosition(xmlData, attrStrStart + isValid.err.line));
-            }
-          } else if (closingTag) {
-            if (!result.tagClosed) {
-              return getErrorObject("InvalidTag", "Closing tag '" + tagName + "' doesn't have proper closing.", getLineNumberForPosition(xmlData, i));
-            } else if (attrStr.trim().length > 0) {
-              return getErrorObject("InvalidTag", "Closing tag '" + tagName + "' can't have attributes or invalid starting.", getLineNumberForPosition(xmlData, tagStartPos));
-            } else if (tags.length === 0) {
-              return getErrorObject("InvalidTag", "Closing tag '" + tagName + "' has not been opened.", getLineNumberForPosition(xmlData, tagStartPos));
-            } else {
-              const otg = tags.pop();
-              if (tagName !== otg.tagName) {
-                let openPos = getLineNumberForPosition(xmlData, otg.tagStartPos);
-                return getErrorObject("InvalidTag", "Expected closing tag '" + otg.tagName + "' (opened in line " + openPos.line + ", col " + openPos.col + ") instead of closing tag '" + tagName + "'.", getLineNumberForPosition(xmlData, tagStartPos));
-              }
-              if (tags.length == 0) {
-                reachedRoot = true;
-              }
-            }
-          } else {
-            const isValid = validateAttributeString(attrStr, options);
-            if (isValid !== true) {
-              return getErrorObject(isValid.err.code, isValid.err.msg, getLineNumberForPosition(xmlData, i - attrStr.length + isValid.err.line));
-            }
-            if (reachedRoot === true) {
-              return getErrorObject("InvalidXml", "Multiple possible root nodes found.", getLineNumberForPosition(xmlData, i));
-            } else if (options.unpairedTags.indexOf(tagName) !== -1) {} else {
-              tags.push({ tagName, tagStartPos });
-            }
-            tagFound = true;
-          }
-          for (i++;i < xmlData.length; i++) {
-            if (xmlData[i] === "<") {
-              if (xmlData[i + 1] === "!") {
-                i++;
-                i = readCommentAndCDATA(xmlData, i);
-                continue;
-              } else if (xmlData[i + 1] === "?") {
-                i = readPI(xmlData, ++i);
-                if (i.err)
-                  return i;
-              } else {
-                break;
-              }
-            } else if (xmlData[i] === "&") {
-              const afterAmp = validateAmpersand(xmlData, i);
-              if (afterAmp == -1)
-                return getErrorObject("InvalidChar", "char '&' is not expected.", getLineNumberForPosition(xmlData, i));
-              i = afterAmp;
-            } else {
-              if (reachedRoot === true && !isWhiteSpace(xmlData[i])) {
-                return getErrorObject("InvalidXml", "Extra text at the end", getLineNumberForPosition(xmlData, i));
-              }
-            }
-          }
-          if (xmlData[i] === "<") {
-            i--;
-          }
-        }
-      } else {
-        if (isWhiteSpace(xmlData[i])) {
-          continue;
-        }
-        return getErrorObject("InvalidChar", "char '" + xmlData[i] + "' is not expected.", getLineNumberForPosition(xmlData, i));
-      }
-    }
-    if (!tagFound) {
-      return getErrorObject("InvalidXml", "Start tag expected.", 1);
-    } else if (tags.length == 1) {
-      return getErrorObject("InvalidTag", "Unclosed tag '" + tags[0].tagName + "'.", getLineNumberForPosition(xmlData, tags[0].tagStartPos));
-    } else if (tags.length > 0) {
-      return getErrorObject("InvalidXml", "Invalid '" + JSON.stringify(tags.map((t) => t.tagName), null, 4).replace(/\r?\n/g, "") + "' found.", { line: 1, col: 1 });
-    }
-    return true;
-  };
-  function isWhiteSpace(char) {
-    return char === " " || char === "\t" || char === `
-` || char === "\r";
-  }
-  function readPI(xmlData, i) {
-    const start = i;
-    for (;i < xmlData.length; i++) {
-      if (xmlData[i] == "?" || xmlData[i] == " ") {
-        const tagname = xmlData.substr(start, i - start);
-        if (i > 5 && tagname === "xml") {
-          return getErrorObject("InvalidXml", "XML declaration allowed only at the start of the document.", getLineNumberForPosition(xmlData, i));
-        } else if (xmlData[i] == "?" && xmlData[i + 1] == ">") {
-          i++;
-          break;
-        } else {
-          continue;
-        }
-      }
-    }
-    return i;
-  }
-  function readCommentAndCDATA(xmlData, i) {
-    if (xmlData.length > i + 5 && xmlData[i + 1] === "-" && xmlData[i + 2] === "-") {
-      for (i += 3;i < xmlData.length; i++) {
-        if (xmlData[i] === "-" && xmlData[i + 1] === "-" && xmlData[i + 2] === ">") {
-          i += 2;
-          break;
-        }
-      }
-    } else if (xmlData.length > i + 8 && xmlData[i + 1] === "D" && xmlData[i + 2] === "O" && xmlData[i + 3] === "C" && xmlData[i + 4] === "T" && xmlData[i + 5] === "Y" && xmlData[i + 6] === "P" && xmlData[i + 7] === "E") {
-      let angleBracketsCount = 1;
-      for (i += 8;i < xmlData.length; i++) {
-        if (xmlData[i] === "<") {
-          angleBracketsCount++;
-        } else if (xmlData[i] === ">") {
-          angleBracketsCount--;
-          if (angleBracketsCount === 0) {
-            break;
-          }
-        }
-      }
-    } else if (xmlData.length > i + 9 && xmlData[i + 1] === "[" && xmlData[i + 2] === "C" && xmlData[i + 3] === "D" && xmlData[i + 4] === "A" && xmlData[i + 5] === "T" && xmlData[i + 6] === "A" && xmlData[i + 7] === "[") {
-      for (i += 8;i < xmlData.length; i++) {
-        if (xmlData[i] === "]" && xmlData[i + 1] === "]" && xmlData[i + 2] === ">") {
-          i += 2;
-          break;
-        }
-      }
-    }
-    return i;
-  }
-  var doubleQuote = '"';
-  var singleQuote = "'";
-  function readAttributeStr(xmlData, i) {
-    let attrStr = "";
-    let startChar = "";
-    let tagClosed = false;
-    for (;i < xmlData.length; i++) {
-      if (xmlData[i] === doubleQuote || xmlData[i] === singleQuote) {
-        if (startChar === "") {
-          startChar = xmlData[i];
-        } else if (startChar !== xmlData[i]) {} else {
-          startChar = "";
-        }
-      } else if (xmlData[i] === ">") {
-        if (startChar === "") {
-          tagClosed = true;
-          break;
-        }
-      }
-      attrStr += xmlData[i];
-    }
-    if (startChar !== "") {
-      return false;
-    }
-    return {
-      value: attrStr,
-      index: i,
-      tagClosed
-    };
-  }
-  var validAttrStrRegxp = new RegExp(`(\\s*)([^\\s=]+)(\\s*=)?(\\s*(['"])(([\\s\\S])*?)\\5)?`, "g");
-  function validateAttributeString(attrStr, options) {
-    const matches = util.getAllMatches(attrStr, validAttrStrRegxp);
-    const attrNames = {};
-    for (let i = 0;i < matches.length; i++) {
-      if (matches[i][1].length === 0) {
-        return getErrorObject("InvalidAttr", "Attribute '" + matches[i][2] + "' has no space in starting.", getPositionFromMatch(matches[i]));
-      } else if (matches[i][3] !== undefined && matches[i][4] === undefined) {
-        return getErrorObject("InvalidAttr", "Attribute '" + matches[i][2] + "' is without value.", getPositionFromMatch(matches[i]));
-      } else if (matches[i][3] === undefined && !options.allowBooleanAttributes) {
-        return getErrorObject("InvalidAttr", "boolean attribute '" + matches[i][2] + "' is not allowed.", getPositionFromMatch(matches[i]));
-      }
-      const attrName = matches[i][2];
-      if (!validateAttrName(attrName)) {
-        return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is an invalid name.", getPositionFromMatch(matches[i]));
-      }
-      if (!attrNames.hasOwnProperty(attrName)) {
-        attrNames[attrName] = 1;
-      } else {
-        return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is repeated.", getPositionFromMatch(matches[i]));
-      }
-    }
-    return true;
-  }
-  function validateNumberAmpersand(xmlData, i) {
-    let re = /\d/;
-    if (xmlData[i] === "x") {
-      i++;
-      re = /[\da-fA-F]/;
-    }
-    for (;i < xmlData.length; i++) {
-      if (xmlData[i] === ";")
-        return i;
-      if (!xmlData[i].match(re))
-        break;
-    }
-    return -1;
-  }
-  function validateAmpersand(xmlData, i) {
-    i++;
-    if (xmlData[i] === ";")
-      return -1;
-    if (xmlData[i] === "#") {
-      i++;
-      return validateNumberAmpersand(xmlData, i);
-    }
-    let count = 0;
-    for (;i < xmlData.length; i++, count++) {
-      if (xmlData[i].match(/\w/) && count < 20)
-        continue;
-      if (xmlData[i] === ";")
-        break;
-      return -1;
-    }
-    return i;
-  }
-  function getErrorObject(code, message, lineNumber) {
-    return {
-      err: {
-        code,
-        msg: message,
-        line: lineNumber.line || lineNumber,
-        col: lineNumber.col
-      }
-    };
-  }
-  function validateAttrName(attrName) {
-    return util.isName(attrName);
-  }
-  function validateTagName(tagname) {
-    return util.isName(tagname);
-  }
-  function getLineNumberForPosition(xmlData, index) {
-    const lines = xmlData.substring(0, index).split(/\r?\n/);
-    return {
-      line: lines.length,
-      col: lines[lines.length - 1].length + 1
-    };
-  }
-  function getPositionFromMatch(match) {
-    return match.startIndex + match[1].length;
-  }
-});
-
-// node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js
-var require_OptionsBuilder = __commonJS((exports) => {
-  var { DANGEROUS_PROPERTY_NAMES, criticalProperties } = require_util();
-  var defaultOnDangerousProperty = (name) => {
-    if (DANGEROUS_PROPERTY_NAMES.includes(name)) {
-      return "__" + name;
-    }
-    return name;
-  };
-  var defaultOptions = {
-    preserveOrder: false,
-    attributeNamePrefix: "@_",
-    attributesGroupName: false,
-    textNodeName: "#text",
-    ignoreAttributes: true,
-    removeNSPrefix: false,
-    allowBooleanAttributes: false,
-    parseTagValue: true,
-    parseAttributeValue: false,
-    trimValues: true,
-    cdataPropName: false,
-    numberParseOptions: {
-      hex: true,
-      leadingZeros: true,
-      eNotation: true
-    },
-    tagValueProcessor: function(tagName, val) {
-      return val;
-    },
-    attributeValueProcessor: function(attrName, val) {
-      return val;
-    },
-    stopNodes: [],
-    alwaysCreateTextNode: false,
-    isArray: () => false,
-    commentPropName: false,
-    unpairedTags: [],
-    processEntities: true,
-    htmlEntities: false,
-    ignoreDeclaration: false,
-    ignorePiTags: false,
-    transformTagName: false,
-    transformAttributeName: false,
-    updateTag: function(tagName, jPath, attrs) {
-      return tagName;
-    },
-    captureMetaData: false,
-    maxNestedTags: 100,
-    strictReservedNames: true,
-    onDangerousProperty: defaultOnDangerousProperty
-  };
-  function validatePropertyName(propertyName, optionName) {
-    if (typeof propertyName !== "string") {
-      return;
-    }
-    const normalized = propertyName.toLowerCase();
-    if (DANGEROUS_PROPERTY_NAMES.some((dangerous) => normalized === dangerous.toLowerCase())) {
-      throw new Error(`[SECURITY] Invalid ${optionName}: "${propertyName}" is a reserved JavaScript keyword that could cause prototype pollution`);
-    }
-    if (criticalProperties.some((dangerous) => normalized === dangerous.toLowerCase())) {
-      throw new Error(`[SECURITY] Invalid ${optionName}: "${propertyName}" is a reserved JavaScript keyword that could cause prototype pollution`);
-    }
-  }
-  function normalizeProcessEntities(value) {
-    if (typeof value === "boolean") {
-      return {
-        enabled: value,
-        maxEntitySize: 1e4,
-        maxExpansionDepth: 10,
-        maxTotalExpansions: 1000,
-        maxExpandedLength: 1e5,
-        allowedTags: null,
-        tagFilter: null
-      };
-    }
-    if (typeof value === "object" && value !== null) {
-      return {
-        enabled: value.enabled !== false,
-        maxEntitySize: Math.max(1, value.maxEntitySize ?? 1e4),
-        maxExpansionDepth: Math.max(1, value.maxExpansionDepth ?? 1e4),
-        maxTotalExpansions: Math.max(1, value.maxTotalExpansions ?? Infinity),
-        maxExpandedLength: Math.max(1, value.maxExpandedLength ?? 1e5),
-        maxEntityCount: Math.max(1, value.maxEntityCount ?? 1000),
-        allowedTags: value.allowedTags ?? null,
-        tagFilter: value.tagFilter ?? null
-      };
-    }
-    return normalizeProcessEntities(true);
-  }
-  var buildOptions = function(options) {
-    const built = Object.assign({}, defaultOptions, options);
-    const propertyNameOptions = [
-      { value: built.attributeNamePrefix, name: "attributeNamePrefix" },
-      { value: built.attributesGroupName, name: "attributesGroupName" },
-      { value: built.textNodeName, name: "textNodeName" },
-      { value: built.cdataPropName, name: "cdataPropName" },
-      { value: built.commentPropName, name: "commentPropName" }
-    ];
-    for (const { value, name } of propertyNameOptions) {
-      if (value) {
-        validatePropertyName(value, name);
-      }
-    }
-    if (built.onDangerousProperty === null) {
-      built.onDangerousProperty = defaultOnDangerousProperty;
-    }
-    built.processEntities = normalizeProcessEntities(built.processEntities);
-    return built;
-  };
-  exports.buildOptions = buildOptions;
-  exports.defaultOptions = defaultOptions;
-});
-
-// node_modules/fast-xml-parser/src/xmlparser/xmlNode.js
-var require_xmlNode = __commonJS((exports, module) => {
-  class XmlNode {
-    constructor(tagname) {
-      this.tagname = tagname;
-      this.child = [];
-      this[":@"] = {};
-    }
-    add(key, val) {
-      if (key === "__proto__")
-        key = "#__proto__";
-      this.child.push({ [key]: val });
-    }
-    addChild(node) {
-      if (node.tagname === "__proto__")
-        node.tagname = "#__proto__";
-      if (node[":@"] && Object.keys(node[":@"]).length > 0) {
-        this.child.push({ [node.tagname]: node.child, [":@"]: node[":@"] });
-      } else {
-        this.child.push({ [node.tagname]: node.child });
-      }
-    }
-  }
-  module.exports = XmlNode;
-});
-
-// node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js
-var require_DocTypeReader = __commonJS((exports, module) => {
-  var util = require_util();
-
-  class DocTypeReader {
-    constructor(options) {
-      this.suppressValidationErr = !options;
-      this.options = options || {};
-    }
-    readDocType(xmlData, i) {
-      const entities = Object.create(null);
-      let entityCount = 0;
-      if (xmlData[i + 3] === "O" && xmlData[i + 4] === "C" && xmlData[i + 5] === "T" && xmlData[i + 6] === "Y" && xmlData[i + 7] === "P" && xmlData[i + 8] === "E") {
-        i = i + 9;
-        let angleBracketsCount = 1;
-        let hasBody = false, comment = false;
-        let exp = "";
-        for (;i < xmlData.length; i++) {
-          if (xmlData[i] === "<" && !comment) {
-            if (hasBody && hasSeq(xmlData, "!ENTITY", i)) {
-              i += 7;
-              let entityName, val;
-              [entityName, val, i] = this.readEntityExp(xmlData, i + 1, this.suppressValidationErr);
-              if (val.indexOf("&") === -1) {
-                if (this.options.enabled !== false && this.options.maxEntityCount != null && entityCount >= this.options.maxEntityCount) {
-                  throw new Error(`Entity count (${entityCount + 1}) exceeds maximum allowed (${this.options.maxEntityCount})`);
-                }
-                const escaped = entityName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                entities[entityName] = {
-                  regx: RegExp(`&${escaped};`, "g"),
-                  val
-                };
-                entityCount++;
-              }
-            } else if (hasBody && hasSeq(xmlData, "!ELEMENT", i)) {
-              i += 8;
-              const { index } = this.readElementExp(xmlData, i + 1);
-              i = index;
-            } else if (hasBody && hasSeq(xmlData, "!ATTLIST", i)) {
-              i += 8;
-            } else if (hasBody && hasSeq(xmlData, "!NOTATION", i)) {
-              i += 9;
-              const { index } = this.readNotationExp(xmlData, i + 1, this.suppressValidationErr);
-              i = index;
-            } else if (hasSeq(xmlData, "!--", i)) {
-              comment = true;
-            } else {
-              throw new Error(`Invalid DOCTYPE`);
-            }
-            angleBracketsCount++;
-            exp = "";
-          } else if (xmlData[i] === ">") {
-            if (comment) {
-              if (xmlData[i - 1] === "-" && xmlData[i - 2] === "-") {
-                comment = false;
-                angleBracketsCount--;
-              }
-            } else {
-              angleBracketsCount--;
-            }
-            if (angleBracketsCount === 0) {
-              break;
-            }
-          } else if (xmlData[i] === "[") {
-            hasBody = true;
-          } else {
-            exp += xmlData[i];
-          }
-        }
-        if (angleBracketsCount !== 0) {
-          throw new Error(`Unclosed DOCTYPE`);
-        }
-      } else {
-        throw new Error(`Invalid Tag instead of DOCTYPE`);
-      }
-      return { entities, i };
-    }
-    readEntityExp(xmlData, i) {
-      i = skipWhitespace(xmlData, i);
-      let entityName = "";
-      while (i < xmlData.length && !/\s/.test(xmlData[i]) && xmlData[i] !== '"' && xmlData[i] !== "'") {
-        entityName += xmlData[i];
-        i++;
-      }
-      validateEntityName(entityName);
-      i = skipWhitespace(xmlData, i);
-      if (!this.suppressValidationErr) {
-        if (xmlData.substring(i, i + 6).toUpperCase() === "SYSTEM") {
-          throw new Error("External entities are not supported");
-        } else if (xmlData[i] === "%") {
-          throw new Error("Parameter entities are not supported");
-        }
-      }
-      let entityValue = "";
-      [i, entityValue] = this.readIdentifierVal(xmlData, i, "entity");
-      if (this.options.enabled !== false && this.options.maxEntitySize != null && entityValue.length > this.options.maxEntitySize) {
-        throw new Error(`Entity "${entityName}" size (${entityValue.length}) exceeds maximum allowed size (${this.options.maxEntitySize})`);
-      }
-      i--;
-      return [entityName, entityValue, i];
-    }
-    readNotationExp(xmlData, i) {
-      i = skipWhitespace(xmlData, i);
-      let notationName = "";
-      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
-        notationName += xmlData[i];
-        i++;
-      }
-      !this.suppressValidationErr && validateEntityName(notationName);
-      i = skipWhitespace(xmlData, i);
-      const identifierType = xmlData.substring(i, i + 6).toUpperCase();
-      if (!this.suppressValidationErr && identifierType !== "SYSTEM" && identifierType !== "PUBLIC") {
-        throw new Error(`Expected SYSTEM or PUBLIC, found "${identifierType}"`);
-      }
-      i += identifierType.length;
-      i = skipWhitespace(xmlData, i);
-      let publicIdentifier = null;
-      let systemIdentifier = null;
-      if (identifierType === "PUBLIC") {
-        [i, publicIdentifier] = this.readIdentifierVal(xmlData, i, "publicIdentifier");
-        i = skipWhitespace(xmlData, i);
-        if (xmlData[i] === '"' || xmlData[i] === "'") {
-          [i, systemIdentifier] = this.readIdentifierVal(xmlData, i, "systemIdentifier");
-        }
-      } else if (identifierType === "SYSTEM") {
-        [i, systemIdentifier] = this.readIdentifierVal(xmlData, i, "systemIdentifier");
-        if (!this.suppressValidationErr && !systemIdentifier) {
-          throw new Error("Missing mandatory system identifier for SYSTEM notation");
-        }
-      }
-      return { notationName, publicIdentifier, systemIdentifier, index: --i };
-    }
-    readIdentifierVal(xmlData, i, type) {
-      let identifierVal = "";
-      const startChar = xmlData[i];
-      if (startChar !== '"' && startChar !== "'") {
-        throw new Error(`Expected quoted string, found "${startChar}"`);
-      }
-      i++;
-      while (i < xmlData.length && xmlData[i] !== startChar) {
-        identifierVal += xmlData[i];
-        i++;
-      }
-      if (xmlData[i] !== startChar) {
-        throw new Error(`Unterminated ${type} value`);
-      }
-      i++;
-      return [i, identifierVal];
-    }
-    readElementExp(xmlData, i) {
-      i = skipWhitespace(xmlData, i);
-      let elementName = "";
-      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
-        elementName += xmlData[i];
-        i++;
-      }
-      if (!this.suppressValidationErr && !util.isName(elementName)) {
-        throw new Error(`Invalid element name: "${elementName}"`);
-      }
-      i = skipWhitespace(xmlData, i);
-      let contentModel = "";
-      if (xmlData[i] === "E" && hasSeq(xmlData, "MPTY", i)) {
-        i += 4;
-      } else if (xmlData[i] === "A" && hasSeq(xmlData, "NY", i)) {
-        i += 2;
-      } else if (xmlData[i] === "(") {
-        i++;
-        while (i < xmlData.length && xmlData[i] !== ")") {
-          contentModel += xmlData[i];
-          i++;
-        }
-        if (xmlData[i] !== ")") {
-          throw new Error("Unterminated content model");
-        }
-      } else if (!this.suppressValidationErr) {
-        throw new Error(`Invalid Element Expression, found "${xmlData[i]}"`);
-      }
-      return {
-        elementName,
-        contentModel: contentModel.trim(),
-        index: i
-      };
-    }
-    readAttlistExp(xmlData, i) {
-      i = skipWhitespace(xmlData, i);
-      let elementName = "";
-      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
-        elementName += xmlData[i];
-        i++;
-      }
-      validateEntityName(elementName);
-      i = skipWhitespace(xmlData, i);
-      let attributeName = "";
-      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
-        attributeName += xmlData[i];
-        i++;
-      }
-      if (!validateEntityName(attributeName)) {
-        throw new Error(`Invalid attribute name: "${attributeName}"`);
-      }
-      i = skipWhitespace(xmlData, i);
-      let attributeType = "";
-      if (xmlData.substring(i, i + 8).toUpperCase() === "NOTATION") {
-        attributeType = "NOTATION";
-        i += 8;
-        i = skipWhitespace(xmlData, i);
-        if (xmlData[i] !== "(") {
-          throw new Error(`Expected '(', found "${xmlData[i]}"`);
-        }
-        i++;
-        let allowedNotations = [];
-        while (i < xmlData.length && xmlData[i] !== ")") {
-          let notation = "";
-          while (i < xmlData.length && xmlData[i] !== "|" && xmlData[i] !== ")") {
-            notation += xmlData[i];
-            i++;
-          }
-          notation = notation.trim();
-          if (!validateEntityName(notation)) {
-            throw new Error(`Invalid notation name: "${notation}"`);
-          }
-          allowedNotations.push(notation);
-          if (xmlData[i] === "|") {
-            i++;
-            i = skipWhitespace(xmlData, i);
-          }
-        }
-        if (xmlData[i] !== ")") {
-          throw new Error("Unterminated list of notations");
-        }
-        i++;
-        attributeType += " (" + allowedNotations.join("|") + ")";
-      } else {
-        while (i < xmlData.length && !/\s/.test(xmlData[i])) {
-          attributeType += xmlData[i];
-          i++;
-        }
-        const validTypes = ["CDATA", "ID", "IDREF", "IDREFS", "ENTITY", "ENTITIES", "NMTOKEN", "NMTOKENS"];
-        if (!this.suppressValidationErr && !validTypes.includes(attributeType.toUpperCase())) {
-          throw new Error(`Invalid attribute type: "${attributeType}"`);
-        }
-      }
-      i = skipWhitespace(xmlData, i);
-      let defaultValue = "";
-      if (xmlData.substring(i, i + 8).toUpperCase() === "#REQUIRED") {
-        defaultValue = "#REQUIRED";
-        i += 8;
-      } else if (xmlData.substring(i, i + 7).toUpperCase() === "#IMPLIED") {
-        defaultValue = "#IMPLIED";
-        i += 7;
-      } else {
-        [i, defaultValue] = this.readIdentifierVal(xmlData, i, "ATTLIST");
-      }
-      return {
-        elementName,
-        attributeName,
-        attributeType,
-        defaultValue,
-        index: i
-      };
-    }
-  }
-  var skipWhitespace = (data, index) => {
-    while (index < data.length && /\s/.test(data[index])) {
-      index++;
-    }
-    return index;
-  };
-  function hasSeq(data, seq, i) {
-    for (let j = 0;j < seq.length; j++) {
-      if (seq[j] !== data[i + j + 1])
-        return false;
-    }
-    return true;
-  }
-  function validateEntityName(name) {
-    if (util.isName(name))
-      return name;
-    else
-      throw new Error(`Invalid entity name ${name}`);
-  }
-  module.exports = DocTypeReader;
-});
-
-// node_modules/strnum/strnum.js
-var require_strnum = __commonJS((exports, module) => {
-  var hexRegex = /^[-+]?0x[a-fA-F0-9]+$/;
-  var numRegex = /^([\-\+])?(0*)([0-9]*(\.[0-9]*)?)$/;
-  var consider = {
-    hex: true,
-    leadingZeros: true,
-    decimalPoint: ".",
-    eNotation: true
-  };
-  function toNumber(str2, options = {}) {
-    options = Object.assign({}, consider, options);
-    if (!str2 || typeof str2 !== "string")
-      return str2;
-    let trimmedStr = str2.trim();
-    if (options.skipLike !== undefined && options.skipLike.test(trimmedStr))
-      return str2;
-    else if (str2 === "0")
-      return 0;
-    else if (options.hex && hexRegex.test(trimmedStr)) {
-      return parse_int(trimmedStr, 16);
-    } else if (trimmedStr.search(/[eE]/) !== -1) {
-      const notation = trimmedStr.match(/^([-\+])?(0*)([0-9]*(\.[0-9]*)?[eE][-\+]?[0-9]+)$/);
-      if (notation) {
-        if (options.leadingZeros) {
-          trimmedStr = (notation[1] || "") + notation[3];
-        } else {
-          if (notation[2] === "0" && notation[3][0] === ".") {} else {
-            return str2;
-          }
-        }
-        return options.eNotation ? Number(trimmedStr) : str2;
-      } else {
-        return str2;
-      }
-    } else {
-      const match = numRegex.exec(trimmedStr);
-      if (match) {
-        const sign = match[1];
-        const leadingZeros = match[2];
-        let numTrimmedByZeros = trimZeros(match[3]);
-        if (!options.leadingZeros && leadingZeros.length > 0 && sign && trimmedStr[2] !== ".")
-          return str2;
-        else if (!options.leadingZeros && leadingZeros.length > 0 && !sign && trimmedStr[1] !== ".")
-          return str2;
-        else if (options.leadingZeros && leadingZeros === str2)
-          return 0;
-        else {
-          const num = Number(trimmedStr);
-          const numStr = "" + num;
-          if (numStr.search(/[eE]/) !== -1) {
-            if (options.eNotation)
-              return num;
-            else
-              return str2;
-          } else if (trimmedStr.indexOf(".") !== -1) {
-            if (numStr === "0" && numTrimmedByZeros === "")
-              return num;
-            else if (numStr === numTrimmedByZeros)
-              return num;
-            else if (sign && numStr === "-" + numTrimmedByZeros)
-              return num;
-            else
-              return str2;
-          }
-          if (leadingZeros) {
-            return numTrimmedByZeros === numStr || sign + numTrimmedByZeros === numStr ? num : str2;
-          } else {
-            return trimmedStr === numStr || trimmedStr === sign + numStr ? num : str2;
-          }
-        }
-      } else {
-        return str2;
-      }
-    }
-  }
-  function trimZeros(numStr) {
-    if (numStr && numStr.indexOf(".") !== -1) {
-      numStr = numStr.replace(/0+$/, "");
-      if (numStr === ".")
-        numStr = "0";
-      else if (numStr[0] === ".")
-        numStr = "0" + numStr;
-      else if (numStr[numStr.length - 1] === ".")
-        numStr = numStr.substr(0, numStr.length - 1);
-      return numStr;
-    }
-    return numStr;
-  }
-  function parse_int(numStr, base) {
-    if (parseInt)
-      return parseInt(numStr, base);
-    else if (Number.parseInt)
-      return Number.parseInt(numStr, base);
-    else if (window && window.parseInt)
-      return window.parseInt(numStr, base);
-    else
-      throw new Error("parseInt, Number.parseInt, window.parseInt are not supported");
-  }
-  module.exports = toNumber;
-});
-
-// node_modules/fast-xml-parser/src/ignoreAttributes.js
-var require_ignoreAttributes = __commonJS((exports, module) => {
-  function getIgnoreAttributesFn(ignoreAttributes) {
-    if (typeof ignoreAttributes === "function") {
-      return ignoreAttributes;
-    }
-    if (Array.isArray(ignoreAttributes)) {
-      return (attrName) => {
-        for (const pattern of ignoreAttributes) {
-          if (typeof pattern === "string" && attrName === pattern) {
-            return true;
-          }
-          if (pattern instanceof RegExp && pattern.test(attrName)) {
-            return true;
-          }
-        }
-      };
-    }
-    return () => false;
-  }
-  module.exports = getIgnoreAttributesFn;
-});
-
-// node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js
-var require_OrderedObjParser = __commonJS((exports, module) => {
-  var util = require_util();
-  var xmlNode = require_xmlNode();
-  var DocTypeReader = require_DocTypeReader();
-  var toNumber = require_strnum();
-  var getIgnoreAttributesFn = require_ignoreAttributes();
-
-  class OrderedObjParser {
-    constructor(options) {
-      this.options = options;
-      this.currentNode = null;
-      this.tagsNodeStack = [];
-      this.docTypeEntities = {};
-      this.lastEntities = {
-        apos: { regex: /&(apos|#39|#x27);/g, val: "'" },
-        gt: { regex: /&(gt|#62|#x3E);/g, val: ">" },
-        lt: { regex: /&(lt|#60|#x3C);/g, val: "<" },
-        quot: { regex: /&(quot|#34|#x22);/g, val: '"' }
-      };
-      this.ampEntity = { regex: /&(amp|#38|#x26);/g, val: "&" };
-      this.htmlEntities = {
-        space: { regex: /&(nbsp|#160);/g, val: " " },
-        cent: { regex: /&(cent|#162);/g, val: "¢" },
-        pound: { regex: /&(pound|#163);/g, val: "£" },
-        yen: { regex: /&(yen|#165);/g, val: "¥" },
-        euro: { regex: /&(euro|#8364);/g, val: "€" },
-        copyright: { regex: /&(copy|#169);/g, val: "©" },
-        reg: { regex: /&(reg|#174);/g, val: "®" },
-        inr: { regex: /&(inr|#8377);/g, val: "₹" },
-        num_dec: { regex: /&#([0-9]{1,7});/g, val: (_, str2) => fromCodePoint(str2, 10, "&#") },
-        num_hex: { regex: /&#x([0-9a-fA-F]{1,6});/g, val: (_, str2) => fromCodePoint(str2, 16, "&#x") }
-      };
-      this.addExternalEntities = addExternalEntities;
-      this.parseXml = parseXml;
-      this.parseTextData = parseTextData;
-      this.resolveNameSpace = resolveNameSpace;
-      this.buildAttributesMap = buildAttributesMap;
-      this.isItStopNode = isItStopNode;
-      this.replaceEntitiesValue = replaceEntitiesValue;
-      this.readStopNodeData = readStopNodeData;
-      this.saveTextToParentTag = saveTextToParentTag;
-      this.addChild = addChild;
-      this.ignoreAttributesFn = getIgnoreAttributesFn(this.options.ignoreAttributes);
-      this.entityExpansionCount = 0;
-      this.currentExpandedLength = 0;
-      if (this.options.stopNodes && this.options.stopNodes.length > 0) {
-        this.stopNodesExact = new Set;
-        this.stopNodesWildcard = new Set;
-        for (let i = 0;i < this.options.stopNodes.length; i++) {
-          const stopNodeExp = this.options.stopNodes[i];
-          if (typeof stopNodeExp !== "string")
-            continue;
-          if (stopNodeExp.startsWith("*.")) {
-            this.stopNodesWildcard.add(stopNodeExp.substring(2));
-          } else {
-            this.stopNodesExact.add(stopNodeExp);
-          }
-        }
-      }
-    }
-  }
-  function addExternalEntities(externalEntities) {
-    const entKeys = Object.keys(externalEntities);
-    for (let i = 0;i < entKeys.length; i++) {
-      const ent = entKeys[i];
-      const escaped = ent.replace(/[.\-+*:]/g, "\\.");
-      this.lastEntities[ent] = {
-        regex: new RegExp("&" + escaped + ";", "g"),
-        val: externalEntities[ent]
-      };
-    }
-  }
-  function parseTextData(val, tagName, jPath, dontTrim, hasAttributes, isLeafNode, escapeEntities) {
-    if (val !== undefined) {
-      if (this.options.trimValues && !dontTrim) {
-        val = val.trim();
-      }
-      if (val.length > 0) {
-        if (!escapeEntities)
-          val = this.replaceEntitiesValue(val, tagName, jPath);
-        const newval = this.options.tagValueProcessor(tagName, val, jPath, hasAttributes, isLeafNode);
-        if (newval === null || newval === undefined) {
-          return val;
-        } else if (typeof newval !== typeof val || newval !== val) {
-          return newval;
-        } else if (this.options.trimValues) {
-          return parseValue(val, this.options.parseTagValue, this.options.numberParseOptions);
-        } else {
-          const trimmedVal = val.trim();
-          if (trimmedVal === val) {
-            return parseValue(val, this.options.parseTagValue, this.options.numberParseOptions);
-          } else {
-            return val;
-          }
-        }
-      }
-    }
-  }
-  function resolveNameSpace(tagname) {
-    if (this.options.removeNSPrefix) {
-      const tags = tagname.split(":");
-      const prefix = tagname.charAt(0) === "/" ? "/" : "";
-      if (tags[0] === "xmlns") {
-        return "";
-      }
-      if (tags.length === 2) {
-        tagname = prefix + tags[1];
-      }
-    }
-    return tagname;
-  }
-  var attrsRegx = new RegExp(`([^\\s=]+)\\s*(=\\s*(['"])([\\s\\S]*?)\\3)?`, "gm");
-  function buildAttributesMap(attrStr, jPath, tagName) {
-    if (this.options.ignoreAttributes !== true && typeof attrStr === "string") {
-      const matches = util.getAllMatches(attrStr, attrsRegx);
-      const len = matches.length;
-      const attrs = {};
-      for (let i = 0;i < len; i++) {
-        const attrName = this.resolveNameSpace(matches[i][1]);
-        if (this.ignoreAttributesFn(attrName, jPath)) {
-          continue;
-        }
-        let oldVal = matches[i][4];
-        let aName = this.options.attributeNamePrefix + attrName;
-        if (attrName.length) {
-          if (this.options.transformAttributeName) {
-            aName = this.options.transformAttributeName(aName);
-          }
-          aName = sanitizeName(aName, this.options);
-          if (oldVal !== undefined) {
-            if (this.options.trimValues) {
-              oldVal = oldVal.trim();
-            }
-            oldVal = this.replaceEntitiesValue(oldVal, tagName, jPath);
-            const newVal = this.options.attributeValueProcessor(attrName, oldVal, jPath);
-            if (newVal === null || newVal === undefined) {
-              attrs[aName] = oldVal;
-            } else if (typeof newVal !== typeof oldVal || newVal !== oldVal) {
-              attrs[aName] = newVal;
-            } else {
-              attrs[aName] = parseValue(oldVal, this.options.parseAttributeValue, this.options.numberParseOptions);
-            }
-          } else if (this.options.allowBooleanAttributes) {
-            attrs[aName] = true;
-          }
-        }
-      }
-      if (!Object.keys(attrs).length) {
-        return;
-      }
-      if (this.options.attributesGroupName) {
-        const attrCollection = {};
-        attrCollection[this.options.attributesGroupName] = attrs;
-        return attrCollection;
-      }
-      return attrs;
-    }
-  }
-  var parseXml = function(xmlData) {
-    xmlData = xmlData.replace(/\r\n?/g, `
-`);
-    const xmlObj = new xmlNode("!xml");
-    let currentNode = xmlObj;
-    let textData = "";
-    let jPath = "";
-    this.entityExpansionCount = 0;
-    this.currentExpandedLength = 0;
-    const docTypeReader = new DocTypeReader(this.options.processEntities);
-    for (let i = 0;i < xmlData.length; i++) {
-      const ch = xmlData[i];
-      if (ch === "<") {
-        if (xmlData[i + 1] === "/") {
-          const closeIndex = findClosingIndex(xmlData, ">", i, "Closing Tag is not closed.");
-          let tagName = xmlData.substring(i + 2, closeIndex).trim();
-          if (this.options.removeNSPrefix) {
-            const colonIndex = tagName.indexOf(":");
-            if (colonIndex !== -1) {
-              tagName = tagName.substr(colonIndex + 1);
-            }
-          }
-          if (this.options.transformTagName) {
-            tagName = this.options.transformTagName(tagName);
-          }
-          if (currentNode) {
-            textData = this.saveTextToParentTag(textData, currentNode, jPath);
-          }
-          const lastTagName = jPath.substring(jPath.lastIndexOf(".") + 1);
-          if (tagName && this.options.unpairedTags.indexOf(tagName) !== -1) {
-            throw new Error(`Unpaired tag can not be used as closing tag: </${tagName}>`);
-          }
-          let propIndex = 0;
-          if (lastTagName && this.options.unpairedTags.indexOf(lastTagName) !== -1) {
-            propIndex = jPath.lastIndexOf(".", jPath.lastIndexOf(".") - 1);
-            this.tagsNodeStack.pop();
-          } else {
-            propIndex = jPath.lastIndexOf(".");
-          }
-          jPath = jPath.substring(0, propIndex);
-          currentNode = this.tagsNodeStack.pop();
-          textData = "";
-          i = closeIndex;
-        } else if (xmlData[i + 1] === "?") {
-          let tagData = readTagExp(xmlData, i, false, "?>");
-          if (!tagData)
-            throw new Error("Pi Tag is not closed.");
-          textData = this.saveTextToParentTag(textData, currentNode, jPath);
-          if (this.options.ignoreDeclaration && tagData.tagName === "?xml" || this.options.ignorePiTags) {} else {
-            const childNode = new xmlNode(tagData.tagName);
-            childNode.add(this.options.textNodeName, "");
-            if (tagData.tagName !== tagData.tagExp && tagData.attrExpPresent) {
-              childNode[":@"] = this.buildAttributesMap(tagData.tagExp, jPath, tagData.tagName);
-            }
-            this.addChild(currentNode, childNode, jPath, i);
-          }
-          i = tagData.closeIndex + 1;
-        } else if (xmlData.substr(i + 1, 3) === "!--") {
-          const endIndex = findClosingIndex(xmlData, "-->", i + 4, "Comment is not closed.");
-          if (this.options.commentPropName) {
-            const comment = xmlData.substring(i + 4, endIndex - 2);
-            textData = this.saveTextToParentTag(textData, currentNode, jPath);
-            currentNode.add(this.options.commentPropName, [{ [this.options.textNodeName]: comment }]);
-          }
-          i = endIndex;
-        } else if (xmlData.substr(i + 1, 2) === "!D") {
-          const result = docTypeReader.readDocType(xmlData, i);
-          this.docTypeEntities = result.entities;
-          i = result.i;
-        } else if (xmlData.substr(i + 1, 2) === "![") {
-          const closeIndex = findClosingIndex(xmlData, "]]>", i, "CDATA is not closed.") - 2;
-          const tagExp = xmlData.substring(i + 9, closeIndex);
-          textData = this.saveTextToParentTag(textData, currentNode, jPath);
-          let val = this.parseTextData(tagExp, currentNode.tagname, jPath, true, false, true, true);
-          if (val == undefined)
-            val = "";
-          if (this.options.cdataPropName) {
-            currentNode.add(this.options.cdataPropName, [{ [this.options.textNodeName]: tagExp }]);
-          } else {
-            currentNode.add(this.options.textNodeName, val);
-          }
-          i = closeIndex + 2;
-        } else {
-          let result = readTagExp(xmlData, i, this.options.removeNSPrefix);
-          let tagName = result.tagName;
-          const rawTagName = result.rawTagName;
-          let tagExp = result.tagExp;
-          let attrExpPresent = result.attrExpPresent;
-          let closeIndex = result.closeIndex;
-          if (this.options.transformTagName) {
-            const newTagName = this.options.transformTagName(tagName);
-            if (tagExp === tagName) {
-              tagExp = newTagName;
-            }
-            tagName = newTagName;
-          }
-          if (this.options.strictReservedNames && (tagName === this.options.commentPropName || tagName === this.options.cdataPropName || tagName === this.options.textNodeName || tagName === this.options.attributesGroupName)) {
-            throw new Error(`Invalid tag name: ${tagName}`);
-          }
-          if (currentNode && textData) {
-            if (currentNode.tagname !== "!xml") {
-              textData = this.saveTextToParentTag(textData, currentNode, jPath, false);
-            }
-          }
-          const lastTag = currentNode;
-          if (lastTag && this.options.unpairedTags.indexOf(lastTag.tagname) !== -1) {
-            currentNode = this.tagsNodeStack.pop();
-            jPath = jPath.substring(0, jPath.lastIndexOf("."));
-          }
-          if (tagName !== xmlObj.tagname) {
-            jPath += jPath ? "." + tagName : tagName;
-          }
-          const startIndex = i;
-          if (this.isItStopNode(this.stopNodesExact, this.stopNodesWildcard, jPath, tagName)) {
-            let tagContent = "";
-            if (tagExp.length > 0 && tagExp.lastIndexOf("/") === tagExp.length - 1) {
-              if (tagName[tagName.length - 1] === "/") {
-                tagName = tagName.substr(0, tagName.length - 1);
-                jPath = jPath.substr(0, jPath.length - 1);
-                tagExp = tagName;
-              } else {
-                tagExp = tagExp.substr(0, tagExp.length - 1);
-              }
-              i = result.closeIndex;
-            } else if (this.options.unpairedTags.indexOf(tagName) !== -1) {
-              i = result.closeIndex;
-            } else {
-              const result2 = this.readStopNodeData(xmlData, rawTagName, closeIndex + 1);
-              if (!result2)
-                throw new Error(`Unexpected end of ${rawTagName}`);
-              i = result2.i;
-              tagContent = result2.tagContent;
-            }
-            const childNode = new xmlNode(tagName);
-            if (tagName !== tagExp && attrExpPresent) {
-              childNode[":@"] = this.buildAttributesMap(tagExp, jPath, tagName);
-            }
-            if (tagContent) {
-              tagContent = this.parseTextData(tagContent, tagName, jPath, true, attrExpPresent, true, true);
-            }
-            jPath = jPath.substr(0, jPath.lastIndexOf("."));
-            childNode.add(this.options.textNodeName, tagContent);
-            this.addChild(currentNode, childNode, jPath, startIndex);
-          } else {
-            if (tagExp.length > 0 && tagExp.lastIndexOf("/") === tagExp.length - 1) {
-              if (tagName[tagName.length - 1] === "/") {
-                tagName = tagName.substr(0, tagName.length - 1);
-                jPath = jPath.substr(0, jPath.length - 1);
-                tagExp = tagName;
-              } else {
-                tagExp = tagExp.substr(0, tagExp.length - 1);
-              }
-              if (this.options.transformTagName) {
-                const newTagName = this.options.transformTagName(tagName);
-                if (tagExp === tagName) {
-                  tagExp = newTagName;
-                }
-                tagName = newTagName;
-              }
-              const childNode = new xmlNode(tagName);
-              if (tagName !== tagExp && attrExpPresent) {
-                childNode[":@"] = this.buildAttributesMap(tagExp, jPath, tagName);
-              }
-              this.addChild(currentNode, childNode, jPath, startIndex);
-              jPath = jPath.substr(0, jPath.lastIndexOf("."));
-            } else if (this.options.unpairedTags.indexOf(tagName) !== -1) {
-              const childNode = new xmlNode(tagName);
-              if (tagName !== tagExp && attrExpPresent) {
-                childNode[":@"] = this.buildAttributesMap(tagExp, jPath);
-              }
-              this.addChild(currentNode, childNode, jPath, startIndex);
-              jPath = jPath.substr(0, jPath.lastIndexOf("."));
-              i = result.closeIndex;
-              continue;
-            } else {
-              const childNode = new xmlNode(tagName);
-              if (this.tagsNodeStack.length > this.options.maxNestedTags) {
-                throw new Error("Maximum nested tags exceeded");
-              }
-              this.tagsNodeStack.push(currentNode);
-              if (tagName !== tagExp && attrExpPresent) {
-                childNode[":@"] = this.buildAttributesMap(tagExp, jPath, tagName);
-              }
-              this.addChild(currentNode, childNode, jPath);
-              currentNode = childNode;
-            }
-            textData = "";
-            i = closeIndex;
-          }
-        }
-      } else {
-        textData += xmlData[i];
-      }
-    }
-    return xmlObj.child;
-  };
-  function addChild(currentNode, childNode, jPath, startIndex) {
-    if (!this.options.captureMetaData)
-      startIndex = undefined;
-    const result = this.options.updateTag(childNode.tagname, jPath, childNode[":@"]);
-    if (result === false) {} else if (typeof result === "string") {
-      childNode.tagname = result;
-      currentNode.addChild(childNode, startIndex);
-    } else {
-      currentNode.addChild(childNode, startIndex);
-    }
-  }
-  var replaceEntitiesValue = function(val, tagName, jPath) {
-    if (val.indexOf("&") === -1) {
-      return val;
-    }
-    const entityConfig = this.options.processEntities;
-    if (!entityConfig.enabled) {
-      return val;
-    }
-    if (entityConfig.allowedTags) {
-      if (!entityConfig.allowedTags.includes(tagName)) {
-        return val;
-      }
-    }
-    if (entityConfig.tagFilter) {
-      if (!entityConfig.tagFilter(tagName, jPath)) {
-        return val;
-      }
-    }
-    for (let entityName in this.docTypeEntities) {
-      const entity = this.docTypeEntities[entityName];
-      const matches = val.match(entity.regx);
-      if (matches) {
-        this.entityExpansionCount += matches.length;
-        if (entityConfig.maxTotalExpansions && this.entityExpansionCount > entityConfig.maxTotalExpansions) {
-          throw new Error(`Entity expansion limit exceeded: ${this.entityExpansionCount} > ${entityConfig.maxTotalExpansions}`);
-        }
-        const lengthBefore = val.length;
-        val = val.replace(entity.regx, entity.val);
-        if (entityConfig.maxExpandedLength) {
-          this.currentExpandedLength += val.length - lengthBefore;
-          if (this.currentExpandedLength > entityConfig.maxExpandedLength) {
-            throw new Error(`Total expanded content size exceeded: ${this.currentExpandedLength} > ${entityConfig.maxExpandedLength}`);
-          }
-        }
-      }
-    }
-    if (val.indexOf("&") === -1)
-      return val;
-    for (const entityName of Object.keys(this.lastEntities)) {
-      const entity = this.lastEntities[entityName];
-      const matches = val.match(entity.regex);
-      if (matches) {
-        this.entityExpansionCount += matches.length;
-        if (entityConfig.maxTotalExpansions && this.entityExpansionCount > entityConfig.maxTotalExpansions) {
-          throw new Error(`Entity expansion limit exceeded: ${this.entityExpansionCount} > ${entityConfig.maxTotalExpansions}`);
-        }
-      }
-      val = val.replace(entity.regex, entity.val);
-    }
-    if (val.indexOf("&") === -1)
-      return val;
-    if (this.options.htmlEntities) {
-      for (const entityName of Object.keys(this.htmlEntities)) {
-        const entity = this.htmlEntities[entityName];
-        const matches = val.match(entity.regex);
-        if (matches) {
-          this.entityExpansionCount += matches.length;
-          if (entityConfig.maxTotalExpansions && this.entityExpansionCount > entityConfig.maxTotalExpansions) {
-            throw new Error(`Entity expansion limit exceeded: ${this.entityExpansionCount} > ${entityConfig.maxTotalExpansions}`);
-          }
-        }
-        val = val.replace(entity.regex, entity.val);
-      }
-    }
-    val = val.replace(this.ampEntity.regex, this.ampEntity.val);
-    return val;
-  };
-  function saveTextToParentTag(textData, parentNode, jPath, isLeafNode) {
-    if (textData) {
-      if (isLeafNode === undefined)
-        isLeafNode = parentNode.child.length === 0;
-      textData = this.parseTextData(textData, parentNode.tagname, jPath, false, parentNode[":@"] ? Object.keys(parentNode[":@"]).length !== 0 : false, isLeafNode);
-      if (textData !== undefined && textData !== "")
-        parentNode.add(this.options.textNodeName, textData);
-      textData = "";
-    }
-    return textData;
-  }
-  function isItStopNode(stopNodesExact, stopNodesWildcard, jPath, currentTagName) {
-    if (stopNodesWildcard && stopNodesWildcard.has(currentTagName))
-      return true;
-    if (stopNodesExact && stopNodesExact.has(jPath))
-      return true;
-    return false;
-  }
-  function tagExpWithClosingIndex(xmlData, i, closingChar = ">") {
-    let attrBoundary;
-    let tagExp = "";
-    for (let index = i;index < xmlData.length; index++) {
-      let ch = xmlData[index];
-      if (attrBoundary) {
-        if (ch === attrBoundary)
-          attrBoundary = "";
-      } else if (ch === '"' || ch === "'") {
-        attrBoundary = ch;
-      } else if (ch === closingChar[0]) {
-        if (closingChar[1]) {
-          if (xmlData[index + 1] === closingChar[1]) {
-            return {
-              data: tagExp,
-              index
-            };
-          }
-        } else {
-          return {
-            data: tagExp,
-            index
-          };
-        }
-      } else if (ch === "\t") {
-        ch = " ";
-      }
-      tagExp += ch;
-    }
-  }
-  function findClosingIndex(xmlData, str2, i, errMsg) {
-    const closingIndex = xmlData.indexOf(str2, i);
-    if (closingIndex === -1) {
-      throw new Error(errMsg);
-    } else {
-      return closingIndex + str2.length - 1;
-    }
-  }
-  function readTagExp(xmlData, i, removeNSPrefix, closingChar = ">") {
-    const result = tagExpWithClosingIndex(xmlData, i + 1, closingChar);
-    if (!result)
-      return;
-    let tagExp = result.data;
-    const closeIndex = result.index;
-    const separatorIndex = tagExp.search(/\s/);
-    let tagName = tagExp;
-    let attrExpPresent = true;
-    if (separatorIndex !== -1) {
-      tagName = tagExp.substring(0, separatorIndex);
-      tagExp = tagExp.substring(separatorIndex + 1).trimStart();
-    }
-    const rawTagName = tagName;
-    if (removeNSPrefix) {
-      const colonIndex = tagName.indexOf(":");
-      if (colonIndex !== -1) {
-        tagName = tagName.substr(colonIndex + 1);
-        attrExpPresent = tagName !== result.data.substr(colonIndex + 1);
-      }
-    }
-    return {
-      tagName,
-      tagExp,
-      closeIndex,
-      attrExpPresent,
-      rawTagName
-    };
-  }
-  function readStopNodeData(xmlData, tagName, i) {
-    const startIndex = i;
-    let openTagCount = 1;
-    for (;i < xmlData.length; i++) {
-      if (xmlData[i] === "<") {
-        if (xmlData[i + 1] === "/") {
-          const closeIndex = findClosingIndex(xmlData, ">", i, `${tagName} is not closed`);
-          let closeTagName = xmlData.substring(i + 2, closeIndex).trim();
-          if (closeTagName === tagName) {
-            openTagCount--;
-            if (openTagCount === 0) {
-              return {
-                tagContent: xmlData.substring(startIndex, i),
-                i: closeIndex
-              };
-            }
-          }
-          i = closeIndex;
-        } else if (xmlData[i + 1] === "?") {
-          const closeIndex = findClosingIndex(xmlData, "?>", i + 1, "StopNode is not closed.");
-          i = closeIndex;
-        } else if (xmlData.substr(i + 1, 3) === "!--") {
-          const closeIndex = findClosingIndex(xmlData, "-->", i + 3, "StopNode is not closed.");
-          i = closeIndex;
-        } else if (xmlData.substr(i + 1, 2) === "![") {
-          const closeIndex = findClosingIndex(xmlData, "]]>", i, "StopNode is not closed.") - 2;
-          i = closeIndex;
-        } else {
-          const tagData = readTagExp(xmlData, i, ">");
-          if (tagData) {
-            const openTagName = tagData && tagData.tagName;
-            if (openTagName === tagName && tagData.tagExp[tagData.tagExp.length - 1] !== "/") {
-              openTagCount++;
-            }
-            i = tagData.closeIndex;
-          }
-        }
-      }
-    }
-  }
-  function parseValue(val, shouldParse, options) {
-    if (shouldParse && typeof val === "string") {
-      const newval = val.trim();
-      if (newval === "true")
-        return true;
-      else if (newval === "false")
-        return false;
-      else
-        return toNumber(val, options);
-    } else {
-      if (util.isExist(val)) {
-        return val;
-      } else {
-        return "";
-      }
-    }
-  }
-  function fromCodePoint(str2, base, prefix) {
-    const codePoint = Number.parseInt(str2, base);
-    if (codePoint >= 0 && codePoint <= 1114111) {
-      return String.fromCodePoint(codePoint);
-    } else {
-      return prefix + str2 + ";";
-    }
-  }
-  function sanitizeName(name, options) {
-    if (util.criticalProperties.includes(name)) {
-      throw new Error(`[SECURITY] Invalid name: "${name}" is a reserved JavaScript keyword that could cause prototype pollution`);
-    } else if (util.DANGEROUS_PROPERTY_NAMES.includes(name)) {
-      return options.onDangerousProperty(name);
-    }
-    return name;
-  }
-  module.exports = OrderedObjParser;
-});
-
-// node_modules/fast-xml-parser/src/xmlparser/node2json.js
-var require_node2json = __commonJS((exports) => {
-  function prettify(node, options) {
-    return compress(node, options);
-  }
-  function compress(arr2, options, jPath) {
-    let text;
-    const compressedObj = {};
-    for (let i = 0;i < arr2.length; i++) {
-      const tagObj = arr2[i];
-      const property = propName(tagObj);
-      let newJpath = "";
-      if (jPath === undefined)
-        newJpath = property;
-      else
-        newJpath = jPath + "." + property;
-      if (property === options.textNodeName) {
-        if (text === undefined)
-          text = tagObj[property];
-        else
-          text += "" + tagObj[property];
-      } else if (property === undefined) {
-        continue;
-      } else if (tagObj[property]) {
-        let val = compress(tagObj[property], options, newJpath);
-        const isLeaf = isLeafTag(val, options);
-        if (tagObj[":@"]) {
-          assignAttributes(val, tagObj[":@"], newJpath, options);
-        } else if (Object.keys(val).length === 1 && val[options.textNodeName] !== undefined && !options.alwaysCreateTextNode) {
-          val = val[options.textNodeName];
-        } else if (Object.keys(val).length === 0) {
-          if (options.alwaysCreateTextNode)
-            val[options.textNodeName] = "";
-          else
-            val = "";
-        }
-        if (compressedObj[property] !== undefined && compressedObj.hasOwnProperty(property)) {
-          if (!Array.isArray(compressedObj[property])) {
-            compressedObj[property] = [compressedObj[property]];
-          }
-          compressedObj[property].push(val);
-        } else {
-          if (options.isArray(property, newJpath, isLeaf)) {
-            compressedObj[property] = [val];
-          } else {
-            compressedObj[property] = val;
-          }
-        }
-      }
-    }
-    if (typeof text === "string") {
-      if (text.length > 0)
-        compressedObj[options.textNodeName] = text;
-    } else if (text !== undefined)
-      compressedObj[options.textNodeName] = text;
-    return compressedObj;
-  }
-  function propName(obj) {
-    const keys = Object.keys(obj);
-    for (let i = 0;i < keys.length; i++) {
-      const key = keys[i];
-      if (key !== ":@")
-        return key;
-    }
-  }
-  function assignAttributes(obj, attrMap, jpath, options) {
-    if (attrMap) {
-      const keys = Object.keys(attrMap);
-      const len = keys.length;
-      for (let i = 0;i < len; i++) {
-        const atrrName = keys[i];
-        if (options.isArray(atrrName, jpath + "." + atrrName, true, true)) {
-          obj[atrrName] = [attrMap[atrrName]];
-        } else {
-          obj[atrrName] = attrMap[atrrName];
-        }
-      }
-    }
-  }
-  function isLeafTag(obj, options) {
-    const { textNodeName } = options;
-    const propCount = Object.keys(obj).length;
-    if (propCount === 0) {
-      return true;
-    }
-    if (propCount === 1 && (obj[textNodeName] || typeof obj[textNodeName] === "boolean" || obj[textNodeName] === 0)) {
-      return true;
-    }
-    return false;
-  }
-  exports.prettify = prettify;
-});
-
-// node_modules/fast-xml-parser/src/xmlparser/XMLParser.js
-var require_XMLParser = __commonJS((exports, module) => {
-  var { buildOptions } = require_OptionsBuilder();
-  var OrderedObjParser = require_OrderedObjParser();
-  var { prettify } = require_node2json();
-  var validator = require_validator();
-
-  class XMLParser {
-    constructor(options) {
-      this.externalEntities = {};
-      this.options = buildOptions(options);
-    }
-    parse(xmlData, validationOption) {
-      if (typeof xmlData === "string") {} else if (xmlData.toString) {
-        xmlData = xmlData.toString();
-      } else {
-        throw new Error("XML data is accepted in String or Bytes[] form.");
-      }
-      if (validationOption) {
-        if (validationOption === true)
-          validationOption = {};
-        const result = validator.validate(xmlData, validationOption);
-        if (result !== true) {
-          throw Error(`${result.err.msg}:${result.err.line}:${result.err.col}`);
-        }
-      }
-      const orderedObjParser = new OrderedObjParser(this.options);
-      orderedObjParser.addExternalEntities(this.externalEntities);
-      const orderedResult = orderedObjParser.parseXml(xmlData);
-      if (this.options.preserveOrder || orderedResult === undefined)
-        return orderedResult;
-      else
-        return prettify(orderedResult, this.options);
-    }
-    addEntity(key, value) {
-      if (value.indexOf("&") !== -1) {
-        throw new Error("Entity value can't have '&'");
-      } else if (key.indexOf("&") !== -1 || key.indexOf(";") !== -1) {
-        throw new Error("An entity must be set without '&' and ';'. Eg. use '#xD' for '&#xD;'");
-      } else if (value === "&") {
-        throw new Error("An entity with value '&' is not permitted");
-      } else {
-        this.externalEntities[key] = value;
-      }
-    }
-  }
-  module.exports = XMLParser;
-});
-
-// node_modules/fast-xml-parser/src/xmlbuilder/orderedJs2Xml.js
-var require_orderedJs2Xml = __commonJS((exports, module) => {
-  var EOL = `
-`;
-  function toXml(jArray, options) {
-    let indentation = "";
-    if (options.format && options.indentBy.length > 0) {
-      indentation = EOL;
-    }
-    return arrToStr(jArray, options, "", indentation);
-  }
-  function arrToStr(arr2, options, jPath, indentation) {
-    let xmlStr = "";
-    let isPreviousElementTag = false;
-    if (!Array.isArray(arr2)) {
-      if (arr2 !== undefined && arr2 !== null) {
-        let text = arr2.toString();
-        text = replaceEntitiesValue(text, options);
-        return text;
-      }
-      return "";
-    }
-    for (let i = 0;i < arr2.length; i++) {
-      const tagObj = arr2[i];
-      const tagName = propName(tagObj);
-      if (tagName === undefined)
-        continue;
-      let newJPath = "";
-      if (jPath.length === 0)
-        newJPath = tagName;
-      else
-        newJPath = `${jPath}.${tagName}`;
-      if (tagName === options.textNodeName) {
-        let tagText = tagObj[tagName];
-        if (!isStopNode(newJPath, options)) {
-          tagText = options.tagValueProcessor(tagName, tagText);
-          tagText = replaceEntitiesValue(tagText, options);
-        }
-        if (isPreviousElementTag) {
-          xmlStr += indentation;
-        }
-        xmlStr += tagText;
-        isPreviousElementTag = false;
-        continue;
-      } else if (tagName === options.cdataPropName) {
-        if (isPreviousElementTag) {
-          xmlStr += indentation;
-        }
-        const cdataVal = String(tagObj[tagName][0][options.textNodeName]).replace(/\]\]>/g, "]]]]><![CDATA[>");
-        xmlStr += `<![CDATA[${cdataVal}]]>`;
-        isPreviousElementTag = false;
-        continue;
-      } else if (tagName === options.commentPropName) {
-        const commentVal = String(tagObj[tagName][0][options.textNodeName]).replace(/--/g, "- -").replace(/-$/, "- ");
-        xmlStr += indentation + `<!--${commentVal}-->`;
-        isPreviousElementTag = true;
-        continue;
-      } else if (tagName[0] === "?") {
-        const attStr2 = attr_to_str(tagObj[":@"], options);
-        const tempInd = tagName === "?xml" ? "" : indentation;
-        let piTextNodeName = tagObj[tagName][0][options.textNodeName];
-        piTextNodeName = piTextNodeName.length !== 0 ? " " + piTextNodeName : "";
-        xmlStr += tempInd + `<${tagName}${piTextNodeName}${attStr2}?>`;
-        isPreviousElementTag = true;
-        continue;
-      }
-      let newIdentation = indentation;
-      if (newIdentation !== "") {
-        newIdentation += options.indentBy;
-      }
-      const attStr = attr_to_str(tagObj[":@"], options);
-      const tagStart = indentation + `<${tagName}${attStr}`;
-      const tagValue = arrToStr(tagObj[tagName], options, newJPath, newIdentation);
-      if (options.unpairedTags.indexOf(tagName) !== -1) {
-        if (options.suppressUnpairedNode)
-          xmlStr += tagStart + ">";
-        else
-          xmlStr += tagStart + "/>";
-      } else if ((!tagValue || tagValue.length === 0) && options.suppressEmptyNode) {
-        xmlStr += tagStart + "/>";
-      } else if (tagValue && tagValue.endsWith(">")) {
-        xmlStr += tagStart + `>${tagValue}${indentation}</${tagName}>`;
-      } else {
-        xmlStr += tagStart + ">";
-        if (tagValue && indentation !== "" && (tagValue.includes("/>") || tagValue.includes("</"))) {
-          xmlStr += indentation + options.indentBy + tagValue + indentation;
-        } else {
-          xmlStr += tagValue;
-        }
-        xmlStr += `</${tagName}>`;
-      }
-      isPreviousElementTag = true;
-    }
-    return xmlStr;
-  }
-  function propName(obj) {
-    const keys = Object.keys(obj);
-    for (let i = 0;i < keys.length; i++) {
-      const key = keys[i];
-      if (!Object.prototype.hasOwnProperty.call(obj, key))
-        continue;
-      if (key !== ":@")
-        return key;
-    }
-  }
-  function attr_to_str(attrMap, options) {
-    let attrStr = "";
-    if (attrMap && !options.ignoreAttributes) {
-      for (let attr in attrMap) {
-        if (!Object.prototype.hasOwnProperty.call(attrMap, attr))
-          continue;
-        let attrVal = options.attributeValueProcessor(attr, attrMap[attr]);
-        attrVal = replaceEntitiesValue(attrVal, options);
-        if (attrVal === true && options.suppressBooleanAttributes) {
-          attrStr += ` ${attr.substr(options.attributeNamePrefix.length)}`;
-        } else {
-          attrStr += ` ${attr.substr(options.attributeNamePrefix.length)}="${attrVal}"`;
-        }
-      }
-    }
-    return attrStr;
-  }
-  function isStopNode(jPath, options) {
-    jPath = jPath.substr(0, jPath.length - options.textNodeName.length - 1);
-    let tagName = jPath.substr(jPath.lastIndexOf(".") + 1);
-    for (let index in options.stopNodes) {
-      if (options.stopNodes[index] === jPath || options.stopNodes[index] === "*." + tagName)
-        return true;
-    }
-    return false;
-  }
-  function replaceEntitiesValue(textValue, options) {
-    if (textValue && textValue.length > 0 && options.processEntities) {
-      for (let i = 0;i < options.entities.length; i++) {
-        const entity = options.entities[i];
-        textValue = textValue.replace(entity.regex, entity.val);
-      }
-    }
-    return textValue;
-  }
-  module.exports = toXml;
-});
-
-// node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js
-var require_json2xml = __commonJS((exports, module) => {
-  var buildFromOrderedJs = require_orderedJs2Xml();
-  var getIgnoreAttributesFn = require_ignoreAttributes();
-  var defaultOptions = {
-    attributeNamePrefix: "@_",
-    attributesGroupName: false,
-    textNodeName: "#text",
-    ignoreAttributes: true,
-    cdataPropName: false,
-    format: false,
-    indentBy: "  ",
-    suppressEmptyNode: false,
-    suppressUnpairedNode: true,
-    suppressBooleanAttributes: true,
-    tagValueProcessor: function(key, a) {
-      return a;
-    },
-    attributeValueProcessor: function(attrName, a) {
-      return a;
-    },
-    preserveOrder: false,
-    commentPropName: false,
-    unpairedTags: [],
-    entities: [
-      { regex: new RegExp("&", "g"), val: "&amp;" },
-      { regex: new RegExp(">", "g"), val: "&gt;" },
-      { regex: new RegExp("<", "g"), val: "&lt;" },
-      { regex: new RegExp("'", "g"), val: "&apos;" },
-      { regex: new RegExp('"', "g"), val: "&quot;" }
-    ],
-    processEntities: true,
-    stopNodes: [],
-    oneListGroup: false
-  };
-  function Builder(options) {
-    this.options = Object.assign({}, defaultOptions, options);
-    if (this.options.ignoreAttributes === true || this.options.attributesGroupName) {
-      this.isAttribute = function() {
-        return false;
-      };
-    } else {
-      this.ignoreAttributesFn = getIgnoreAttributesFn(this.options.ignoreAttributes);
-      this.attrPrefixLen = this.options.attributeNamePrefix.length;
-      this.isAttribute = isAttribute;
-    }
-    this.processTextOrObjNode = processTextOrObjNode;
-    if (this.options.format) {
-      this.indentate = indentate;
-      this.tagEndChar = `>
-`;
-      this.newLine = `
-`;
-    } else {
-      this.indentate = function() {
-        return "";
-      };
-      this.tagEndChar = ">";
-      this.newLine = "";
-    }
-  }
-  Builder.prototype.build = function(jObj) {
-    if (this.options.preserveOrder) {
-      return buildFromOrderedJs(jObj, this.options);
-    } else {
-      if (Array.isArray(jObj) && this.options.arrayNodeName && this.options.arrayNodeName.length > 1) {
-        jObj = {
-          [this.options.arrayNodeName]: jObj
-        };
-      }
-      return this.j2x(jObj, 0, []).val;
-    }
-  };
-  Builder.prototype.j2x = function(jObj, level, ajPath) {
-    let attrStr = "";
-    let val = "";
-    const jPath = ajPath.join(".");
-    for (let key in jObj) {
-      if (!Object.prototype.hasOwnProperty.call(jObj, key))
-        continue;
-      if (typeof jObj[key] === "undefined") {
-        if (this.isAttribute(key)) {
-          val += "";
-        }
-      } else if (jObj[key] === null) {
-        if (this.isAttribute(key)) {
-          val += "";
-        } else if (key === this.options.cdataPropName) {
-          val += "";
-        } else if (key[0] === "?") {
-          val += this.indentate(level) + "<" + key + "?" + this.tagEndChar;
-        } else {
-          val += this.indentate(level) + "<" + key + "/" + this.tagEndChar;
-        }
-      } else if (jObj[key] instanceof Date) {
-        val += this.buildTextValNode(jObj[key], key, "", level);
-      } else if (typeof jObj[key] !== "object") {
-        const attr = this.isAttribute(key);
-        if (attr && !this.ignoreAttributesFn(attr, jPath)) {
-          attrStr += this.buildAttrPairStr(attr, "" + jObj[key]);
-        } else if (!attr) {
-          if (key === this.options.textNodeName) {
-            let newval = this.options.tagValueProcessor(key, "" + jObj[key]);
-            val += this.replaceEntitiesValue(newval);
-          } else {
-            val += this.buildTextValNode(jObj[key], key, "", level);
-          }
-        }
-      } else if (Array.isArray(jObj[key])) {
-        const arrLen = jObj[key].length;
-        let listTagVal = "";
-        let listTagAttr = "";
-        for (let j = 0;j < arrLen; j++) {
-          const item = jObj[key][j];
-          if (typeof item === "undefined") {} else if (item === null) {
-            if (key[0] === "?")
-              val += this.indentate(level) + "<" + key + "?" + this.tagEndChar;
-            else
-              val += this.indentate(level) + "<" + key + "/" + this.tagEndChar;
-          } else if (typeof item === "object") {
-            if (this.options.oneListGroup) {
-              const result = this.j2x(item, level + 1, ajPath.concat(key));
-              listTagVal += result.val;
-              if (this.options.attributesGroupName && item.hasOwnProperty(this.options.attributesGroupName)) {
-                listTagAttr += result.attrStr;
-              }
-            } else {
-              listTagVal += this.processTextOrObjNode(item, key, level, ajPath);
-            }
-          } else {
-            if (this.options.oneListGroup) {
-              let textValue = this.options.tagValueProcessor(key, item);
-              textValue = this.replaceEntitiesValue(textValue);
-              listTagVal += textValue;
-            } else {
-              listTagVal += this.buildTextValNode(item, key, "", level);
-            }
-          }
-        }
-        if (this.options.oneListGroup) {
-          listTagVal = this.buildObjectNode(listTagVal, key, listTagAttr, level);
-        }
-        val += listTagVal;
-      } else {
-        if (this.options.attributesGroupName && key === this.options.attributesGroupName) {
-          const Ks = Object.keys(jObj[key]);
-          const L = Ks.length;
-          for (let j = 0;j < L; j++) {
-            attrStr += this.buildAttrPairStr(Ks[j], "" + jObj[key][Ks[j]]);
-          }
-        } else {
-          val += this.processTextOrObjNode(jObj[key], key, level, ajPath);
-        }
-      }
-    }
-    return { attrStr, val };
-  };
-  Builder.prototype.buildAttrPairStr = function(attrName, val) {
-    val = this.options.attributeValueProcessor(attrName, "" + val);
-    val = this.replaceEntitiesValue(val);
-    if (this.options.suppressBooleanAttributes && val === "true") {
-      return " " + attrName;
-    } else
-      return " " + attrName + '="' + val + '"';
-  };
-  function processTextOrObjNode(object, key, level, ajPath) {
-    const result = this.j2x(object, level + 1, ajPath.concat(key));
-    if (object[this.options.textNodeName] !== undefined && Object.keys(object).length === 1) {
-      return this.buildTextValNode(object[this.options.textNodeName], key, result.attrStr, level);
-    } else {
-      return this.buildObjectNode(result.val, key, result.attrStr, level);
-    }
-  }
-  Builder.prototype.buildObjectNode = function(val, key, attrStr, level) {
-    if (val === "") {
-      if (key[0] === "?")
-        return this.indentate(level) + "<" + key + attrStr + "?" + this.tagEndChar;
-      else {
-        return this.indentate(level) + "<" + key + attrStr + this.closeTag(key) + this.tagEndChar;
-      }
-    } else {
-      let tagEndExp = "</" + key + this.tagEndChar;
-      let piClosingChar = "";
-      if (key[0] === "?") {
-        piClosingChar = "?";
-        tagEndExp = "";
-      }
-      if ((attrStr || attrStr === "") && val.indexOf("<") === -1) {
-        return this.indentate(level) + "<" + key + attrStr + piClosingChar + ">" + val + tagEndExp;
-      } else if (this.options.commentPropName !== false && key === this.options.commentPropName && piClosingChar.length === 0) {
-        const safeVal = String(val).replace(/--/g, "- -").replace(/-$/, "- ");
-        return this.indentate(level) + `<!--${safeVal}-->` + this.newLine;
-      } else {
-        return this.indentate(level) + "<" + key + attrStr + piClosingChar + this.tagEndChar + val + this.indentate(level) + tagEndExp;
-      }
-    }
-  };
-  Builder.prototype.closeTag = function(key) {
-    let closeTag = "";
-    if (this.options.unpairedTags.indexOf(key) !== -1) {
-      if (!this.options.suppressUnpairedNode)
-        closeTag = "/";
-    } else if (this.options.suppressEmptyNode) {
-      closeTag = "/";
-    } else {
-      closeTag = `></${key}`;
-    }
-    return closeTag;
-  };
-  Builder.prototype.buildTextValNode = function(val, key, attrStr, level) {
-    if (this.options.cdataPropName !== false && key === this.options.cdataPropName) {
-      const safeVal = String(val).replace(/\]\]>/g, "]]]]><![CDATA[>");
-      return this.indentate(level) + `<![CDATA[${safeVal}]]>` + this.newLine;
-    } else if (this.options.commentPropName !== false && key === this.options.commentPropName) {
-      const safeVal = String(val).replace(/--/g, "- -").replace(/-$/, "- ");
-      return this.indentate(level) + `<!--${safeVal}-->` + this.newLine;
-    } else if (key[0] === "?") {
-      return this.indentate(level) + "<" + key + attrStr + "?" + this.tagEndChar;
-    } else {
-      let textValue = this.options.tagValueProcessor(key, val);
-      textValue = this.replaceEntitiesValue(textValue);
-      if (textValue === "") {
-        return this.indentate(level) + "<" + key + attrStr + this.closeTag(key) + this.tagEndChar;
-      } else {
-        return this.indentate(level) + "<" + key + attrStr + ">" + textValue + "</" + key + this.tagEndChar;
-      }
-    }
-  };
-  Builder.prototype.replaceEntitiesValue = function(textValue) {
-    if (textValue && textValue.length > 0 && this.options.processEntities) {
-      for (let i = 0;i < this.options.entities.length; i++) {
-        const entity = this.options.entities[i];
-        textValue = textValue.replace(entity.regex, entity.val);
-      }
-    }
-    return textValue;
-  };
-  function indentate(level) {
-    return this.options.indentBy.repeat(level);
-  }
-  function isAttribute(name) {
-    if (name.startsWith(this.options.attributeNamePrefix) && name !== this.options.textNodeName) {
-      return name.substr(this.attrPrefixLen);
-    } else {
-      return false;
-    }
-  }
-  module.exports = Builder;
-});
-
-// node_modules/fast-xml-parser/src/fxp.js
-var require_fxp = __commonJS((exports, module) => {
-  var validator = require_validator();
-  var XMLParser = require_XMLParser();
-  var XMLBuilder = require_json2xml();
-  module.exports = {
-    XMLParser,
-    XMLValidator: validator,
-    XMLBuilder
-  };
-});
-
 // node_modules/yaml/dist/nodes/identity.js
 var require_identity = __commonJS((exports) => {
   var ALIAS = Symbol.for("yaml.alias");
   var DOC = Symbol.for("yaml.document");
-  var MAP2 = Symbol.for("yaml.map");
+  var MAP = Symbol.for("yaml.map");
   var PAIR = Symbol.for("yaml.pair");
   var SCALAR = Symbol.for("yaml.scalar");
   var SEQ = Symbol.for("yaml.seq");
   var NODE_TYPE = Symbol.for("yaml.node.type");
   var isAlias = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === ALIAS;
   var isDocument = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === DOC;
-  var isMap = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP2;
+  var isMap = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP;
   var isPair = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === PAIR;
   var isScalar = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SCALAR;
   var isSeq = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SEQ;
   function isCollection(node) {
     if (node && typeof node === "object")
       switch (node[NODE_TYPE]) {
-        case MAP2:
+        case MAP:
         case SEQ:
           return true;
       }
@@ -2109,7 +47,7 @@ var require_identity = __commonJS((exports) => {
     if (node && typeof node === "object")
       switch (node[NODE_TYPE]) {
         case ALIAS:
-        case MAP2:
+        case MAP:
         case SCALAR:
         case SEQ:
           return true;
@@ -2119,7 +57,7 @@ var require_identity = __commonJS((exports) => {
   var hasAnchor = (node) => (isScalar(node) || isCollection(node)) && !!node.anchor;
   exports.ALIAS = ALIAS;
   exports.DOC = DOC;
-  exports.MAP = MAP2;
+  exports.MAP = MAP;
   exports.NODE_TYPE = NODE_TYPE;
   exports.PAIR = PAIR;
   exports.SCALAR = SCALAR;
@@ -2139,7 +77,7 @@ var require_identity = __commonJS((exports) => {
 var require_visit = __commonJS((exports) => {
   var identity = require_identity();
   var BREAK = Symbol("break visit");
-  var SKIP2 = Symbol("skip children");
+  var SKIP = Symbol("skip children");
   var REMOVE = Symbol("remove node");
   function visit(node, visitor) {
     const visitor_ = initVisitor(visitor);
@@ -2151,19 +89,19 @@ var require_visit = __commonJS((exports) => {
       visit_(null, node, visitor_, Object.freeze([]));
   }
   visit.BREAK = BREAK;
-  visit.SKIP = SKIP2;
+  visit.SKIP = SKIP;
   visit.REMOVE = REMOVE;
-  function visit_(key, node, visitor, path12) {
-    const ctrl = callVisitor(key, node, visitor, path12);
+  function visit_(key, node, visitor, path4) {
+    const ctrl = callVisitor(key, node, visitor, path4);
     if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-      replaceNode(key, path12, ctrl);
-      return visit_(key, ctrl, visitor, path12);
+      replaceNode(key, path4, ctrl);
+      return visit_(key, ctrl, visitor, path4);
     }
     if (typeof ctrl !== "symbol") {
       if (identity.isCollection(node)) {
-        path12 = Object.freeze(path12.concat(node));
+        path4 = Object.freeze(path4.concat(node));
         for (let i = 0;i < node.items.length; ++i) {
-          const ci = visit_(i, node.items[i], visitor, path12);
+          const ci = visit_(i, node.items[i], visitor, path4);
           if (typeof ci === "number")
             i = ci - 1;
           else if (ci === BREAK)
@@ -2174,13 +112,13 @@ var require_visit = __commonJS((exports) => {
           }
         }
       } else if (identity.isPair(node)) {
-        path12 = Object.freeze(path12.concat(node));
-        const ck = visit_("key", node.key, visitor, path12);
+        path4 = Object.freeze(path4.concat(node));
+        const ck = visit_("key", node.key, visitor, path4);
         if (ck === BREAK)
           return BREAK;
         else if (ck === REMOVE)
           node.key = null;
-        const cv = visit_("value", node.value, visitor, path12);
+        const cv = visit_("value", node.value, visitor, path4);
         if (cv === BREAK)
           return BREAK;
         else if (cv === REMOVE)
@@ -2199,19 +137,19 @@ var require_visit = __commonJS((exports) => {
       await visitAsync_(null, node, visitor_, Object.freeze([]));
   }
   visitAsync.BREAK = BREAK;
-  visitAsync.SKIP = SKIP2;
+  visitAsync.SKIP = SKIP;
   visitAsync.REMOVE = REMOVE;
-  async function visitAsync_(key, node, visitor, path12) {
-    const ctrl = await callVisitor(key, node, visitor, path12);
+  async function visitAsync_(key, node, visitor, path4) {
+    const ctrl = await callVisitor(key, node, visitor, path4);
     if (identity.isNode(ctrl) || identity.isPair(ctrl)) {
-      replaceNode(key, path12, ctrl);
-      return visitAsync_(key, ctrl, visitor, path12);
+      replaceNode(key, path4, ctrl);
+      return visitAsync_(key, ctrl, visitor, path4);
     }
     if (typeof ctrl !== "symbol") {
       if (identity.isCollection(node)) {
-        path12 = Object.freeze(path12.concat(node));
+        path4 = Object.freeze(path4.concat(node));
         for (let i = 0;i < node.items.length; ++i) {
-          const ci = await visitAsync_(i, node.items[i], visitor, path12);
+          const ci = await visitAsync_(i, node.items[i], visitor, path4);
           if (typeof ci === "number")
             i = ci - 1;
           else if (ci === BREAK)
@@ -2222,13 +160,13 @@ var require_visit = __commonJS((exports) => {
           }
         }
       } else if (identity.isPair(node)) {
-        path12 = Object.freeze(path12.concat(node));
-        const ck = await visitAsync_("key", node.key, visitor, path12);
+        path4 = Object.freeze(path4.concat(node));
+        const ck = await visitAsync_("key", node.key, visitor, path4);
         if (ck === BREAK)
           return BREAK;
         else if (ck === REMOVE)
           node.key = null;
-        const cv = await visitAsync_("value", node.value, visitor, path12);
+        const cv = await visitAsync_("value", node.value, visitor, path4);
         if (cv === BREAK)
           return BREAK;
         else if (cv === REMOVE)
@@ -2255,23 +193,23 @@ var require_visit = __commonJS((exports) => {
     }
     return visitor;
   }
-  function callVisitor(key, node, visitor, path12) {
+  function callVisitor(key, node, visitor, path4) {
     if (typeof visitor === "function")
-      return visitor(key, node, path12);
+      return visitor(key, node, path4);
     if (identity.isMap(node))
-      return visitor.Map?.(key, node, path12);
+      return visitor.Map?.(key, node, path4);
     if (identity.isSeq(node))
-      return visitor.Seq?.(key, node, path12);
+      return visitor.Seq?.(key, node, path4);
     if (identity.isPair(node))
-      return visitor.Pair?.(key, node, path12);
+      return visitor.Pair?.(key, node, path4);
     if (identity.isScalar(node))
-      return visitor.Scalar?.(key, node, path12);
+      return visitor.Scalar?.(key, node, path4);
     if (identity.isAlias(node))
-      return visitor.Alias?.(key, node, path12);
+      return visitor.Alias?.(key, node, path4);
     return;
   }
-  function replaceNode(key, path12, node) {
-    const parent = path12[path12.length - 1];
+  function replaceNode(key, path4, node) {
+    const parent = path4[path4.length - 1];
     if (identity.isCollection(parent)) {
       parent.items[key] = node;
     } else if (identity.isPair(parent)) {
@@ -2708,9 +646,9 @@ var require_Alias = __commonJS((exports) => {
     } else if (identity.isCollection(node)) {
       let count = 0;
       for (const item of node.items) {
-        const c2 = getAliasCount(doc, item, anchors2);
-        if (c2 > count)
-          count = c2;
+        const c = getAliasCount(doc, item, anchors2);
+        if (c > count)
+          count = c;
       }
       return count;
     } else if (identity.isPair(node)) {
@@ -2828,10 +766,10 @@ var require_Collection = __commonJS((exports) => {
   var createNode = require_createNode();
   var identity = require_identity();
   var Node = require_Node();
-  function collectionFromPath(schema, path12, value) {
+  function collectionFromPath(schema, path4, value) {
     let v = value;
-    for (let i = path12.length - 1;i >= 0; --i) {
-      const k = path12[i];
+    for (let i = path4.length - 1;i >= 0; --i) {
+      const k = path4[i];
       if (typeof k === "number" && Number.isInteger(k) && k >= 0) {
         const a = [];
         a[k] = v;
@@ -2850,7 +788,7 @@ var require_Collection = __commonJS((exports) => {
       sourceObjects: new Map
     });
   }
-  var isEmptyPath = (path12) => path12 == null || typeof path12 === "object" && !!path12[Symbol.iterator]().next().done;
+  var isEmptyPath = (path4) => path4 == null || typeof path4 === "object" && !!path4[Symbol.iterator]().next().done;
 
   class Collection extends Node.NodeBase {
     constructor(type, schema) {
@@ -2871,11 +809,11 @@ var require_Collection = __commonJS((exports) => {
         copy.range = this.range.slice();
       return copy;
     }
-    addIn(path12, value) {
-      if (isEmptyPath(path12))
+    addIn(path4, value) {
+      if (isEmptyPath(path4))
         this.add(value);
       else {
-        const [key, ...rest] = path12;
+        const [key, ...rest] = path4;
         const node = this.get(key, true);
         if (identity.isCollection(node))
           node.addIn(rest, value);
@@ -2885,8 +823,8 @@ var require_Collection = __commonJS((exports) => {
           throw new Error(`Expected YAML collection at ${key}. Remaining path: ${rest}`);
       }
     }
-    deleteIn(path12) {
-      const [key, ...rest] = path12;
+    deleteIn(path4) {
+      const [key, ...rest] = path4;
       if (rest.length === 0)
         return this.delete(key);
       const node = this.get(key, true);
@@ -2895,8 +833,8 @@ var require_Collection = __commonJS((exports) => {
       else
         throw new Error(`Expected YAML collection at ${key}. Remaining path: ${rest}`);
     }
-    getIn(path12, keepScalar) {
-      const [key, ...rest] = path12;
+    getIn(path4, keepScalar) {
+      const [key, ...rest] = path4;
       const node = this.get(key, true);
       if (rest.length === 0)
         return !keepScalar && identity.isScalar(node) ? node.value : node;
@@ -2911,15 +849,15 @@ var require_Collection = __commonJS((exports) => {
         return n == null || allowScalar && identity.isScalar(n) && n.value == null && !n.commentBefore && !n.comment && !n.tag;
       });
     }
-    hasIn(path12) {
-      const [key, ...rest] = path12;
+    hasIn(path4) {
+      const [key, ...rest] = path4;
       if (rest.length === 0)
         return this.has(key);
       const node = this.get(key, true);
       return identity.isCollection(node) ? node.hasIn(rest) : false;
     }
-    setIn(path12, value) {
-      const [key, ...rest] = path12;
+    setIn(path4, value) {
+      const [key, ...rest] = path4;
       if (rest.length === 0) {
         this.set(key, value);
       } else {
@@ -5301,9 +3239,9 @@ var require_Document = __commonJS((exports) => {
       if (assertCollection(this.contents))
         this.contents.add(value);
     }
-    addIn(path12, value) {
+    addIn(path4, value) {
       if (assertCollection(this.contents))
-        this.contents.addIn(path12, value);
+        this.contents.addIn(path4, value);
     }
     createAlias(node, name) {
       if (!node.anchor) {
@@ -5352,30 +3290,30 @@ var require_Document = __commonJS((exports) => {
     delete(key) {
       return assertCollection(this.contents) ? this.contents.delete(key) : false;
     }
-    deleteIn(path12) {
-      if (Collection.isEmptyPath(path12)) {
+    deleteIn(path4) {
+      if (Collection.isEmptyPath(path4)) {
         if (this.contents == null)
           return false;
         this.contents = null;
         return true;
       }
-      return assertCollection(this.contents) ? this.contents.deleteIn(path12) : false;
+      return assertCollection(this.contents) ? this.contents.deleteIn(path4) : false;
     }
     get(key, keepScalar) {
       return identity.isCollection(this.contents) ? this.contents.get(key, keepScalar) : undefined;
     }
-    getIn(path12, keepScalar) {
-      if (Collection.isEmptyPath(path12))
+    getIn(path4, keepScalar) {
+      if (Collection.isEmptyPath(path4))
         return !keepScalar && identity.isScalar(this.contents) ? this.contents.value : this.contents;
-      return identity.isCollection(this.contents) ? this.contents.getIn(path12, keepScalar) : undefined;
+      return identity.isCollection(this.contents) ? this.contents.getIn(path4, keepScalar) : undefined;
     }
     has(key) {
       return identity.isCollection(this.contents) ? this.contents.has(key) : false;
     }
-    hasIn(path12) {
-      if (Collection.isEmptyPath(path12))
+    hasIn(path4) {
+      if (Collection.isEmptyPath(path4))
         return this.contents !== undefined;
-      return identity.isCollection(this.contents) ? this.contents.hasIn(path12) : false;
+      return identity.isCollection(this.contents) ? this.contents.hasIn(path4) : false;
     }
     set(key, value) {
       if (this.contents == null) {
@@ -5384,13 +3322,13 @@ var require_Document = __commonJS((exports) => {
         this.contents.set(key, value);
       }
     }
-    setIn(path12, value) {
-      if (Collection.isEmptyPath(path12)) {
+    setIn(path4, value) {
+      if (Collection.isEmptyPath(path4)) {
         this.contents = value;
       } else if (this.contents == null) {
-        this.contents = Collection.collectionFromPath(this.schema, Array.from(path12), value);
+        this.contents = Collection.collectionFromPath(this.schema, Array.from(path4), value);
       } else if (assertCollection(this.contents)) {
-        this.contents.setIn(path12, value);
+        this.contents.setIn(path4, value);
       }
     }
     setSchema(version, options = {}) {
@@ -5746,10 +3684,10 @@ var require_resolve_block_map = __commonJS((exports) => {
     let offset = bm.offset;
     let commentEnd = null;
     for (const collItem of bm.items) {
-      const { start, key, sep: sep3, value } = collItem;
+      const { start, key, sep, value } = collItem;
       const keyProps = resolveProps.resolveProps(start, {
         indicator: "explicit-key-ind",
-        next: key ?? sep3?.[0],
+        next: key ?? sep?.[0],
         offset,
         onError,
         parentIndent: bm.indent,
@@ -5763,7 +3701,7 @@ var require_resolve_block_map = __commonJS((exports) => {
           else if ("indent" in key && key.indent !== bm.indent)
             onError(offset, "BAD_INDENT", startColMsg);
         }
-        if (!keyProps.anchor && !keyProps.tag && !sep3) {
+        if (!keyProps.anchor && !keyProps.tag && !sep) {
           commentEnd = keyProps.end;
           if (keyProps.comment) {
             if (map.comment)
@@ -5788,7 +3726,7 @@ var require_resolve_block_map = __commonJS((exports) => {
       ctx.atKey = false;
       if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
         onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-      const valueProps = resolveProps.resolveProps(sep3 ?? [], {
+      const valueProps = resolveProps.resolveProps(sep ?? [], {
         indicator: "map-value-ind",
         next: value,
         offset: keyNode.range[2],
@@ -5804,7 +3742,7 @@ var require_resolve_block_map = __commonJS((exports) => {
           if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
             onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
         }
-        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep3, null, valueProps, onError);
+        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep, null, valueProps, onError);
         if (ctx.schema.compat)
           utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
         offset = valueNode.range[2];
@@ -5890,7 +3828,7 @@ var require_resolve_end = __commonJS((exports) => {
     let comment = "";
     if (end) {
       let hasSpace = false;
-      let sep3 = "";
+      let sep = "";
       for (const token of end) {
         const { source, type } = token;
         switch (type) {
@@ -5904,13 +3842,13 @@ var require_resolve_end = __commonJS((exports) => {
             if (!comment)
               comment = cb;
             else
-              comment += sep3 + cb;
-            sep3 = "";
+              comment += sep + cb;
+            sep = "";
             break;
           }
           case "newline":
             if (comment)
-              sep3 += source;
+              sep += source;
             hasSpace = true;
             break;
           default:
@@ -5950,18 +3888,18 @@ var require_resolve_flow_collection = __commonJS((exports) => {
     let offset = fc.offset + fc.start.source.length;
     for (let i = 0;i < fc.items.length; ++i) {
       const collItem = fc.items[i];
-      const { start, key, sep: sep3, value } = collItem;
+      const { start, key, sep, value } = collItem;
       const props = resolveProps.resolveProps(start, {
         flow: fcName,
         indicator: "explicit-key-ind",
-        next: key ?? sep3?.[0],
+        next: key ?? sep?.[0],
         offset,
         onError,
         parentIndent: fc.indent,
         startOnNewline: false
       });
       if (!props.found) {
-        if (!props.anchor && !props.tag && !sep3 && !value) {
+        if (!props.anchor && !props.tag && !sep && !value) {
           if (i === 0 && props.comma)
             onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
           else if (i < fc.items.length - 1)
@@ -6013,8 +3951,8 @@ var require_resolve_flow_collection = __commonJS((exports) => {
           }
         }
       }
-      if (!isMap && !sep3 && !props.found) {
-        const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep3, null, props, onError);
+      if (!isMap && !sep && !props.found) {
+        const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep, null, props, onError);
         coll.items.push(valueNode);
         offset = valueNode.range[2];
         if (isBlock(value))
@@ -6026,7 +3964,7 @@ var require_resolve_flow_collection = __commonJS((exports) => {
         if (isBlock(key))
           onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
         ctx.atKey = false;
-        const valueProps = resolveProps.resolveProps(sep3 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep ?? [], {
           flow: fcName,
           indicator: "map-value-ind",
           next: value,
@@ -6037,8 +3975,8 @@ var require_resolve_flow_collection = __commonJS((exports) => {
         });
         if (valueProps.found) {
           if (!isMap && !props.found && ctx.options.strict) {
-            if (sep3)
-              for (const st of sep3) {
+            if (sep)
+              for (const st of sep) {
                 if (st === valueProps.found)
                   break;
                 if (st.type === "newline") {
@@ -6055,7 +3993,7 @@ var require_resolve_flow_collection = __commonJS((exports) => {
           else
             onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
         }
-        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep3, null, valueProps, onError) : null;
+        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep, null, valueProps, onError) : null;
         if (valueNode) {
           if (isBlock(value))
             onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -6232,7 +4170,7 @@ var require_resolve_block_scalar = __commonJS((exports) => {
         chompStart = i + 1;
     }
     let value = "";
-    let sep3 = "";
+    let sep = "";
     let prevMoreIndented = false;
     for (let i = 0;i < contentStart; ++i)
       value += lines[i][0].slice(trimIndent) + `
@@ -6250,33 +4188,33 @@ var require_resolve_block_scalar = __commonJS((exports) => {
         indent = "";
       }
       if (type === Scalar.Scalar.BLOCK_LITERAL) {
-        value += sep3 + indent.slice(trimIndent) + content;
-        sep3 = `
+        value += sep + indent.slice(trimIndent) + content;
+        sep = `
 `;
       } else if (indent.length > trimIndent || content[0] === "\t") {
-        if (sep3 === " ")
-          sep3 = `
+        if (sep === " ")
+          sep = `
 `;
-        else if (!prevMoreIndented && sep3 === `
+        else if (!prevMoreIndented && sep === `
 `)
-          sep3 = `
+          sep = `
 
 `;
-        value += sep3 + indent.slice(trimIndent) + content;
-        sep3 = `
+        value += sep + indent.slice(trimIndent) + content;
+        sep = `
 `;
         prevMoreIndented = true;
       } else if (content === "") {
-        if (sep3 === `
+        if (sep === `
 `)
           value += `
 `;
         else
-          sep3 = `
+          sep = `
 `;
       } else {
-        value += sep3 + content;
-        sep3 = " ";
+        value += sep + content;
+        sep = " ";
         prevMoreIndented = false;
       }
     }
@@ -6457,27 +4395,27 @@ var require_resolve_flow_scalar = __commonJS((exports) => {
     if (!match)
       return source;
     let res = match[1];
-    let sep3 = " ";
+    let sep = " ";
     let pos = first.lastIndex;
     line.lastIndex = pos;
     while (match = line.exec(source)) {
       if (match[1] === "") {
-        if (sep3 === `
+        if (sep === `
 `)
-          res += sep3;
+          res += sep;
         else
-          sep3 = `
+          sep = `
 `;
       } else {
-        res += sep3 + match[1];
-        sep3 = " ";
+        res += sep + match[1];
+        sep = " ";
       }
       pos = line.lastIndex;
     }
     const last = /[ \t]*(.*)/sy;
     last.lastIndex = pos;
     match = last.exec(source);
-    return res + sep3 + (match?.[1] ?? "");
+    return res + sep + (match?.[1] ?? "");
   }
   function doubleQuotedValue(source, onError) {
     let res = "";
@@ -7250,14 +5188,14 @@ var require_cst_stringify = __commonJS((exports) => {
       }
     }
   }
-  function stringifyItem({ start, key, sep: sep3, value }) {
+  function stringifyItem({ start, key, sep, value }) {
     let res = "";
     for (const st of start)
       res += st.source;
     if (key)
       res += stringifyToken(key);
-    if (sep3)
-      for (const st of sep3)
+    if (sep)
+      for (const st of sep)
         res += st.source;
     if (value)
       res += stringifyToken(value);
@@ -7269,7 +5207,7 @@ var require_cst_stringify = __commonJS((exports) => {
 // node_modules/yaml/dist/parse/cst-visit.js
 var require_cst_visit = __commonJS((exports) => {
   var BREAK = Symbol("break visit");
-  var SKIP2 = Symbol("skip children");
+  var SKIP = Symbol("skip children");
   var REMOVE = Symbol("remove item");
   function visit(cst, visitor) {
     if ("type" in cst && cst.type === "document")
@@ -7277,11 +5215,11 @@ var require_cst_visit = __commonJS((exports) => {
     _visit(Object.freeze([]), cst, visitor);
   }
   visit.BREAK = BREAK;
-  visit.SKIP = SKIP2;
+  visit.SKIP = SKIP;
   visit.REMOVE = REMOVE;
-  visit.itemAtPath = (cst, path12) => {
+  visit.itemAtPath = (cst, path4) => {
     let item = cst;
-    for (const [field, index] of path12) {
+    for (const [field, index] of path4) {
       const tok = item?.[field];
       if (tok && "items" in tok) {
         item = tok.items[index];
@@ -7290,23 +5228,23 @@ var require_cst_visit = __commonJS((exports) => {
     }
     return item;
   };
-  visit.parentCollection = (cst, path12) => {
-    const parent = visit.itemAtPath(cst, path12.slice(0, -1));
-    const field = path12[path12.length - 1][0];
+  visit.parentCollection = (cst, path4) => {
+    const parent = visit.itemAtPath(cst, path4.slice(0, -1));
+    const field = path4[path4.length - 1][0];
     const coll = parent?.[field];
     if (coll && "items" in coll)
       return coll;
     throw new Error("Parent collection not found");
   };
-  function _visit(path12, item, visitor) {
-    let ctrl = visitor(item, path12);
+  function _visit(path4, item, visitor) {
+    let ctrl = visitor(item, path4);
     if (typeof ctrl === "symbol")
       return ctrl;
     for (const field of ["key", "value"]) {
       const token = item[field];
       if (token && "items" in token) {
         for (let i = 0;i < token.items.length; ++i) {
-          const ci = _visit(Object.freeze(path12.concat([[field, i]])), token.items[i], visitor);
+          const ci = _visit(Object.freeze(path4.concat([[field, i]])), token.items[i], visitor);
           if (typeof ci === "number")
             i = ci - 1;
           else if (ci === BREAK)
@@ -7317,10 +5255,10 @@ var require_cst_visit = __commonJS((exports) => {
           }
         }
         if (typeof ctrl === "function" && field === "key")
-          ctrl = ctrl(item, path12);
+          ctrl = ctrl(item, path4);
       }
     }
-    return typeof ctrl === "function" ? ctrl(item, path12) : ctrl;
+    return typeof ctrl === "function" ? ctrl(item, path4) : ctrl;
   }
   exports.visit = visit;
 });
@@ -8387,18 +6325,18 @@ var require_parser = __commonJS((exports) => {
       if (this.type === "map-value-ind") {
         const prev = getPrevProps(this.peek(2));
         const start = getFirstKeyStartProps(prev);
-        let sep3;
+        let sep;
         if (scalar.end) {
-          sep3 = scalar.end;
-          sep3.push(this.sourceToken);
+          sep = scalar.end;
+          sep.push(this.sourceToken);
           delete scalar.end;
         } else
-          sep3 = [this.sourceToken];
+          sep = [this.sourceToken];
         const map = {
           type: "block-map",
           offset: scalar.offset,
           indent: scalar.indent,
-          items: [{ start, key: scalar, sep: sep3 }]
+          items: [{ start, key: scalar, sep }]
         };
         this.onKeyLine = true;
         this.stack[this.stack.length - 1] = map;
@@ -8552,15 +6490,15 @@ var require_parser = __commonJS((exports) => {
               } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                 const start2 = getFirstKeyStartProps(it.start);
                 const key = it.key;
-                const sep3 = it.sep;
-                sep3.push(this.sourceToken);
+                const sep = it.sep;
+                sep.push(this.sourceToken);
                 delete it.key;
                 delete it.sep;
                 this.stack.push({
                   type: "block-map",
                   offset: this.offset,
                   indent: this.indent,
-                  items: [{ start: start2, key, sep: sep3 }]
+                  items: [{ start: start2, key, sep }]
                 });
               } else if (start.length > 0) {
                 it.sep = it.sep.concat(start, this.sourceToken);
@@ -8589,14 +6527,14 @@ var require_parser = __commonJS((exports) => {
           case "scalar":
           case "single-quoted-scalar":
           case "double-quoted-scalar": {
-            const fs12 = this.flowScalar(this.type);
+            const fs4 = this.flowScalar(this.type);
             if (atNextItem || it.value) {
-              map.items.push({ start, key: fs12, sep: [] });
+              map.items.push({ start, key: fs4, sep: [] });
               this.onKeyLine = true;
             } else if (it.sep) {
-              this.stack.push(fs12);
+              this.stack.push(fs4);
             } else {
-              Object.assign(it, { key: fs12, sep: [] });
+              Object.assign(it, { key: fs4, sep: [] });
               this.onKeyLine = true;
             }
             return;
@@ -8724,13 +6662,13 @@ var require_parser = __commonJS((exports) => {
           case "scalar":
           case "single-quoted-scalar":
           case "double-quoted-scalar": {
-            const fs12 = this.flowScalar(this.type);
+            const fs4 = this.flowScalar(this.type);
             if (!it || it.value)
-              fc.items.push({ start: [], key: fs12, sep: [] });
+              fc.items.push({ start: [], key: fs4, sep: [] });
             else if (it.sep)
-              this.stack.push(fs12);
+              this.stack.push(fs4);
             else
-              Object.assign(it, { key: fs12, sep: [] });
+              Object.assign(it, { key: fs4, sep: [] });
             return;
           }
           case "flow-map-end":
@@ -8754,13 +6692,13 @@ var require_parser = __commonJS((exports) => {
           const prev = getPrevProps(parent);
           const start = getFirstKeyStartProps(prev);
           fixFlowSeqItems(fc);
-          const sep3 = fc.end.splice(1, fc.end.length);
-          sep3.push(this.sourceToken);
+          const sep = fc.end.splice(1, fc.end.length);
+          sep.push(this.sourceToken);
           const map = {
             type: "block-map",
             offset: fc.offset,
             indent: fc.indent,
-            items: [{ start, key: fc, sep: sep3 }]
+            items: [{ start, key: fc, sep }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map;
@@ -8983,13 +6921,2075 @@ var require_public_api = __commonJS((exports) => {
   exports.stringify = stringify2;
 });
 
+// node_modules/fast-xml-parser/src/util.js
+var require_util = __commonJS((exports) => {
+  var nameStartChar = ":A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
+  var nameChar = nameStartChar + "\\-.\\d\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
+  var nameRegexp = "[" + nameStartChar + "][" + nameChar + "]*";
+  var regexName = new RegExp("^" + nameRegexp + "$");
+  var getAllMatches = function(string, regex) {
+    const matches = [];
+    let match = regex.exec(string);
+    while (match) {
+      const allmatches = [];
+      allmatches.startIndex = regex.lastIndex - match[0].length;
+      const len = match.length;
+      for (let index = 0;index < len; index++) {
+        allmatches.push(match[index]);
+      }
+      matches.push(allmatches);
+      match = regex.exec(string);
+    }
+    return matches;
+  };
+  var isName = function(string) {
+    const match = regexName.exec(string);
+    return !(match === null || typeof match === "undefined");
+  };
+  exports.isExist = function(v) {
+    return typeof v !== "undefined";
+  };
+  exports.isEmptyObject = function(obj) {
+    return Object.keys(obj).length === 0;
+  };
+  exports.merge = function(target, a, arrayMode) {
+    if (a) {
+      const keys = Object.keys(a);
+      const len = keys.length;
+      for (let i = 0;i < len; i++) {
+        if (arrayMode === "strict") {
+          target[keys[i]] = [a[keys[i]]];
+        } else {
+          target[keys[i]] = a[keys[i]];
+        }
+      }
+    }
+  };
+  exports.getValue = function(v) {
+    if (exports.isExist(v)) {
+      return v;
+    } else {
+      return "";
+    }
+  };
+  var DANGEROUS_PROPERTY_NAMES = [
+    "hasOwnProperty",
+    "toString",
+    "valueOf",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__"
+  ];
+  var criticalProperties = ["__proto__", "constructor", "prototype"];
+  exports.isName = isName;
+  exports.getAllMatches = getAllMatches;
+  exports.nameRegexp = nameRegexp;
+  exports.DANGEROUS_PROPERTY_NAMES = DANGEROUS_PROPERTY_NAMES;
+  exports.criticalProperties = criticalProperties;
+});
+
+// node_modules/fast-xml-parser/src/validator.js
+var require_validator = __commonJS((exports) => {
+  var util = require_util();
+  var defaultOptions = {
+    allowBooleanAttributes: false,
+    unpairedTags: []
+  };
+  exports.validate = function(xmlData, options) {
+    options = Object.assign({}, defaultOptions, options);
+    const tags = [];
+    let tagFound = false;
+    let reachedRoot = false;
+    if (xmlData[0] === "\uFEFF") {
+      xmlData = xmlData.substr(1);
+    }
+    for (let i = 0;i < xmlData.length; i++) {
+      if (xmlData[i] === "<" && xmlData[i + 1] === "?") {
+        i += 2;
+        i = readPI(xmlData, i);
+        if (i.err)
+          return i;
+      } else if (xmlData[i] === "<") {
+        let tagStartPos = i;
+        i++;
+        if (xmlData[i] === "!") {
+          i = readCommentAndCDATA(xmlData, i);
+          continue;
+        } else {
+          let closingTag = false;
+          if (xmlData[i] === "/") {
+            closingTag = true;
+            i++;
+          }
+          let tagName = "";
+          for (;i < xmlData.length && xmlData[i] !== ">" && xmlData[i] !== " " && xmlData[i] !== "\t" && xmlData[i] !== `
+` && xmlData[i] !== "\r"; i++) {
+            tagName += xmlData[i];
+          }
+          tagName = tagName.trim();
+          if (tagName[tagName.length - 1] === "/") {
+            tagName = tagName.substring(0, tagName.length - 1);
+            i--;
+          }
+          if (!validateTagName(tagName)) {
+            let msg;
+            if (tagName.trim().length === 0) {
+              msg = "Invalid space after '<'.";
+            } else {
+              msg = "Tag '" + tagName + "' is an invalid name.";
+            }
+            return getErrorObject("InvalidTag", msg, getLineNumberForPosition(xmlData, i));
+          }
+          const result = readAttributeStr(xmlData, i);
+          if (result === false) {
+            return getErrorObject("InvalidAttr", "Attributes for '" + tagName + "' have open quote.", getLineNumberForPosition(xmlData, i));
+          }
+          let attrStr = result.value;
+          i = result.index;
+          if (attrStr[attrStr.length - 1] === "/") {
+            const attrStrStart = i - attrStr.length;
+            attrStr = attrStr.substring(0, attrStr.length - 1);
+            const isValid = validateAttributeString(attrStr, options);
+            if (isValid === true) {
+              tagFound = true;
+            } else {
+              return getErrorObject(isValid.err.code, isValid.err.msg, getLineNumberForPosition(xmlData, attrStrStart + isValid.err.line));
+            }
+          } else if (closingTag) {
+            if (!result.tagClosed) {
+              return getErrorObject("InvalidTag", "Closing tag '" + tagName + "' doesn't have proper closing.", getLineNumberForPosition(xmlData, i));
+            } else if (attrStr.trim().length > 0) {
+              return getErrorObject("InvalidTag", "Closing tag '" + tagName + "' can't have attributes or invalid starting.", getLineNumberForPosition(xmlData, tagStartPos));
+            } else if (tags.length === 0) {
+              return getErrorObject("InvalidTag", "Closing tag '" + tagName + "' has not been opened.", getLineNumberForPosition(xmlData, tagStartPos));
+            } else {
+              const otg = tags.pop();
+              if (tagName !== otg.tagName) {
+                let openPos = getLineNumberForPosition(xmlData, otg.tagStartPos);
+                return getErrorObject("InvalidTag", "Expected closing tag '" + otg.tagName + "' (opened in line " + openPos.line + ", col " + openPos.col + ") instead of closing tag '" + tagName + "'.", getLineNumberForPosition(xmlData, tagStartPos));
+              }
+              if (tags.length == 0) {
+                reachedRoot = true;
+              }
+            }
+          } else {
+            const isValid = validateAttributeString(attrStr, options);
+            if (isValid !== true) {
+              return getErrorObject(isValid.err.code, isValid.err.msg, getLineNumberForPosition(xmlData, i - attrStr.length + isValid.err.line));
+            }
+            if (reachedRoot === true) {
+              return getErrorObject("InvalidXml", "Multiple possible root nodes found.", getLineNumberForPosition(xmlData, i));
+            } else if (options.unpairedTags.indexOf(tagName) !== -1) {} else {
+              tags.push({ tagName, tagStartPos });
+            }
+            tagFound = true;
+          }
+          for (i++;i < xmlData.length; i++) {
+            if (xmlData[i] === "<") {
+              if (xmlData[i + 1] === "!") {
+                i++;
+                i = readCommentAndCDATA(xmlData, i);
+                continue;
+              } else if (xmlData[i + 1] === "?") {
+                i = readPI(xmlData, ++i);
+                if (i.err)
+                  return i;
+              } else {
+                break;
+              }
+            } else if (xmlData[i] === "&") {
+              const afterAmp = validateAmpersand(xmlData, i);
+              if (afterAmp == -1)
+                return getErrorObject("InvalidChar", "char '&' is not expected.", getLineNumberForPosition(xmlData, i));
+              i = afterAmp;
+            } else {
+              if (reachedRoot === true && !isWhiteSpace(xmlData[i])) {
+                return getErrorObject("InvalidXml", "Extra text at the end", getLineNumberForPosition(xmlData, i));
+              }
+            }
+          }
+          if (xmlData[i] === "<") {
+            i--;
+          }
+        }
+      } else {
+        if (isWhiteSpace(xmlData[i])) {
+          continue;
+        }
+        return getErrorObject("InvalidChar", "char '" + xmlData[i] + "' is not expected.", getLineNumberForPosition(xmlData, i));
+      }
+    }
+    if (!tagFound) {
+      return getErrorObject("InvalidXml", "Start tag expected.", 1);
+    } else if (tags.length == 1) {
+      return getErrorObject("InvalidTag", "Unclosed tag '" + tags[0].tagName + "'.", getLineNumberForPosition(xmlData, tags[0].tagStartPos));
+    } else if (tags.length > 0) {
+      return getErrorObject("InvalidXml", "Invalid '" + JSON.stringify(tags.map((t) => t.tagName), null, 4).replace(/\r?\n/g, "") + "' found.", { line: 1, col: 1 });
+    }
+    return true;
+  };
+  function isWhiteSpace(char) {
+    return char === " " || char === "\t" || char === `
+` || char === "\r";
+  }
+  function readPI(xmlData, i) {
+    const start = i;
+    for (;i < xmlData.length; i++) {
+      if (xmlData[i] == "?" || xmlData[i] == " ") {
+        const tagname = xmlData.substr(start, i - start);
+        if (i > 5 && tagname === "xml") {
+          return getErrorObject("InvalidXml", "XML declaration allowed only at the start of the document.", getLineNumberForPosition(xmlData, i));
+        } else if (xmlData[i] == "?" && xmlData[i + 1] == ">") {
+          i++;
+          break;
+        } else {
+          continue;
+        }
+      }
+    }
+    return i;
+  }
+  function readCommentAndCDATA(xmlData, i) {
+    if (xmlData.length > i + 5 && xmlData[i + 1] === "-" && xmlData[i + 2] === "-") {
+      for (i += 3;i < xmlData.length; i++) {
+        if (xmlData[i] === "-" && xmlData[i + 1] === "-" && xmlData[i + 2] === ">") {
+          i += 2;
+          break;
+        }
+      }
+    } else if (xmlData.length > i + 8 && xmlData[i + 1] === "D" && xmlData[i + 2] === "O" && xmlData[i + 3] === "C" && xmlData[i + 4] === "T" && xmlData[i + 5] === "Y" && xmlData[i + 6] === "P" && xmlData[i + 7] === "E") {
+      let angleBracketsCount = 1;
+      for (i += 8;i < xmlData.length; i++) {
+        if (xmlData[i] === "<") {
+          angleBracketsCount++;
+        } else if (xmlData[i] === ">") {
+          angleBracketsCount--;
+          if (angleBracketsCount === 0) {
+            break;
+          }
+        }
+      }
+    } else if (xmlData.length > i + 9 && xmlData[i + 1] === "[" && xmlData[i + 2] === "C" && xmlData[i + 3] === "D" && xmlData[i + 4] === "A" && xmlData[i + 5] === "T" && xmlData[i + 6] === "A" && xmlData[i + 7] === "[") {
+      for (i += 8;i < xmlData.length; i++) {
+        if (xmlData[i] === "]" && xmlData[i + 1] === "]" && xmlData[i + 2] === ">") {
+          i += 2;
+          break;
+        }
+      }
+    }
+    return i;
+  }
+  var doubleQuote = '"';
+  var singleQuote = "'";
+  function readAttributeStr(xmlData, i) {
+    let attrStr = "";
+    let startChar = "";
+    let tagClosed = false;
+    for (;i < xmlData.length; i++) {
+      if (xmlData[i] === doubleQuote || xmlData[i] === singleQuote) {
+        if (startChar === "") {
+          startChar = xmlData[i];
+        } else if (startChar !== xmlData[i]) {} else {
+          startChar = "";
+        }
+      } else if (xmlData[i] === ">") {
+        if (startChar === "") {
+          tagClosed = true;
+          break;
+        }
+      }
+      attrStr += xmlData[i];
+    }
+    if (startChar !== "") {
+      return false;
+    }
+    return {
+      value: attrStr,
+      index: i,
+      tagClosed
+    };
+  }
+  var validAttrStrRegxp = new RegExp(`(\\s*)([^\\s=]+)(\\s*=)?(\\s*(['"])(([\\s\\S])*?)\\5)?`, "g");
+  function validateAttributeString(attrStr, options) {
+    const matches = util.getAllMatches(attrStr, validAttrStrRegxp);
+    const attrNames = {};
+    for (let i = 0;i < matches.length; i++) {
+      if (matches[i][1].length === 0) {
+        return getErrorObject("InvalidAttr", "Attribute '" + matches[i][2] + "' has no space in starting.", getPositionFromMatch(matches[i]));
+      } else if (matches[i][3] !== undefined && matches[i][4] === undefined) {
+        return getErrorObject("InvalidAttr", "Attribute '" + matches[i][2] + "' is without value.", getPositionFromMatch(matches[i]));
+      } else if (matches[i][3] === undefined && !options.allowBooleanAttributes) {
+        return getErrorObject("InvalidAttr", "boolean attribute '" + matches[i][2] + "' is not allowed.", getPositionFromMatch(matches[i]));
+      }
+      const attrName = matches[i][2];
+      if (!validateAttrName(attrName)) {
+        return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is an invalid name.", getPositionFromMatch(matches[i]));
+      }
+      if (!attrNames.hasOwnProperty(attrName)) {
+        attrNames[attrName] = 1;
+      } else {
+        return getErrorObject("InvalidAttr", "Attribute '" + attrName + "' is repeated.", getPositionFromMatch(matches[i]));
+      }
+    }
+    return true;
+  }
+  function validateNumberAmpersand(xmlData, i) {
+    let re = /\d/;
+    if (xmlData[i] === "x") {
+      i++;
+      re = /[\da-fA-F]/;
+    }
+    for (;i < xmlData.length; i++) {
+      if (xmlData[i] === ";")
+        return i;
+      if (!xmlData[i].match(re))
+        break;
+    }
+    return -1;
+  }
+  function validateAmpersand(xmlData, i) {
+    i++;
+    if (xmlData[i] === ";")
+      return -1;
+    if (xmlData[i] === "#") {
+      i++;
+      return validateNumberAmpersand(xmlData, i);
+    }
+    let count = 0;
+    for (;i < xmlData.length; i++, count++) {
+      if (xmlData[i].match(/\w/) && count < 20)
+        continue;
+      if (xmlData[i] === ";")
+        break;
+      return -1;
+    }
+    return i;
+  }
+  function getErrorObject(code, message, lineNumber) {
+    return {
+      err: {
+        code,
+        msg: message,
+        line: lineNumber.line || lineNumber,
+        col: lineNumber.col
+      }
+    };
+  }
+  function validateAttrName(attrName) {
+    return util.isName(attrName);
+  }
+  function validateTagName(tagname) {
+    return util.isName(tagname);
+  }
+  function getLineNumberForPosition(xmlData, index) {
+    const lines = xmlData.substring(0, index).split(/\r?\n/);
+    return {
+      line: lines.length,
+      col: lines[lines.length - 1].length + 1
+    };
+  }
+  function getPositionFromMatch(match) {
+    return match.startIndex + match[1].length;
+  }
+});
+
+// node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js
+var require_OptionsBuilder = __commonJS((exports) => {
+  var { DANGEROUS_PROPERTY_NAMES, criticalProperties } = require_util();
+  var defaultOnDangerousProperty = (name) => {
+    if (DANGEROUS_PROPERTY_NAMES.includes(name)) {
+      return "__" + name;
+    }
+    return name;
+  };
+  var defaultOptions = {
+    preserveOrder: false,
+    attributeNamePrefix: "@_",
+    attributesGroupName: false,
+    textNodeName: "#text",
+    ignoreAttributes: true,
+    removeNSPrefix: false,
+    allowBooleanAttributes: false,
+    parseTagValue: true,
+    parseAttributeValue: false,
+    trimValues: true,
+    cdataPropName: false,
+    numberParseOptions: {
+      hex: true,
+      leadingZeros: true,
+      eNotation: true
+    },
+    tagValueProcessor: function(tagName, val) {
+      return val;
+    },
+    attributeValueProcessor: function(attrName, val) {
+      return val;
+    },
+    stopNodes: [],
+    alwaysCreateTextNode: false,
+    isArray: () => false,
+    commentPropName: false,
+    unpairedTags: [],
+    processEntities: true,
+    htmlEntities: false,
+    ignoreDeclaration: false,
+    ignorePiTags: false,
+    transformTagName: false,
+    transformAttributeName: false,
+    updateTag: function(tagName, jPath, attrs) {
+      return tagName;
+    },
+    captureMetaData: false,
+    maxNestedTags: 100,
+    strictReservedNames: true,
+    onDangerousProperty: defaultOnDangerousProperty
+  };
+  function validatePropertyName(propertyName, optionName) {
+    if (typeof propertyName !== "string") {
+      return;
+    }
+    const normalized = propertyName.toLowerCase();
+    if (DANGEROUS_PROPERTY_NAMES.some((dangerous) => normalized === dangerous.toLowerCase())) {
+      throw new Error(`[SECURITY] Invalid ${optionName}: "${propertyName}" is a reserved JavaScript keyword that could cause prototype pollution`);
+    }
+    if (criticalProperties.some((dangerous) => normalized === dangerous.toLowerCase())) {
+      throw new Error(`[SECURITY] Invalid ${optionName}: "${propertyName}" is a reserved JavaScript keyword that could cause prototype pollution`);
+    }
+  }
+  function normalizeProcessEntities(value) {
+    if (typeof value === "boolean") {
+      return {
+        enabled: value,
+        maxEntitySize: 1e4,
+        maxExpansionDepth: 10,
+        maxTotalExpansions: 1000,
+        maxExpandedLength: 1e5,
+        allowedTags: null,
+        tagFilter: null
+      };
+    }
+    if (typeof value === "object" && value !== null) {
+      return {
+        enabled: value.enabled !== false,
+        maxEntitySize: Math.max(1, value.maxEntitySize ?? 1e4),
+        maxExpansionDepth: Math.max(1, value.maxExpansionDepth ?? 1e4),
+        maxTotalExpansions: Math.max(1, value.maxTotalExpansions ?? Infinity),
+        maxExpandedLength: Math.max(1, value.maxExpandedLength ?? 1e5),
+        maxEntityCount: Math.max(1, value.maxEntityCount ?? 1000),
+        allowedTags: value.allowedTags ?? null,
+        tagFilter: value.tagFilter ?? null
+      };
+    }
+    return normalizeProcessEntities(true);
+  }
+  var buildOptions = function(options) {
+    const built = Object.assign({}, defaultOptions, options);
+    const propertyNameOptions = [
+      { value: built.attributeNamePrefix, name: "attributeNamePrefix" },
+      { value: built.attributesGroupName, name: "attributesGroupName" },
+      { value: built.textNodeName, name: "textNodeName" },
+      { value: built.cdataPropName, name: "cdataPropName" },
+      { value: built.commentPropName, name: "commentPropName" }
+    ];
+    for (const { value, name } of propertyNameOptions) {
+      if (value) {
+        validatePropertyName(value, name);
+      }
+    }
+    if (built.onDangerousProperty === null) {
+      built.onDangerousProperty = defaultOnDangerousProperty;
+    }
+    built.processEntities = normalizeProcessEntities(built.processEntities);
+    return built;
+  };
+  exports.buildOptions = buildOptions;
+  exports.defaultOptions = defaultOptions;
+});
+
+// node_modules/fast-xml-parser/src/xmlparser/xmlNode.js
+var require_xmlNode = __commonJS((exports, module) => {
+  class XmlNode {
+    constructor(tagname) {
+      this.tagname = tagname;
+      this.child = [];
+      this[":@"] = {};
+    }
+    add(key, val) {
+      if (key === "__proto__")
+        key = "#__proto__";
+      this.child.push({ [key]: val });
+    }
+    addChild(node) {
+      if (node.tagname === "__proto__")
+        node.tagname = "#__proto__";
+      if (node[":@"] && Object.keys(node[":@"]).length > 0) {
+        this.child.push({ [node.tagname]: node.child, [":@"]: node[":@"] });
+      } else {
+        this.child.push({ [node.tagname]: node.child });
+      }
+    }
+  }
+  module.exports = XmlNode;
+});
+
+// node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js
+var require_DocTypeReader = __commonJS((exports, module) => {
+  var util = require_util();
+
+  class DocTypeReader {
+    constructor(options) {
+      this.suppressValidationErr = !options;
+      this.options = options || {};
+    }
+    readDocType(xmlData, i) {
+      const entities = Object.create(null);
+      let entityCount = 0;
+      if (xmlData[i + 3] === "O" && xmlData[i + 4] === "C" && xmlData[i + 5] === "T" && xmlData[i + 6] === "Y" && xmlData[i + 7] === "P" && xmlData[i + 8] === "E") {
+        i = i + 9;
+        let angleBracketsCount = 1;
+        let hasBody = false, comment = false;
+        let exp = "";
+        for (;i < xmlData.length; i++) {
+          if (xmlData[i] === "<" && !comment) {
+            if (hasBody && hasSeq(xmlData, "!ENTITY", i)) {
+              i += 7;
+              let entityName, val;
+              [entityName, val, i] = this.readEntityExp(xmlData, i + 1, this.suppressValidationErr);
+              if (val.indexOf("&") === -1) {
+                if (this.options.enabled !== false && this.options.maxEntityCount != null && entityCount >= this.options.maxEntityCount) {
+                  throw new Error(`Entity count (${entityCount + 1}) exceeds maximum allowed (${this.options.maxEntityCount})`);
+                }
+                const escaped = entityName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                entities[entityName] = {
+                  regx: RegExp(`&${escaped};`, "g"),
+                  val
+                };
+                entityCount++;
+              }
+            } else if (hasBody && hasSeq(xmlData, "!ELEMENT", i)) {
+              i += 8;
+              const { index } = this.readElementExp(xmlData, i + 1);
+              i = index;
+            } else if (hasBody && hasSeq(xmlData, "!ATTLIST", i)) {
+              i += 8;
+            } else if (hasBody && hasSeq(xmlData, "!NOTATION", i)) {
+              i += 9;
+              const { index } = this.readNotationExp(xmlData, i + 1, this.suppressValidationErr);
+              i = index;
+            } else if (hasSeq(xmlData, "!--", i)) {
+              comment = true;
+            } else {
+              throw new Error(`Invalid DOCTYPE`);
+            }
+            angleBracketsCount++;
+            exp = "";
+          } else if (xmlData[i] === ">") {
+            if (comment) {
+              if (xmlData[i - 1] === "-" && xmlData[i - 2] === "-") {
+                comment = false;
+                angleBracketsCount--;
+              }
+            } else {
+              angleBracketsCount--;
+            }
+            if (angleBracketsCount === 0) {
+              break;
+            }
+          } else if (xmlData[i] === "[") {
+            hasBody = true;
+          } else {
+            exp += xmlData[i];
+          }
+        }
+        if (angleBracketsCount !== 0) {
+          throw new Error(`Unclosed DOCTYPE`);
+        }
+      } else {
+        throw new Error(`Invalid Tag instead of DOCTYPE`);
+      }
+      return { entities, i };
+    }
+    readEntityExp(xmlData, i) {
+      i = skipWhitespace(xmlData, i);
+      let entityName = "";
+      while (i < xmlData.length && !/\s/.test(xmlData[i]) && xmlData[i] !== '"' && xmlData[i] !== "'") {
+        entityName += xmlData[i];
+        i++;
+      }
+      validateEntityName(entityName);
+      i = skipWhitespace(xmlData, i);
+      if (!this.suppressValidationErr) {
+        if (xmlData.substring(i, i + 6).toUpperCase() === "SYSTEM") {
+          throw new Error("External entities are not supported");
+        } else if (xmlData[i] === "%") {
+          throw new Error("Parameter entities are not supported");
+        }
+      }
+      let entityValue = "";
+      [i, entityValue] = this.readIdentifierVal(xmlData, i, "entity");
+      if (this.options.enabled !== false && this.options.maxEntitySize != null && entityValue.length > this.options.maxEntitySize) {
+        throw new Error(`Entity "${entityName}" size (${entityValue.length}) exceeds maximum allowed size (${this.options.maxEntitySize})`);
+      }
+      i--;
+      return [entityName, entityValue, i];
+    }
+    readNotationExp(xmlData, i) {
+      i = skipWhitespace(xmlData, i);
+      let notationName = "";
+      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
+        notationName += xmlData[i];
+        i++;
+      }
+      !this.suppressValidationErr && validateEntityName(notationName);
+      i = skipWhitespace(xmlData, i);
+      const identifierType = xmlData.substring(i, i + 6).toUpperCase();
+      if (!this.suppressValidationErr && identifierType !== "SYSTEM" && identifierType !== "PUBLIC") {
+        throw new Error(`Expected SYSTEM or PUBLIC, found "${identifierType}"`);
+      }
+      i += identifierType.length;
+      i = skipWhitespace(xmlData, i);
+      let publicIdentifier = null;
+      let systemIdentifier = null;
+      if (identifierType === "PUBLIC") {
+        [i, publicIdentifier] = this.readIdentifierVal(xmlData, i, "publicIdentifier");
+        i = skipWhitespace(xmlData, i);
+        if (xmlData[i] === '"' || xmlData[i] === "'") {
+          [i, systemIdentifier] = this.readIdentifierVal(xmlData, i, "systemIdentifier");
+        }
+      } else if (identifierType === "SYSTEM") {
+        [i, systemIdentifier] = this.readIdentifierVal(xmlData, i, "systemIdentifier");
+        if (!this.suppressValidationErr && !systemIdentifier) {
+          throw new Error("Missing mandatory system identifier for SYSTEM notation");
+        }
+      }
+      return { notationName, publicIdentifier, systemIdentifier, index: --i };
+    }
+    readIdentifierVal(xmlData, i, type) {
+      let identifierVal = "";
+      const startChar = xmlData[i];
+      if (startChar !== '"' && startChar !== "'") {
+        throw new Error(`Expected quoted string, found "${startChar}"`);
+      }
+      i++;
+      while (i < xmlData.length && xmlData[i] !== startChar) {
+        identifierVal += xmlData[i];
+        i++;
+      }
+      if (xmlData[i] !== startChar) {
+        throw new Error(`Unterminated ${type} value`);
+      }
+      i++;
+      return [i, identifierVal];
+    }
+    readElementExp(xmlData, i) {
+      i = skipWhitespace(xmlData, i);
+      let elementName = "";
+      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
+        elementName += xmlData[i];
+        i++;
+      }
+      if (!this.suppressValidationErr && !util.isName(elementName)) {
+        throw new Error(`Invalid element name: "${elementName}"`);
+      }
+      i = skipWhitespace(xmlData, i);
+      let contentModel = "";
+      if (xmlData[i] === "E" && hasSeq(xmlData, "MPTY", i)) {
+        i += 4;
+      } else if (xmlData[i] === "A" && hasSeq(xmlData, "NY", i)) {
+        i += 2;
+      } else if (xmlData[i] === "(") {
+        i++;
+        while (i < xmlData.length && xmlData[i] !== ")") {
+          contentModel += xmlData[i];
+          i++;
+        }
+        if (xmlData[i] !== ")") {
+          throw new Error("Unterminated content model");
+        }
+      } else if (!this.suppressValidationErr) {
+        throw new Error(`Invalid Element Expression, found "${xmlData[i]}"`);
+      }
+      return {
+        elementName,
+        contentModel: contentModel.trim(),
+        index: i
+      };
+    }
+    readAttlistExp(xmlData, i) {
+      i = skipWhitespace(xmlData, i);
+      let elementName = "";
+      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
+        elementName += xmlData[i];
+        i++;
+      }
+      validateEntityName(elementName);
+      i = skipWhitespace(xmlData, i);
+      let attributeName = "";
+      while (i < xmlData.length && !/\s/.test(xmlData[i])) {
+        attributeName += xmlData[i];
+        i++;
+      }
+      if (!validateEntityName(attributeName)) {
+        throw new Error(`Invalid attribute name: "${attributeName}"`);
+      }
+      i = skipWhitespace(xmlData, i);
+      let attributeType = "";
+      if (xmlData.substring(i, i + 8).toUpperCase() === "NOTATION") {
+        attributeType = "NOTATION";
+        i += 8;
+        i = skipWhitespace(xmlData, i);
+        if (xmlData[i] !== "(") {
+          throw new Error(`Expected '(', found "${xmlData[i]}"`);
+        }
+        i++;
+        let allowedNotations = [];
+        while (i < xmlData.length && xmlData[i] !== ")") {
+          let notation = "";
+          while (i < xmlData.length && xmlData[i] !== "|" && xmlData[i] !== ")") {
+            notation += xmlData[i];
+            i++;
+          }
+          notation = notation.trim();
+          if (!validateEntityName(notation)) {
+            throw new Error(`Invalid notation name: "${notation}"`);
+          }
+          allowedNotations.push(notation);
+          if (xmlData[i] === "|") {
+            i++;
+            i = skipWhitespace(xmlData, i);
+          }
+        }
+        if (xmlData[i] !== ")") {
+          throw new Error("Unterminated list of notations");
+        }
+        i++;
+        attributeType += " (" + allowedNotations.join("|") + ")";
+      } else {
+        while (i < xmlData.length && !/\s/.test(xmlData[i])) {
+          attributeType += xmlData[i];
+          i++;
+        }
+        const validTypes = ["CDATA", "ID", "IDREF", "IDREFS", "ENTITY", "ENTITIES", "NMTOKEN", "NMTOKENS"];
+        if (!this.suppressValidationErr && !validTypes.includes(attributeType.toUpperCase())) {
+          throw new Error(`Invalid attribute type: "${attributeType}"`);
+        }
+      }
+      i = skipWhitespace(xmlData, i);
+      let defaultValue = "";
+      if (xmlData.substring(i, i + 8).toUpperCase() === "#REQUIRED") {
+        defaultValue = "#REQUIRED";
+        i += 8;
+      } else if (xmlData.substring(i, i + 7).toUpperCase() === "#IMPLIED") {
+        defaultValue = "#IMPLIED";
+        i += 7;
+      } else {
+        [i, defaultValue] = this.readIdentifierVal(xmlData, i, "ATTLIST");
+      }
+      return {
+        elementName,
+        attributeName,
+        attributeType,
+        defaultValue,
+        index: i
+      };
+    }
+  }
+  var skipWhitespace = (data, index) => {
+    while (index < data.length && /\s/.test(data[index])) {
+      index++;
+    }
+    return index;
+  };
+  function hasSeq(data, seq, i) {
+    for (let j = 0;j < seq.length; j++) {
+      if (seq[j] !== data[i + j + 1])
+        return false;
+    }
+    return true;
+  }
+  function validateEntityName(name) {
+    if (util.isName(name))
+      return name;
+    else
+      throw new Error(`Invalid entity name ${name}`);
+  }
+  module.exports = DocTypeReader;
+});
+
+// node_modules/strnum/strnum.js
+var require_strnum = __commonJS((exports, module) => {
+  var hexRegex = /^[-+]?0x[a-fA-F0-9]+$/;
+  var numRegex = /^([\-\+])?(0*)([0-9]*(\.[0-9]*)?)$/;
+  var consider = {
+    hex: true,
+    leadingZeros: true,
+    decimalPoint: ".",
+    eNotation: true
+  };
+  function toNumber(str2, options = {}) {
+    options = Object.assign({}, consider, options);
+    if (!str2 || typeof str2 !== "string")
+      return str2;
+    let trimmedStr = str2.trim();
+    if (options.skipLike !== undefined && options.skipLike.test(trimmedStr))
+      return str2;
+    else if (str2 === "0")
+      return 0;
+    else if (options.hex && hexRegex.test(trimmedStr)) {
+      return parse_int(trimmedStr, 16);
+    } else if (trimmedStr.search(/[eE]/) !== -1) {
+      const notation = trimmedStr.match(/^([-\+])?(0*)([0-9]*(\.[0-9]*)?[eE][-\+]?[0-9]+)$/);
+      if (notation) {
+        if (options.leadingZeros) {
+          trimmedStr = (notation[1] || "") + notation[3];
+        } else {
+          if (notation[2] === "0" && notation[3][0] === ".") {} else {
+            return str2;
+          }
+        }
+        return options.eNotation ? Number(trimmedStr) : str2;
+      } else {
+        return str2;
+      }
+    } else {
+      const match = numRegex.exec(trimmedStr);
+      if (match) {
+        const sign = match[1];
+        const leadingZeros = match[2];
+        let numTrimmedByZeros = trimZeros(match[3]);
+        if (!options.leadingZeros && leadingZeros.length > 0 && sign && trimmedStr[2] !== ".")
+          return str2;
+        else if (!options.leadingZeros && leadingZeros.length > 0 && !sign && trimmedStr[1] !== ".")
+          return str2;
+        else if (options.leadingZeros && leadingZeros === str2)
+          return 0;
+        else {
+          const num2 = Number(trimmedStr);
+          const numStr = "" + num2;
+          if (numStr.search(/[eE]/) !== -1) {
+            if (options.eNotation)
+              return num2;
+            else
+              return str2;
+          } else if (trimmedStr.indexOf(".") !== -1) {
+            if (numStr === "0" && numTrimmedByZeros === "")
+              return num2;
+            else if (numStr === numTrimmedByZeros)
+              return num2;
+            else if (sign && numStr === "-" + numTrimmedByZeros)
+              return num2;
+            else
+              return str2;
+          }
+          if (leadingZeros) {
+            return numTrimmedByZeros === numStr || sign + numTrimmedByZeros === numStr ? num2 : str2;
+          } else {
+            return trimmedStr === numStr || trimmedStr === sign + numStr ? num2 : str2;
+          }
+        }
+      } else {
+        return str2;
+      }
+    }
+  }
+  function trimZeros(numStr) {
+    if (numStr && numStr.indexOf(".") !== -1) {
+      numStr = numStr.replace(/0+$/, "");
+      if (numStr === ".")
+        numStr = "0";
+      else if (numStr[0] === ".")
+        numStr = "0" + numStr;
+      else if (numStr[numStr.length - 1] === ".")
+        numStr = numStr.substr(0, numStr.length - 1);
+      return numStr;
+    }
+    return numStr;
+  }
+  function parse_int(numStr, base) {
+    if (parseInt)
+      return parseInt(numStr, base);
+    else if (Number.parseInt)
+      return Number.parseInt(numStr, base);
+    else if (window && window.parseInt)
+      return window.parseInt(numStr, base);
+    else
+      throw new Error("parseInt, Number.parseInt, window.parseInt are not supported");
+  }
+  module.exports = toNumber;
+});
+
+// node_modules/fast-xml-parser/src/ignoreAttributes.js
+var require_ignoreAttributes = __commonJS((exports, module) => {
+  function getIgnoreAttributesFn(ignoreAttributes) {
+    if (typeof ignoreAttributes === "function") {
+      return ignoreAttributes;
+    }
+    if (Array.isArray(ignoreAttributes)) {
+      return (attrName) => {
+        for (const pattern of ignoreAttributes) {
+          if (typeof pattern === "string" && attrName === pattern) {
+            return true;
+          }
+          if (pattern instanceof RegExp && pattern.test(attrName)) {
+            return true;
+          }
+        }
+      };
+    }
+    return () => false;
+  }
+  module.exports = getIgnoreAttributesFn;
+});
+
+// node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js
+var require_OrderedObjParser = __commonJS((exports, module) => {
+  var util = require_util();
+  var xmlNode = require_xmlNode();
+  var DocTypeReader = require_DocTypeReader();
+  var toNumber = require_strnum();
+  var getIgnoreAttributesFn = require_ignoreAttributes();
+
+  class OrderedObjParser {
+    constructor(options) {
+      this.options = options;
+      this.currentNode = null;
+      this.tagsNodeStack = [];
+      this.docTypeEntities = {};
+      this.lastEntities = {
+        apos: { regex: /&(apos|#39|#x27);/g, val: "'" },
+        gt: { regex: /&(gt|#62|#x3E);/g, val: ">" },
+        lt: { regex: /&(lt|#60|#x3C);/g, val: "<" },
+        quot: { regex: /&(quot|#34|#x22);/g, val: '"' }
+      };
+      this.ampEntity = { regex: /&(amp|#38|#x26);/g, val: "&" };
+      this.htmlEntities = {
+        space: { regex: /&(nbsp|#160);/g, val: " " },
+        cent: { regex: /&(cent|#162);/g, val: "¢" },
+        pound: { regex: /&(pound|#163);/g, val: "£" },
+        yen: { regex: /&(yen|#165);/g, val: "¥" },
+        euro: { regex: /&(euro|#8364);/g, val: "€" },
+        copyright: { regex: /&(copy|#169);/g, val: "©" },
+        reg: { regex: /&(reg|#174);/g, val: "®" },
+        inr: { regex: /&(inr|#8377);/g, val: "₹" },
+        num_dec: { regex: /&#([0-9]{1,7});/g, val: (_, str2) => fromCodePoint(str2, 10, "&#") },
+        num_hex: { regex: /&#x([0-9a-fA-F]{1,6});/g, val: (_, str2) => fromCodePoint(str2, 16, "&#x") }
+      };
+      this.addExternalEntities = addExternalEntities;
+      this.parseXml = parseXml;
+      this.parseTextData = parseTextData;
+      this.resolveNameSpace = resolveNameSpace;
+      this.buildAttributesMap = buildAttributesMap;
+      this.isItStopNode = isItStopNode;
+      this.replaceEntitiesValue = replaceEntitiesValue;
+      this.readStopNodeData = readStopNodeData;
+      this.saveTextToParentTag = saveTextToParentTag;
+      this.addChild = addChild;
+      this.ignoreAttributesFn = getIgnoreAttributesFn(this.options.ignoreAttributes);
+      this.entityExpansionCount = 0;
+      this.currentExpandedLength = 0;
+      if (this.options.stopNodes && this.options.stopNodes.length > 0) {
+        this.stopNodesExact = new Set;
+        this.stopNodesWildcard = new Set;
+        for (let i = 0;i < this.options.stopNodes.length; i++) {
+          const stopNodeExp = this.options.stopNodes[i];
+          if (typeof stopNodeExp !== "string")
+            continue;
+          if (stopNodeExp.startsWith("*.")) {
+            this.stopNodesWildcard.add(stopNodeExp.substring(2));
+          } else {
+            this.stopNodesExact.add(stopNodeExp);
+          }
+        }
+      }
+    }
+  }
+  function addExternalEntities(externalEntities) {
+    const entKeys = Object.keys(externalEntities);
+    for (let i = 0;i < entKeys.length; i++) {
+      const ent = entKeys[i];
+      const escaped = ent.replace(/[.\-+*:]/g, "\\.");
+      this.lastEntities[ent] = {
+        regex: new RegExp("&" + escaped + ";", "g"),
+        val: externalEntities[ent]
+      };
+    }
+  }
+  function parseTextData(val, tagName, jPath, dontTrim, hasAttributes, isLeafNode, escapeEntities) {
+    if (val !== undefined) {
+      if (this.options.trimValues && !dontTrim) {
+        val = val.trim();
+      }
+      if (val.length > 0) {
+        if (!escapeEntities)
+          val = this.replaceEntitiesValue(val, tagName, jPath);
+        const newval = this.options.tagValueProcessor(tagName, val, jPath, hasAttributes, isLeafNode);
+        if (newval === null || newval === undefined) {
+          return val;
+        } else if (typeof newval !== typeof val || newval !== val) {
+          return newval;
+        } else if (this.options.trimValues) {
+          return parseValue(val, this.options.parseTagValue, this.options.numberParseOptions);
+        } else {
+          const trimmedVal = val.trim();
+          if (trimmedVal === val) {
+            return parseValue(val, this.options.parseTagValue, this.options.numberParseOptions);
+          } else {
+            return val;
+          }
+        }
+      }
+    }
+  }
+  function resolveNameSpace(tagname) {
+    if (this.options.removeNSPrefix) {
+      const tags = tagname.split(":");
+      const prefix = tagname.charAt(0) === "/" ? "/" : "";
+      if (tags[0] === "xmlns") {
+        return "";
+      }
+      if (tags.length === 2) {
+        tagname = prefix + tags[1];
+      }
+    }
+    return tagname;
+  }
+  var attrsRegx = new RegExp(`([^\\s=]+)\\s*(=\\s*(['"])([\\s\\S]*?)\\3)?`, "gm");
+  function buildAttributesMap(attrStr, jPath, tagName) {
+    if (this.options.ignoreAttributes !== true && typeof attrStr === "string") {
+      const matches = util.getAllMatches(attrStr, attrsRegx);
+      const len = matches.length;
+      const attrs = {};
+      for (let i = 0;i < len; i++) {
+        const attrName = this.resolveNameSpace(matches[i][1]);
+        if (this.ignoreAttributesFn(attrName, jPath)) {
+          continue;
+        }
+        let oldVal = matches[i][4];
+        let aName = this.options.attributeNamePrefix + attrName;
+        if (attrName.length) {
+          if (this.options.transformAttributeName) {
+            aName = this.options.transformAttributeName(aName);
+          }
+          aName = sanitizeName(aName, this.options);
+          if (oldVal !== undefined) {
+            if (this.options.trimValues) {
+              oldVal = oldVal.trim();
+            }
+            oldVal = this.replaceEntitiesValue(oldVal, tagName, jPath);
+            const newVal = this.options.attributeValueProcessor(attrName, oldVal, jPath);
+            if (newVal === null || newVal === undefined) {
+              attrs[aName] = oldVal;
+            } else if (typeof newVal !== typeof oldVal || newVal !== oldVal) {
+              attrs[aName] = newVal;
+            } else {
+              attrs[aName] = parseValue(oldVal, this.options.parseAttributeValue, this.options.numberParseOptions);
+            }
+          } else if (this.options.allowBooleanAttributes) {
+            attrs[aName] = true;
+          }
+        }
+      }
+      if (!Object.keys(attrs).length) {
+        return;
+      }
+      if (this.options.attributesGroupName) {
+        const attrCollection = {};
+        attrCollection[this.options.attributesGroupName] = attrs;
+        return attrCollection;
+      }
+      return attrs;
+    }
+  }
+  var parseXml = function(xmlData) {
+    xmlData = xmlData.replace(/\r\n?/g, `
+`);
+    const xmlObj = new xmlNode("!xml");
+    let currentNode = xmlObj;
+    let textData = "";
+    let jPath = "";
+    this.entityExpansionCount = 0;
+    this.currentExpandedLength = 0;
+    const docTypeReader = new DocTypeReader(this.options.processEntities);
+    for (let i = 0;i < xmlData.length; i++) {
+      const ch = xmlData[i];
+      if (ch === "<") {
+        if (xmlData[i + 1] === "/") {
+          const closeIndex = findClosingIndex(xmlData, ">", i, "Closing Tag is not closed.");
+          let tagName = xmlData.substring(i + 2, closeIndex).trim();
+          if (this.options.removeNSPrefix) {
+            const colonIndex = tagName.indexOf(":");
+            if (colonIndex !== -1) {
+              tagName = tagName.substr(colonIndex + 1);
+            }
+          }
+          if (this.options.transformTagName) {
+            tagName = this.options.transformTagName(tagName);
+          }
+          if (currentNode) {
+            textData = this.saveTextToParentTag(textData, currentNode, jPath);
+          }
+          const lastTagName = jPath.substring(jPath.lastIndexOf(".") + 1);
+          if (tagName && this.options.unpairedTags.indexOf(tagName) !== -1) {
+            throw new Error(`Unpaired tag can not be used as closing tag: </${tagName}>`);
+          }
+          let propIndex = 0;
+          if (lastTagName && this.options.unpairedTags.indexOf(lastTagName) !== -1) {
+            propIndex = jPath.lastIndexOf(".", jPath.lastIndexOf(".") - 1);
+            this.tagsNodeStack.pop();
+          } else {
+            propIndex = jPath.lastIndexOf(".");
+          }
+          jPath = jPath.substring(0, propIndex);
+          currentNode = this.tagsNodeStack.pop();
+          textData = "";
+          i = closeIndex;
+        } else if (xmlData[i + 1] === "?") {
+          let tagData = readTagExp(xmlData, i, false, "?>");
+          if (!tagData)
+            throw new Error("Pi Tag is not closed.");
+          textData = this.saveTextToParentTag(textData, currentNode, jPath);
+          if (this.options.ignoreDeclaration && tagData.tagName === "?xml" || this.options.ignorePiTags) {} else {
+            const childNode = new xmlNode(tagData.tagName);
+            childNode.add(this.options.textNodeName, "");
+            if (tagData.tagName !== tagData.tagExp && tagData.attrExpPresent) {
+              childNode[":@"] = this.buildAttributesMap(tagData.tagExp, jPath, tagData.tagName);
+            }
+            this.addChild(currentNode, childNode, jPath, i);
+          }
+          i = tagData.closeIndex + 1;
+        } else if (xmlData.substr(i + 1, 3) === "!--") {
+          const endIndex = findClosingIndex(xmlData, "-->", i + 4, "Comment is not closed.");
+          if (this.options.commentPropName) {
+            const comment = xmlData.substring(i + 4, endIndex - 2);
+            textData = this.saveTextToParentTag(textData, currentNode, jPath);
+            currentNode.add(this.options.commentPropName, [{ [this.options.textNodeName]: comment }]);
+          }
+          i = endIndex;
+        } else if (xmlData.substr(i + 1, 2) === "!D") {
+          const result = docTypeReader.readDocType(xmlData, i);
+          this.docTypeEntities = result.entities;
+          i = result.i;
+        } else if (xmlData.substr(i + 1, 2) === "![") {
+          const closeIndex = findClosingIndex(xmlData, "]]>", i, "CDATA is not closed.") - 2;
+          const tagExp = xmlData.substring(i + 9, closeIndex);
+          textData = this.saveTextToParentTag(textData, currentNode, jPath);
+          let val = this.parseTextData(tagExp, currentNode.tagname, jPath, true, false, true, true);
+          if (val == undefined)
+            val = "";
+          if (this.options.cdataPropName) {
+            currentNode.add(this.options.cdataPropName, [{ [this.options.textNodeName]: tagExp }]);
+          } else {
+            currentNode.add(this.options.textNodeName, val);
+          }
+          i = closeIndex + 2;
+        } else {
+          let result = readTagExp(xmlData, i, this.options.removeNSPrefix);
+          let tagName = result.tagName;
+          const rawTagName = result.rawTagName;
+          let tagExp = result.tagExp;
+          let attrExpPresent = result.attrExpPresent;
+          let closeIndex = result.closeIndex;
+          if (this.options.transformTagName) {
+            const newTagName = this.options.transformTagName(tagName);
+            if (tagExp === tagName) {
+              tagExp = newTagName;
+            }
+            tagName = newTagName;
+          }
+          if (this.options.strictReservedNames && (tagName === this.options.commentPropName || tagName === this.options.cdataPropName || tagName === this.options.textNodeName || tagName === this.options.attributesGroupName)) {
+            throw new Error(`Invalid tag name: ${tagName}`);
+          }
+          if (currentNode && textData) {
+            if (currentNode.tagname !== "!xml") {
+              textData = this.saveTextToParentTag(textData, currentNode, jPath, false);
+            }
+          }
+          const lastTag = currentNode;
+          if (lastTag && this.options.unpairedTags.indexOf(lastTag.tagname) !== -1) {
+            currentNode = this.tagsNodeStack.pop();
+            jPath = jPath.substring(0, jPath.lastIndexOf("."));
+          }
+          if (tagName !== xmlObj.tagname) {
+            jPath += jPath ? "." + tagName : tagName;
+          }
+          const startIndex = i;
+          if (this.isItStopNode(this.stopNodesExact, this.stopNodesWildcard, jPath, tagName)) {
+            let tagContent = "";
+            if (tagExp.length > 0 && tagExp.lastIndexOf("/") === tagExp.length - 1) {
+              if (tagName[tagName.length - 1] === "/") {
+                tagName = tagName.substr(0, tagName.length - 1);
+                jPath = jPath.substr(0, jPath.length - 1);
+                tagExp = tagName;
+              } else {
+                tagExp = tagExp.substr(0, tagExp.length - 1);
+              }
+              i = result.closeIndex;
+            } else if (this.options.unpairedTags.indexOf(tagName) !== -1) {
+              i = result.closeIndex;
+            } else {
+              const result2 = this.readStopNodeData(xmlData, rawTagName, closeIndex + 1);
+              if (!result2)
+                throw new Error(`Unexpected end of ${rawTagName}`);
+              i = result2.i;
+              tagContent = result2.tagContent;
+            }
+            const childNode = new xmlNode(tagName);
+            if (tagName !== tagExp && attrExpPresent) {
+              childNode[":@"] = this.buildAttributesMap(tagExp, jPath, tagName);
+            }
+            if (tagContent) {
+              tagContent = this.parseTextData(tagContent, tagName, jPath, true, attrExpPresent, true, true);
+            }
+            jPath = jPath.substr(0, jPath.lastIndexOf("."));
+            childNode.add(this.options.textNodeName, tagContent);
+            this.addChild(currentNode, childNode, jPath, startIndex);
+          } else {
+            if (tagExp.length > 0 && tagExp.lastIndexOf("/") === tagExp.length - 1) {
+              if (tagName[tagName.length - 1] === "/") {
+                tagName = tagName.substr(0, tagName.length - 1);
+                jPath = jPath.substr(0, jPath.length - 1);
+                tagExp = tagName;
+              } else {
+                tagExp = tagExp.substr(0, tagExp.length - 1);
+              }
+              if (this.options.transformTagName) {
+                const newTagName = this.options.transformTagName(tagName);
+                if (tagExp === tagName) {
+                  tagExp = newTagName;
+                }
+                tagName = newTagName;
+              }
+              const childNode = new xmlNode(tagName);
+              if (tagName !== tagExp && attrExpPresent) {
+                childNode[":@"] = this.buildAttributesMap(tagExp, jPath, tagName);
+              }
+              this.addChild(currentNode, childNode, jPath, startIndex);
+              jPath = jPath.substr(0, jPath.lastIndexOf("."));
+            } else if (this.options.unpairedTags.indexOf(tagName) !== -1) {
+              const childNode = new xmlNode(tagName);
+              if (tagName !== tagExp && attrExpPresent) {
+                childNode[":@"] = this.buildAttributesMap(tagExp, jPath);
+              }
+              this.addChild(currentNode, childNode, jPath, startIndex);
+              jPath = jPath.substr(0, jPath.lastIndexOf("."));
+              i = result.closeIndex;
+              continue;
+            } else {
+              const childNode = new xmlNode(tagName);
+              if (this.tagsNodeStack.length > this.options.maxNestedTags) {
+                throw new Error("Maximum nested tags exceeded");
+              }
+              this.tagsNodeStack.push(currentNode);
+              if (tagName !== tagExp && attrExpPresent) {
+                childNode[":@"] = this.buildAttributesMap(tagExp, jPath, tagName);
+              }
+              this.addChild(currentNode, childNode, jPath);
+              currentNode = childNode;
+            }
+            textData = "";
+            i = closeIndex;
+          }
+        }
+      } else {
+        textData += xmlData[i];
+      }
+    }
+    return xmlObj.child;
+  };
+  function addChild(currentNode, childNode, jPath, startIndex) {
+    if (!this.options.captureMetaData)
+      startIndex = undefined;
+    const result = this.options.updateTag(childNode.tagname, jPath, childNode[":@"]);
+    if (result === false) {} else if (typeof result === "string") {
+      childNode.tagname = result;
+      currentNode.addChild(childNode, startIndex);
+    } else {
+      currentNode.addChild(childNode, startIndex);
+    }
+  }
+  var replaceEntitiesValue = function(val, tagName, jPath) {
+    if (val.indexOf("&") === -1) {
+      return val;
+    }
+    const entityConfig = this.options.processEntities;
+    if (!entityConfig.enabled) {
+      return val;
+    }
+    if (entityConfig.allowedTags) {
+      if (!entityConfig.allowedTags.includes(tagName)) {
+        return val;
+      }
+    }
+    if (entityConfig.tagFilter) {
+      if (!entityConfig.tagFilter(tagName, jPath)) {
+        return val;
+      }
+    }
+    for (let entityName in this.docTypeEntities) {
+      const entity = this.docTypeEntities[entityName];
+      const matches = val.match(entity.regx);
+      if (matches) {
+        this.entityExpansionCount += matches.length;
+        if (entityConfig.maxTotalExpansions && this.entityExpansionCount > entityConfig.maxTotalExpansions) {
+          throw new Error(`Entity expansion limit exceeded: ${this.entityExpansionCount} > ${entityConfig.maxTotalExpansions}`);
+        }
+        const lengthBefore = val.length;
+        val = val.replace(entity.regx, entity.val);
+        if (entityConfig.maxExpandedLength) {
+          this.currentExpandedLength += val.length - lengthBefore;
+          if (this.currentExpandedLength > entityConfig.maxExpandedLength) {
+            throw new Error(`Total expanded content size exceeded: ${this.currentExpandedLength} > ${entityConfig.maxExpandedLength}`);
+          }
+        }
+      }
+    }
+    if (val.indexOf("&") === -1)
+      return val;
+    for (const entityName of Object.keys(this.lastEntities)) {
+      const entity = this.lastEntities[entityName];
+      const matches = val.match(entity.regex);
+      if (matches) {
+        this.entityExpansionCount += matches.length;
+        if (entityConfig.maxTotalExpansions && this.entityExpansionCount > entityConfig.maxTotalExpansions) {
+          throw new Error(`Entity expansion limit exceeded: ${this.entityExpansionCount} > ${entityConfig.maxTotalExpansions}`);
+        }
+      }
+      val = val.replace(entity.regex, entity.val);
+    }
+    if (val.indexOf("&") === -1)
+      return val;
+    if (this.options.htmlEntities) {
+      for (const entityName of Object.keys(this.htmlEntities)) {
+        const entity = this.htmlEntities[entityName];
+        const matches = val.match(entity.regex);
+        if (matches) {
+          this.entityExpansionCount += matches.length;
+          if (entityConfig.maxTotalExpansions && this.entityExpansionCount > entityConfig.maxTotalExpansions) {
+            throw new Error(`Entity expansion limit exceeded: ${this.entityExpansionCount} > ${entityConfig.maxTotalExpansions}`);
+          }
+        }
+        val = val.replace(entity.regex, entity.val);
+      }
+    }
+    val = val.replace(this.ampEntity.regex, this.ampEntity.val);
+    return val;
+  };
+  function saveTextToParentTag(textData, parentNode, jPath, isLeafNode) {
+    if (textData) {
+      if (isLeafNode === undefined)
+        isLeafNode = parentNode.child.length === 0;
+      textData = this.parseTextData(textData, parentNode.tagname, jPath, false, parentNode[":@"] ? Object.keys(parentNode[":@"]).length !== 0 : false, isLeafNode);
+      if (textData !== undefined && textData !== "")
+        parentNode.add(this.options.textNodeName, textData);
+      textData = "";
+    }
+    return textData;
+  }
+  function isItStopNode(stopNodesExact, stopNodesWildcard, jPath, currentTagName) {
+    if (stopNodesWildcard && stopNodesWildcard.has(currentTagName))
+      return true;
+    if (stopNodesExact && stopNodesExact.has(jPath))
+      return true;
+    return false;
+  }
+  function tagExpWithClosingIndex(xmlData, i, closingChar = ">") {
+    let attrBoundary;
+    let tagExp = "";
+    for (let index = i;index < xmlData.length; index++) {
+      let ch = xmlData[index];
+      if (attrBoundary) {
+        if (ch === attrBoundary)
+          attrBoundary = "";
+      } else if (ch === '"' || ch === "'") {
+        attrBoundary = ch;
+      } else if (ch === closingChar[0]) {
+        if (closingChar[1]) {
+          if (xmlData[index + 1] === closingChar[1]) {
+            return {
+              data: tagExp,
+              index
+            };
+          }
+        } else {
+          return {
+            data: tagExp,
+            index
+          };
+        }
+      } else if (ch === "\t") {
+        ch = " ";
+      }
+      tagExp += ch;
+    }
+  }
+  function findClosingIndex(xmlData, str2, i, errMsg) {
+    const closingIndex = xmlData.indexOf(str2, i);
+    if (closingIndex === -1) {
+      throw new Error(errMsg);
+    } else {
+      return closingIndex + str2.length - 1;
+    }
+  }
+  function readTagExp(xmlData, i, removeNSPrefix, closingChar = ">") {
+    const result = tagExpWithClosingIndex(xmlData, i + 1, closingChar);
+    if (!result)
+      return;
+    let tagExp = result.data;
+    const closeIndex = result.index;
+    const separatorIndex = tagExp.search(/\s/);
+    let tagName = tagExp;
+    let attrExpPresent = true;
+    if (separatorIndex !== -1) {
+      tagName = tagExp.substring(0, separatorIndex);
+      tagExp = tagExp.substring(separatorIndex + 1).trimStart();
+    }
+    const rawTagName = tagName;
+    if (removeNSPrefix) {
+      const colonIndex = tagName.indexOf(":");
+      if (colonIndex !== -1) {
+        tagName = tagName.substr(colonIndex + 1);
+        attrExpPresent = tagName !== result.data.substr(colonIndex + 1);
+      }
+    }
+    return {
+      tagName,
+      tagExp,
+      closeIndex,
+      attrExpPresent,
+      rawTagName
+    };
+  }
+  function readStopNodeData(xmlData, tagName, i) {
+    const startIndex = i;
+    let openTagCount = 1;
+    for (;i < xmlData.length; i++) {
+      if (xmlData[i] === "<") {
+        if (xmlData[i + 1] === "/") {
+          const closeIndex = findClosingIndex(xmlData, ">", i, `${tagName} is not closed`);
+          let closeTagName = xmlData.substring(i + 2, closeIndex).trim();
+          if (closeTagName === tagName) {
+            openTagCount--;
+            if (openTagCount === 0) {
+              return {
+                tagContent: xmlData.substring(startIndex, i),
+                i: closeIndex
+              };
+            }
+          }
+          i = closeIndex;
+        } else if (xmlData[i + 1] === "?") {
+          const closeIndex = findClosingIndex(xmlData, "?>", i + 1, "StopNode is not closed.");
+          i = closeIndex;
+        } else if (xmlData.substr(i + 1, 3) === "!--") {
+          const closeIndex = findClosingIndex(xmlData, "-->", i + 3, "StopNode is not closed.");
+          i = closeIndex;
+        } else if (xmlData.substr(i + 1, 2) === "![") {
+          const closeIndex = findClosingIndex(xmlData, "]]>", i, "StopNode is not closed.") - 2;
+          i = closeIndex;
+        } else {
+          const tagData = readTagExp(xmlData, i, ">");
+          if (tagData) {
+            const openTagName = tagData && tagData.tagName;
+            if (openTagName === tagName && tagData.tagExp[tagData.tagExp.length - 1] !== "/") {
+              openTagCount++;
+            }
+            i = tagData.closeIndex;
+          }
+        }
+      }
+    }
+  }
+  function parseValue(val, shouldParse, options) {
+    if (shouldParse && typeof val === "string") {
+      const newval = val.trim();
+      if (newval === "true")
+        return true;
+      else if (newval === "false")
+        return false;
+      else
+        return toNumber(val, options);
+    } else {
+      if (util.isExist(val)) {
+        return val;
+      } else {
+        return "";
+      }
+    }
+  }
+  function fromCodePoint(str2, base, prefix) {
+    const codePoint = Number.parseInt(str2, base);
+    if (codePoint >= 0 && codePoint <= 1114111) {
+      return String.fromCodePoint(codePoint);
+    } else {
+      return prefix + str2 + ";";
+    }
+  }
+  function sanitizeName(name, options) {
+    if (util.criticalProperties.includes(name)) {
+      throw new Error(`[SECURITY] Invalid name: "${name}" is a reserved JavaScript keyword that could cause prototype pollution`);
+    } else if (util.DANGEROUS_PROPERTY_NAMES.includes(name)) {
+      return options.onDangerousProperty(name);
+    }
+    return name;
+  }
+  module.exports = OrderedObjParser;
+});
+
+// node_modules/fast-xml-parser/src/xmlparser/node2json.js
+var require_node2json = __commonJS((exports) => {
+  function prettify(node, options) {
+    return compress(node, options);
+  }
+  function compress(arr2, options, jPath) {
+    let text;
+    const compressedObj = {};
+    for (let i = 0;i < arr2.length; i++) {
+      const tagObj = arr2[i];
+      const property = propName(tagObj);
+      let newJpath = "";
+      if (jPath === undefined)
+        newJpath = property;
+      else
+        newJpath = jPath + "." + property;
+      if (property === options.textNodeName) {
+        if (text === undefined)
+          text = tagObj[property];
+        else
+          text += "" + tagObj[property];
+      } else if (property === undefined) {
+        continue;
+      } else if (tagObj[property]) {
+        let val = compress(tagObj[property], options, newJpath);
+        const isLeaf = isLeafTag(val, options);
+        if (tagObj[":@"]) {
+          assignAttributes(val, tagObj[":@"], newJpath, options);
+        } else if (Object.keys(val).length === 1 && val[options.textNodeName] !== undefined && !options.alwaysCreateTextNode) {
+          val = val[options.textNodeName];
+        } else if (Object.keys(val).length === 0) {
+          if (options.alwaysCreateTextNode)
+            val[options.textNodeName] = "";
+          else
+            val = "";
+        }
+        if (compressedObj[property] !== undefined && compressedObj.hasOwnProperty(property)) {
+          if (!Array.isArray(compressedObj[property])) {
+            compressedObj[property] = [compressedObj[property]];
+          }
+          compressedObj[property].push(val);
+        } else {
+          if (options.isArray(property, newJpath, isLeaf)) {
+            compressedObj[property] = [val];
+          } else {
+            compressedObj[property] = val;
+          }
+        }
+      }
+    }
+    if (typeof text === "string") {
+      if (text.length > 0)
+        compressedObj[options.textNodeName] = text;
+    } else if (text !== undefined)
+      compressedObj[options.textNodeName] = text;
+    return compressedObj;
+  }
+  function propName(obj) {
+    const keys = Object.keys(obj);
+    for (let i = 0;i < keys.length; i++) {
+      const key = keys[i];
+      if (key !== ":@")
+        return key;
+    }
+  }
+  function assignAttributes(obj, attrMap, jpath, options) {
+    if (attrMap) {
+      const keys = Object.keys(attrMap);
+      const len = keys.length;
+      for (let i = 0;i < len; i++) {
+        const atrrName = keys[i];
+        if (options.isArray(atrrName, jpath + "." + atrrName, true, true)) {
+          obj[atrrName] = [attrMap[atrrName]];
+        } else {
+          obj[atrrName] = attrMap[atrrName];
+        }
+      }
+    }
+  }
+  function isLeafTag(obj, options) {
+    const { textNodeName } = options;
+    const propCount = Object.keys(obj).length;
+    if (propCount === 0) {
+      return true;
+    }
+    if (propCount === 1 && (obj[textNodeName] || typeof obj[textNodeName] === "boolean" || obj[textNodeName] === 0)) {
+      return true;
+    }
+    return false;
+  }
+  exports.prettify = prettify;
+});
+
+// node_modules/fast-xml-parser/src/xmlparser/XMLParser.js
+var require_XMLParser = __commonJS((exports, module) => {
+  var { buildOptions } = require_OptionsBuilder();
+  var OrderedObjParser = require_OrderedObjParser();
+  var { prettify } = require_node2json();
+  var validator = require_validator();
+
+  class XMLParser {
+    constructor(options) {
+      this.externalEntities = {};
+      this.options = buildOptions(options);
+    }
+    parse(xmlData, validationOption) {
+      if (typeof xmlData === "string") {} else if (xmlData.toString) {
+        xmlData = xmlData.toString();
+      } else {
+        throw new Error("XML data is accepted in String or Bytes[] form.");
+      }
+      if (validationOption) {
+        if (validationOption === true)
+          validationOption = {};
+        const result = validator.validate(xmlData, validationOption);
+        if (result !== true) {
+          throw Error(`${result.err.msg}:${result.err.line}:${result.err.col}`);
+        }
+      }
+      const orderedObjParser = new OrderedObjParser(this.options);
+      orderedObjParser.addExternalEntities(this.externalEntities);
+      const orderedResult = orderedObjParser.parseXml(xmlData);
+      if (this.options.preserveOrder || orderedResult === undefined)
+        return orderedResult;
+      else
+        return prettify(orderedResult, this.options);
+    }
+    addEntity(key, value) {
+      if (value.indexOf("&") !== -1) {
+        throw new Error("Entity value can't have '&'");
+      } else if (key.indexOf("&") !== -1 || key.indexOf(";") !== -1) {
+        throw new Error("An entity must be set without '&' and ';'. Eg. use '#xD' for '&#xD;'");
+      } else if (value === "&") {
+        throw new Error("An entity with value '&' is not permitted");
+      } else {
+        this.externalEntities[key] = value;
+      }
+    }
+  }
+  module.exports = XMLParser;
+});
+
+// node_modules/fast-xml-parser/src/xmlbuilder/orderedJs2Xml.js
+var require_orderedJs2Xml = __commonJS((exports, module) => {
+  var EOL = `
+`;
+  function toXml(jArray, options) {
+    let indentation = "";
+    if (options.format && options.indentBy.length > 0) {
+      indentation = EOL;
+    }
+    return arrToStr(jArray, options, "", indentation);
+  }
+  function arrToStr(arr2, options, jPath, indentation) {
+    let xmlStr = "";
+    let isPreviousElementTag = false;
+    if (!Array.isArray(arr2)) {
+      if (arr2 !== undefined && arr2 !== null) {
+        let text = arr2.toString();
+        text = replaceEntitiesValue(text, options);
+        return text;
+      }
+      return "";
+    }
+    for (let i = 0;i < arr2.length; i++) {
+      const tagObj = arr2[i];
+      const tagName = propName(tagObj);
+      if (tagName === undefined)
+        continue;
+      let newJPath = "";
+      if (jPath.length === 0)
+        newJPath = tagName;
+      else
+        newJPath = `${jPath}.${tagName}`;
+      if (tagName === options.textNodeName) {
+        let tagText = tagObj[tagName];
+        if (!isStopNode(newJPath, options)) {
+          tagText = options.tagValueProcessor(tagName, tagText);
+          tagText = replaceEntitiesValue(tagText, options);
+        }
+        if (isPreviousElementTag) {
+          xmlStr += indentation;
+        }
+        xmlStr += tagText;
+        isPreviousElementTag = false;
+        continue;
+      } else if (tagName === options.cdataPropName) {
+        if (isPreviousElementTag) {
+          xmlStr += indentation;
+        }
+        const cdataVal = String(tagObj[tagName][0][options.textNodeName]).replace(/\]\]>/g, "]]]]><![CDATA[>");
+        xmlStr += `<![CDATA[${cdataVal}]]>`;
+        isPreviousElementTag = false;
+        continue;
+      } else if (tagName === options.commentPropName) {
+        const commentVal = String(tagObj[tagName][0][options.textNodeName]).replace(/--/g, "- -").replace(/-$/, "- ");
+        xmlStr += indentation + `<!--${commentVal}-->`;
+        isPreviousElementTag = true;
+        continue;
+      } else if (tagName[0] === "?") {
+        const attStr2 = attr_to_str(tagObj[":@"], options);
+        const tempInd = tagName === "?xml" ? "" : indentation;
+        let piTextNodeName = tagObj[tagName][0][options.textNodeName];
+        piTextNodeName = piTextNodeName.length !== 0 ? " " + piTextNodeName : "";
+        xmlStr += tempInd + `<${tagName}${piTextNodeName}${attStr2}?>`;
+        isPreviousElementTag = true;
+        continue;
+      }
+      let newIdentation = indentation;
+      if (newIdentation !== "") {
+        newIdentation += options.indentBy;
+      }
+      const attStr = attr_to_str(tagObj[":@"], options);
+      const tagStart = indentation + `<${tagName}${attStr}`;
+      const tagValue = arrToStr(tagObj[tagName], options, newJPath, newIdentation);
+      if (options.unpairedTags.indexOf(tagName) !== -1) {
+        if (options.suppressUnpairedNode)
+          xmlStr += tagStart + ">";
+        else
+          xmlStr += tagStart + "/>";
+      } else if ((!tagValue || tagValue.length === 0) && options.suppressEmptyNode) {
+        xmlStr += tagStart + "/>";
+      } else if (tagValue && tagValue.endsWith(">")) {
+        xmlStr += tagStart + `>${tagValue}${indentation}</${tagName}>`;
+      } else {
+        xmlStr += tagStart + ">";
+        if (tagValue && indentation !== "" && (tagValue.includes("/>") || tagValue.includes("</"))) {
+          xmlStr += indentation + options.indentBy + tagValue + indentation;
+        } else {
+          xmlStr += tagValue;
+        }
+        xmlStr += `</${tagName}>`;
+      }
+      isPreviousElementTag = true;
+    }
+    return xmlStr;
+  }
+  function propName(obj) {
+    const keys = Object.keys(obj);
+    for (let i = 0;i < keys.length; i++) {
+      const key = keys[i];
+      if (!Object.prototype.hasOwnProperty.call(obj, key))
+        continue;
+      if (key !== ":@")
+        return key;
+    }
+  }
+  function attr_to_str(attrMap, options) {
+    let attrStr = "";
+    if (attrMap && !options.ignoreAttributes) {
+      for (let attr in attrMap) {
+        if (!Object.prototype.hasOwnProperty.call(attrMap, attr))
+          continue;
+        let attrVal = options.attributeValueProcessor(attr, attrMap[attr]);
+        attrVal = replaceEntitiesValue(attrVal, options);
+        if (attrVal === true && options.suppressBooleanAttributes) {
+          attrStr += ` ${attr.substr(options.attributeNamePrefix.length)}`;
+        } else {
+          attrStr += ` ${attr.substr(options.attributeNamePrefix.length)}="${attrVal}"`;
+        }
+      }
+    }
+    return attrStr;
+  }
+  function isStopNode(jPath, options) {
+    jPath = jPath.substr(0, jPath.length - options.textNodeName.length - 1);
+    let tagName = jPath.substr(jPath.lastIndexOf(".") + 1);
+    for (let index in options.stopNodes) {
+      if (options.stopNodes[index] === jPath || options.stopNodes[index] === "*." + tagName)
+        return true;
+    }
+    return false;
+  }
+  function replaceEntitiesValue(textValue, options) {
+    if (textValue && textValue.length > 0 && options.processEntities) {
+      for (let i = 0;i < options.entities.length; i++) {
+        const entity = options.entities[i];
+        textValue = textValue.replace(entity.regex, entity.val);
+      }
+    }
+    return textValue;
+  }
+  module.exports = toXml;
+});
+
+// node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js
+var require_json2xml = __commonJS((exports, module) => {
+  var buildFromOrderedJs = require_orderedJs2Xml();
+  var getIgnoreAttributesFn = require_ignoreAttributes();
+  var defaultOptions = {
+    attributeNamePrefix: "@_",
+    attributesGroupName: false,
+    textNodeName: "#text",
+    ignoreAttributes: true,
+    cdataPropName: false,
+    format: false,
+    indentBy: "  ",
+    suppressEmptyNode: false,
+    suppressUnpairedNode: true,
+    suppressBooleanAttributes: true,
+    tagValueProcessor: function(key, a) {
+      return a;
+    },
+    attributeValueProcessor: function(attrName, a) {
+      return a;
+    },
+    preserveOrder: false,
+    commentPropName: false,
+    unpairedTags: [],
+    entities: [
+      { regex: new RegExp("&", "g"), val: "&amp;" },
+      { regex: new RegExp(">", "g"), val: "&gt;" },
+      { regex: new RegExp("<", "g"), val: "&lt;" },
+      { regex: new RegExp("'", "g"), val: "&apos;" },
+      { regex: new RegExp('"', "g"), val: "&quot;" }
+    ],
+    processEntities: true,
+    stopNodes: [],
+    oneListGroup: false
+  };
+  function Builder(options) {
+    this.options = Object.assign({}, defaultOptions, options);
+    if (this.options.ignoreAttributes === true || this.options.attributesGroupName) {
+      this.isAttribute = function() {
+        return false;
+      };
+    } else {
+      this.ignoreAttributesFn = getIgnoreAttributesFn(this.options.ignoreAttributes);
+      this.attrPrefixLen = this.options.attributeNamePrefix.length;
+      this.isAttribute = isAttribute;
+    }
+    this.processTextOrObjNode = processTextOrObjNode;
+    if (this.options.format) {
+      this.indentate = indentate;
+      this.tagEndChar = `>
+`;
+      this.newLine = `
+`;
+    } else {
+      this.indentate = function() {
+        return "";
+      };
+      this.tagEndChar = ">";
+      this.newLine = "";
+    }
+  }
+  Builder.prototype.build = function(jObj) {
+    if (this.options.preserveOrder) {
+      return buildFromOrderedJs(jObj, this.options);
+    } else {
+      if (Array.isArray(jObj) && this.options.arrayNodeName && this.options.arrayNodeName.length > 1) {
+        jObj = {
+          [this.options.arrayNodeName]: jObj
+        };
+      }
+      return this.j2x(jObj, 0, []).val;
+    }
+  };
+  Builder.prototype.j2x = function(jObj, level, ajPath) {
+    let attrStr = "";
+    let val = "";
+    const jPath = ajPath.join(".");
+    for (let key in jObj) {
+      if (!Object.prototype.hasOwnProperty.call(jObj, key))
+        continue;
+      if (typeof jObj[key] === "undefined") {
+        if (this.isAttribute(key)) {
+          val += "";
+        }
+      } else if (jObj[key] === null) {
+        if (this.isAttribute(key)) {
+          val += "";
+        } else if (key === this.options.cdataPropName) {
+          val += "";
+        } else if (key[0] === "?") {
+          val += this.indentate(level) + "<" + key + "?" + this.tagEndChar;
+        } else {
+          val += this.indentate(level) + "<" + key + "/" + this.tagEndChar;
+        }
+      } else if (jObj[key] instanceof Date) {
+        val += this.buildTextValNode(jObj[key], key, "", level);
+      } else if (typeof jObj[key] !== "object") {
+        const attr = this.isAttribute(key);
+        if (attr && !this.ignoreAttributesFn(attr, jPath)) {
+          attrStr += this.buildAttrPairStr(attr, "" + jObj[key]);
+        } else if (!attr) {
+          if (key === this.options.textNodeName) {
+            let newval = this.options.tagValueProcessor(key, "" + jObj[key]);
+            val += this.replaceEntitiesValue(newval);
+          } else {
+            val += this.buildTextValNode(jObj[key], key, "", level);
+          }
+        }
+      } else if (Array.isArray(jObj[key])) {
+        const arrLen = jObj[key].length;
+        let listTagVal = "";
+        let listTagAttr = "";
+        for (let j = 0;j < arrLen; j++) {
+          const item = jObj[key][j];
+          if (typeof item === "undefined") {} else if (item === null) {
+            if (key[0] === "?")
+              val += this.indentate(level) + "<" + key + "?" + this.tagEndChar;
+            else
+              val += this.indentate(level) + "<" + key + "/" + this.tagEndChar;
+          } else if (typeof item === "object") {
+            if (this.options.oneListGroup) {
+              const result = this.j2x(item, level + 1, ajPath.concat(key));
+              listTagVal += result.val;
+              if (this.options.attributesGroupName && item.hasOwnProperty(this.options.attributesGroupName)) {
+                listTagAttr += result.attrStr;
+              }
+            } else {
+              listTagVal += this.processTextOrObjNode(item, key, level, ajPath);
+            }
+          } else {
+            if (this.options.oneListGroup) {
+              let textValue = this.options.tagValueProcessor(key, item);
+              textValue = this.replaceEntitiesValue(textValue);
+              listTagVal += textValue;
+            } else {
+              listTagVal += this.buildTextValNode(item, key, "", level);
+            }
+          }
+        }
+        if (this.options.oneListGroup) {
+          listTagVal = this.buildObjectNode(listTagVal, key, listTagAttr, level);
+        }
+        val += listTagVal;
+      } else {
+        if (this.options.attributesGroupName && key === this.options.attributesGroupName) {
+          const Ks = Object.keys(jObj[key]);
+          const L = Ks.length;
+          for (let j = 0;j < L; j++) {
+            attrStr += this.buildAttrPairStr(Ks[j], "" + jObj[key][Ks[j]]);
+          }
+        } else {
+          val += this.processTextOrObjNode(jObj[key], key, level, ajPath);
+        }
+      }
+    }
+    return { attrStr, val };
+  };
+  Builder.prototype.buildAttrPairStr = function(attrName, val) {
+    val = this.options.attributeValueProcessor(attrName, "" + val);
+    val = this.replaceEntitiesValue(val);
+    if (this.options.suppressBooleanAttributes && val === "true") {
+      return " " + attrName;
+    } else
+      return " " + attrName + '="' + val + '"';
+  };
+  function processTextOrObjNode(object, key, level, ajPath) {
+    const result = this.j2x(object, level + 1, ajPath.concat(key));
+    if (object[this.options.textNodeName] !== undefined && Object.keys(object).length === 1) {
+      return this.buildTextValNode(object[this.options.textNodeName], key, result.attrStr, level);
+    } else {
+      return this.buildObjectNode(result.val, key, result.attrStr, level);
+    }
+  }
+  Builder.prototype.buildObjectNode = function(val, key, attrStr, level) {
+    if (val === "") {
+      if (key[0] === "?")
+        return this.indentate(level) + "<" + key + attrStr + "?" + this.tagEndChar;
+      else {
+        return this.indentate(level) + "<" + key + attrStr + this.closeTag(key) + this.tagEndChar;
+      }
+    } else {
+      let tagEndExp = "</" + key + this.tagEndChar;
+      let piClosingChar = "";
+      if (key[0] === "?") {
+        piClosingChar = "?";
+        tagEndExp = "";
+      }
+      if ((attrStr || attrStr === "") && val.indexOf("<") === -1) {
+        return this.indentate(level) + "<" + key + attrStr + piClosingChar + ">" + val + tagEndExp;
+      } else if (this.options.commentPropName !== false && key === this.options.commentPropName && piClosingChar.length === 0) {
+        const safeVal = String(val).replace(/--/g, "- -").replace(/-$/, "- ");
+        return this.indentate(level) + `<!--${safeVal}-->` + this.newLine;
+      } else {
+        return this.indentate(level) + "<" + key + attrStr + piClosingChar + this.tagEndChar + val + this.indentate(level) + tagEndExp;
+      }
+    }
+  };
+  Builder.prototype.closeTag = function(key) {
+    let closeTag = "";
+    if (this.options.unpairedTags.indexOf(key) !== -1) {
+      if (!this.options.suppressUnpairedNode)
+        closeTag = "/";
+    } else if (this.options.suppressEmptyNode) {
+      closeTag = "/";
+    } else {
+      closeTag = `></${key}`;
+    }
+    return closeTag;
+  };
+  Builder.prototype.buildTextValNode = function(val, key, attrStr, level) {
+    if (this.options.cdataPropName !== false && key === this.options.cdataPropName) {
+      const safeVal = String(val).replace(/\]\]>/g, "]]]]><![CDATA[>");
+      return this.indentate(level) + `<![CDATA[${safeVal}]]>` + this.newLine;
+    } else if (this.options.commentPropName !== false && key === this.options.commentPropName) {
+      const safeVal = String(val).replace(/--/g, "- -").replace(/-$/, "- ");
+      return this.indentate(level) + `<!--${safeVal}-->` + this.newLine;
+    } else if (key[0] === "?") {
+      return this.indentate(level) + "<" + key + attrStr + "?" + this.tagEndChar;
+    } else {
+      let textValue = this.options.tagValueProcessor(key, val);
+      textValue = this.replaceEntitiesValue(textValue);
+      if (textValue === "") {
+        return this.indentate(level) + "<" + key + attrStr + this.closeTag(key) + this.tagEndChar;
+      } else {
+        return this.indentate(level) + "<" + key + attrStr + ">" + textValue + "</" + key + this.tagEndChar;
+      }
+    }
+  };
+  Builder.prototype.replaceEntitiesValue = function(textValue) {
+    if (textValue && textValue.length > 0 && this.options.processEntities) {
+      for (let i = 0;i < this.options.entities.length; i++) {
+        const entity = this.options.entities[i];
+        textValue = textValue.replace(entity.regex, entity.val);
+      }
+    }
+    return textValue;
+  };
+  function indentate(level) {
+    return this.options.indentBy.repeat(level);
+  }
+  function isAttribute(name) {
+    if (name.startsWith(this.options.attributeNamePrefix) && name !== this.options.textNodeName) {
+      return name.substr(this.attrPrefixLen);
+    } else {
+      return false;
+    }
+  }
+  module.exports = Builder;
+});
+
+// node_modules/fast-xml-parser/src/fxp.js
+var require_fxp = __commonJS((exports, module) => {
+  var validator = require_validator();
+  var XMLParser = require_XMLParser();
+  var XMLBuilder = require_json2xml();
+  module.exports = {
+    XMLParser,
+    XMLValidator: validator,
+    XMLBuilder
+  };
+});
+
 // src/cli.ts
-import * as fs15 from "node:fs";
-import * as path15 from "node:path";
+import * as fs16 from "node:fs";
+import * as path16 from "node:path";
 
 // src/commands.ts
-import * as fs10 from "node:fs";
-import * as path10 from "node:path";
+import * as fs13 from "node:fs";
+import * as path13 from "node:path";
 
 // src/adapters.ts
 import * as fs2 from "node:fs";
@@ -10556,6 +10556,8 @@ var HAS_WELLFORMED = !!"".isWellFormed;
  */
 
 // src/config.ts
+var KIND_HELP = `set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), or kind = "ui" for tests that drive it in a browser. Unit and integration tests don't belong in Witness: the project's own build and test scripts run them`;
+
 class ConfigError extends Error {
   key;
   constructor(key, message) {
@@ -10570,7 +10572,7 @@ var KEYS = {
   dependency: ["name", "check", "check_http", "start", "stop", "timeout"],
   service: ["name", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for"],
   ready: ["http", "cmd", "status", "timeout"],
-  suite: ["name", "service", "adapter", "cwd", "cmd", "timeout", "per_test_timeout", "report", "select", "env"],
+  suite: ["name", "kind", "service", "adapter", "cwd", "cmd", "timeout", "per_test_timeout", "report", "select", "env"],
   run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace"]
 };
 function closest(word, options) {
@@ -10791,8 +10793,12 @@ function parseConfig(doc, file) {
     const adapter = str(s, "adapter", where) ?? "generic";
     if (!(adapter in ADAPTERS))
       throw new ConfigError(`${where}.adapter`, `unknown adapter "${adapter}"; one of ${Object.keys(ADAPTERS).join(", ")}`);
+    const kind = str(s, "kind", where);
+    if (kind !== "api" && kind !== "ui")
+      throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected "api" or "ui", got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
     return {
       name,
+      kind,
       services: s.service === undefined ? undefined : strList(s, "service", where),
       adapter,
       cwd: str(s, "cwd", where) ?? ".",
@@ -11121,35 +11127,63 @@ function formatDiagnosis(d) {
   return out;
 }
 
-// src/output.ts
-var useColor = process.stderr.isTTY && !process.env.NO_COLOR;
-var c = (code) => (s) => useColor ? `\x1B[${code}m${s}\x1B[0m` : s;
-var color = { dim: c("2"), bold: c("1"), red: c("31"), green: c("32"), yellow: c("33") };
+// src/functional.ts
+import * as fs7 from "node:fs";
+import * as path7 from "node:path";
 
-class Progress {
-  t0;
-  quiet;
-  lastAt = 0;
-  constructor(t0 = Date.now(), quiet = false) {
-    this.t0 = t0;
-    this.quiet = quiet;
-  }
-  line(msg) {
-    this.lastAt = Date.now();
-    if (this.quiet)
-      return;
-    process.stderr.write(`witness  ${color.dim(`[${fmtClock(Date.now() - this.t0)}]`)} ${msg}
-`);
-  }
-  plain(msg) {
-    if (!this.quiet)
-      process.stderr.write(`witness  ${msg}
-`);
-  }
-}
-function outcomeColor(outcome) {
-  return outcome === "passed" ? color.green : outcome === "failed" ? color.red : color.yellow;
-}
+// src/lint.ts
+import * as fs6 from "node:fs";
+import * as path6 from "node:path";
+
+// src/plan.ts
+import * as fs5 from "node:fs";
+import * as path5 from "node:path";
+
+// node_modules/yaml/dist/index.js
+var composer = require_composer();
+var Document = require_Document();
+var Schema = require_Schema();
+var errors = require_errors();
+var Alias = require_Alias();
+var identity = require_identity();
+var Pair = require_Pair();
+var Scalar = require_Scalar();
+var YAMLMap = require_YAMLMap();
+var YAMLSeq = require_YAMLSeq();
+var cst = require_cst();
+var lexer = require_lexer();
+var lineCounter = require_line_counter();
+var parser = require_parser();
+var publicApi = require_public_api();
+var visit = require_visit();
+var $Composer = composer.Composer;
+var $Document = Document.Document;
+var $Schema = Schema.Schema;
+var $YAMLError = errors.YAMLError;
+var $YAMLParseError = errors.YAMLParseError;
+var $YAMLWarning = errors.YAMLWarning;
+var $Alias = Alias.Alias;
+var $isAlias = identity.isAlias;
+var $isCollection = identity.isCollection;
+var $isDocument = identity.isDocument;
+var $isMap = identity.isMap;
+var $isNode = identity.isNode;
+var $isPair = identity.isPair;
+var $isScalar = identity.isScalar;
+var $isSeq = identity.isSeq;
+var $Pair = Pair.Pair;
+var $Scalar = Scalar.Scalar;
+var $YAMLMap = YAMLMap.YAMLMap;
+var $YAMLSeq = YAMLSeq.YAMLSeq;
+var $Lexer = lexer.Lexer;
+var $LineCounter = lineCounter.LineCounter;
+var $Parser = parser.Parser;
+var $parse = publicApi.parse;
+var $parseAllDocuments = publicApi.parseAllDocuments;
+var $parseDocument = publicApi.parseDocument;
+var $stringify = publicApi.stringify;
+var $visit = visit.visit;
+var $visitAsync = visit.visitAsync;
 
 // src/proc.ts
 import { spawn } from "node:child_process";
@@ -11243,7 +11277,7 @@ async function runCapture(cmd, opts) {
   const abortPoll = opts.abort ? setInterval(() => opts.abort.aborted && child.pid && void killGroup(child.pid, 2000), 200) : undefined;
   const code = await new Promise((resolve3) => {
     child.on("error", () => resolve3(127));
-    child.on("close", (c2) => resolve3(c2));
+    child.on("close", (c) => resolve3(c));
   });
   clearTimeout(timer);
   clearInterval(abortPoll);
@@ -11322,2549 +11356,6 @@ async function allocatePort(pool, taken) {
   }
   return { tried: "no free port found" };
 }
-
-// src/reconcile.ts
-import * as path5 from "node:path";
-var SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
-var cleanId = (adapter, id) => id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id;
-function toRecord(c2, adapter, suite, cwd, obtained = "report") {
-  const file = normFile(c2.file, cwd);
-  const raw = { ...c2, file };
-  const local = adapter.id(raw);
-  const r = { id: stableId(adapter.name, local), name: local, suite, adapter: adapter.name, status: c2.status, durationMs: c2.durationMs, obtained };
-  if (c2.statusDetail)
-    r.statusDetail = c2.statusDetail;
-  else if (c2.status === "failed" && SETUP_FAILURE.test(c2.message ?? ""))
-    r.statusDetail = "error";
-  if (c2.message)
-    r.message = c2.message;
-  if (c2.trace)
-    r.trace = c2.trace;
-  if (file)
-    r.filePath = file;
-  if (c2.retries)
-    r.retries = c2.retries;
-  if (c2.flaky)
-    r.flaky = true;
-  if (c2.attachments?.length)
-    r.attachments = c2.attachments.map((a) => ({ ...a, path: path5.isAbsolute(a.path) ? a.path : path5.join(cwd, a.path) }));
-  return r;
-}
-function dedupe(tests) {
-  const m = new Map;
-  for (const t of tests) {
-    const prev = m.get(t.id);
-    if (!prev) {
-      m.set(t.id, t);
-      continue;
-    }
-    const merged = { ...t, retries: (prev.retries ?? 0) + (t.retries ?? 0) + 1 };
-    if (t.status === "passed" && prev.status === "failed")
-      merged.flaky = true;
-    merged.attachments = [...prev.attachments ?? [], ...t.attachments ?? []];
-    if (!merged.attachments.length)
-      delete merged.attachments;
-    m.set(t.id, merged);
-  }
-  return [...m.values()];
-}
-function summarize(name, state, tests) {
-  const s = { name, state, passed: 0, failed: 0, skipped: 0, error: 0, missing: 0 };
-  for (const t of tests) {
-    if (t.status === "passed")
-      s.passed++;
-    else if (t.status === "skipped" || t.status === "pending")
-      s.skipped++;
-    else if (t.status === "failed" && !t.statusDetail)
-      s.failed++;
-    else if (t.statusDetail === "missing")
-      s.missing++;
-    else
-      s.error++;
-  }
-  return s;
-}
-function suiteLevel(adapter, suite, exitCode, message, exitCodeOnly = false) {
-  const ok = exitCode === 0;
-  const r = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? exitCodeOnly ? "passed" : "other" : "failed", durationMs: 0, obtained: "suite-level", message };
-  if (!exitCodeOnly)
-    r.statusDetail = ok ? "missing" : "error";
-  return r;
-}
-function presentIn(ids, id) {
-  if (ids.has(id))
-    return true;
-  for (const x of ids)
-    if (x.startsWith(`${id}(`) || x.startsWith(`${id} (`) || x.startsWith(`${id}[`))
-      return true;
-  return false;
-}
-function reconcile(inp) {
-  const { adapter, suite, exitCode, end, cwd } = inp;
-  const unreadable = inp.files.filter((f) => f.error);
-  let tests = dedupe(inp.files.flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite, cwd))));
-  const expected = (inp.expected ?? []).map((id) => stableId(adapter.name, cleanId(adapter, id)));
-  if (end === "interrupted" || end === "service_died" || end === "timeout" || end === "stalled") {
-    const have = new Set(tests.map((t) => t.id));
-    for (const id of expected)
-      if (!presentIn(have, id))
-        tests.push(missing(id, adapter, suite, end === "timeout" || end === "stalled" ? "timeout" : "missing"));
-    const state = end === "interrupted" ? "interrupted" : end === "service_died" ? "error" : end === "timeout" ? "timeout" : "stalled";
-    const cause2 = end === "service_died" ? "service_died" : end === "timeout" ? "suite_timeout" : end === "stalled" ? "stalled" : undefined;
-    if (!tests.length && end !== "interrupted")
-      tests = [{ ...suiteLevel(adapter, suite, 1, `suite ${end === "service_died" ? "aborted: a service died" : end}`), statusDetail: end === "service_died" ? "error" : "timeout" }];
-    return { tests, state, cause: cause2 };
-  }
-  if (tests.length) {
-    const have = new Set(tests.map((t) => t.id));
-    const absent = expected.filter((id) => !presentIn(have, id));
-    for (const id of absent)
-      tests.push(missing(id, adapter, suite, "missing"));
-    const failed = tests.filter((t) => t.status === "failed");
-    if (failed.length && failed.every((t) => t.statusDetail === "error")) {
-      const lines = (failed[0].message ?? "").split(`
-`).map((l) => l.replace(/^[-\s]+/, "").trim()).filter(Boolean);
-      const inner = lines.slice(1).find((l) => /exception|error|did not|timed? ?out|refused|not found/i.test(l));
-      return { tests, state: "error", cause: "setup_failed", note: `${failed.length} test(s) errored in fixture setup; none failed its own checks`, evidence: [lines[0], inner].filter(Boolean).join(" · ").slice(0, 500), hint: "a test fixture's setup failed (it starts a browser, app, container or database), so no test ran its own checks: fix what the fixture needs, then run the suite again" };
-    }
-    if (failed.length)
-      return { tests, state: "failed", note: unreadable.length ? `${unreadable.length} report file(s) unreadable` : undefined };
-    if (exitCode !== 0)
-      return { tests, state: "error", cause: "report_incomplete", note: `exit code ${exitCode} but the report shows no failures` };
-    if (absent.length)
-      return { tests, state: "error", cause: "report_incomplete", note: `${absent.length} expected test(s) missing from the report` };
-    if (unreadable.length)
-      return { tests, state: "error", cause: "report_unreadable", note: `${unreadable.length} report file(s) unreadable: ${unreadable[0].error}` };
-    if (tests.every((t) => t.status === "skipped" || t.status === "pending"))
-      return { tests, state: "error", cause: "report_incomplete", note: `all ${tests.length} test(s) were skipped; nothing was checked`, hint: "every test was skipped: look for a skip condition that fired (a fixture that skips when the app or a dependency is unreachable, a missing marker or env var)" };
-    return { tests, state: "passed" };
-  }
-  if (inp.exitCodeOnly) {
-    return { tests: [suiteLevel(adapter, suite, exitCode, `exit code ${exitCode}`, true)], state: exitCode === 0 ? "passed" : "failed" };
-  }
-  const cause = unreadable.length ? "report_unreadable" : "report_missing";
-  const note = unreadable.length ? `report unreadable: ${unreadable[0].error}` : inp.files.length ? "report lists no tests" : "no report written";
-  if (expected.length)
-    return { tests: [], state: "error", cause, note, rerun: expected.map((id) => cleanId(adapter, id.slice(adapter.name.length + 1))) };
-  return { tests: [suiteLevel(adapter, suite, exitCode, `${note}; exit code ${exitCode}`)], state: "error", cause, note };
-}
-function missing(id, adapter, suite, detail, message) {
-  return { id, name: id.slice(adapter.name.length + 1), suite, adapter: adapter.name, status: "other", statusDetail: detail, durationMs: 0, obtained: "report", message: message ?? (detail === "timeout" ? "did not finish before the suite was stopped" : "expected but absent from the report") };
-}
-function fromReruns(results, adapter, suite, cwd, originalExit, cause) {
-  const tests = [];
-  for (const r of results) {
-    const sid = stableId(adapter.name, r.id);
-    const cases = r.files.flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite, cwd, "per-test-rerun")));
-    const exact = cases.find((c2) => c2.id === sid);
-    const params = cases.filter((c2) => presentIn(new Set([c2.id]), sid));
-    const hit = exact ?? (params.length ? { ...params[0], id: sid, status: params.some((c2) => c2.status === "failed") ? "failed" : params[0].status } : cases.length === 1 ? { ...cases[0], id: sid } : undefined);
-    if (hit)
-      tests.push(hit);
-    else if (r.timedOut || r.exitCode !== 0) {
-      const t = { id: sid, name: r.id, suite, adapter: adapter.name, status: "failed", durationMs: 0, obtained: "per-test-rerun", message: r.timedOut ? "timed out when run alone" : `run alone: exit code ${r.exitCode}` };
-      if (r.timedOut)
-        t.statusDetail = "timeout";
-      tests.push(t);
-    } else {
-      tests.push({ id: sid, name: r.id, suite, adapter: adapter.name, status: "other", statusDetail: "missing", durationMs: 0, obtained: "per-test-rerun", message: "run alone: exit code 0 but the test is not in its report (the filter may have matched nothing)" });
-    }
-  }
-  const failed = tests.some((t) => t.status === "failed");
-  if (failed)
-    return { tests, state: "failed", cause, note: "suite report unusable; tests rerun one by one" };
-  if (tests.some((t) => t.status === "other"))
-    return { tests, state: "error", cause, note: "suite report unusable; some tests rerun alone are missing from their reports" };
-  if (originalExit !== 0)
-    return { tests, state: "error", cause: "report_incomplete", note: `suite exited ${originalExit} without a usable report, but each test passes alone` };
-  return { tests, state: "passed", cause, note: "suite report unusable; tests rerun one by one" };
-}
-var RANK = { passed: 0, failed: 1, error: 2, stalled: 3, mistrial: 4, interrupted: 5 };
-function worst(a, b) {
-  return RANK[b] > RANK[a] ? b : a;
-}
-function suiteOutcome(s) {
-  switch (s.state) {
-    case "passed":
-    case "skipped":
-      return "passed";
-    case "failed":
-      return "failed";
-    case "stalled":
-    case "timeout":
-      return "stalled";
-    case "interrupted":
-      return "interrupted";
-    case "error":
-      return s.cause === "service_died" ? "mistrial" : "error";
-    default:
-      return "error";
-  }
-}
-var EXIT = { passed: 0, failed: 1, error: 2, mistrial: 3, stalled: 4, interrupted: 5 };
-function applyParity(target, origin) {
-  const o = new Map(origin.map((t) => [t.id, t]));
-  const counts = { same: 0, differs: 0, origin_only: 0, target_only: 0 };
-  const out = target.map((t) => {
-    const ot = o.get(t.id);
-    o.delete(t.id);
-    if (!ot) {
-      counts.target_only++;
-      return { ...t, parity: "target_only" };
-    }
-    const p = ot.status === t.status ? "same" : "differs";
-    counts[p]++;
-    return { ...t, parity: p, originStatus: ot.status };
-  });
-  for (const ot of o.values()) {
-    if (ot.obtained === "suite-level")
-      continue;
-    counts.origin_only++;
-    out.push({ id: ot.id, name: ot.name, suite: ot.suite, adapter: ot.adapter, status: "other", statusDetail: "missing", durationMs: 0, obtained: ot.obtained, filePath: ot.filePath, parity: "origin_only", originStatus: ot.status, message: "present on the origin, absent on the target" });
-  }
-  return { tests: out, counts };
-}
-
-// src/rundir.ts
-import { spawnSync as spawnSync2 } from "node:child_process";
-import * as fs5 from "node:fs";
-import * as path6 from "node:path";
-function newRunId(now = new Date) {
-  const p = (n, w = 2) => String(n).padStart(w, "0");
-  return `r-${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}-${randHex(4)}`;
-}
-
-class RunDir {
-  dir;
-  root;
-  status;
-  state;
-  constructor(root, runId, init) {
-    this.root = root;
-    this.dir = path6.join(root, runId);
-    fs5.mkdirSync(path6.join(this.dir, "logs"), { recursive: true });
-    fs5.mkdirSync(path6.join(this.dir, "reports"), { recursive: true });
-    const now = new Date().toISOString();
-    this.status = { run_id: runId, phase: "starting", started_at: now, suites: [], last_event: "run started", pid: process.pid, ...init };
-    this.state = { pid: process.pid, started_at: now, procs: [], ports: {}, worktrees: [] };
-    this.saveStatus();
-    this.saveState();
-    this.event("run_started", { label: init.label, commit: init.commit });
-  }
-  get runId() {
-    return this.status.run_id;
-  }
-  file(...p) {
-    return path6.join(this.dir, ...p);
-  }
-  saveStatus() {
-    writeJson(this.file("status.json"), this.status);
-  }
-  saveState() {
-    writeJson(this.file("state.json"), this.state);
-  }
-  event(type, data = {}, lastEvent) {
-    fs5.appendFileSync(this.file("events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type, ...data }) + `
-`);
-    if (lastEvent) {
-      this.status.last_event = lastEvent;
-      this.saveStatus();
-    }
-  }
-  setPhase(phase, lastEvent) {
-    this.status.phase = phase;
-    this.status.last_event = lastEvent;
-    this.saveStatus();
-    this.event("phase", { phase });
-  }
-  track(p) {
-    this.state.procs.push(p);
-    this.saveState();
-  }
-  untrack(pgid) {
-    this.state.procs = this.state.procs.filter((p) => p.pgid !== pgid);
-    this.saveState();
-  }
-  tracker(kind, name) {
-    return (pgid, running) => running ? this.track({ kind, name, pid: pgid, pgid }) : this.untrack(pgid);
-  }
-  linkLatest() {
-    const link = path6.join(this.root, "latest");
-    try {
-      fs5.rmSync(link, { force: true });
-      fs5.symlinkSync(this.status.run_id, link);
-    } catch {
-      fs5.writeFileSync(link, this.status.run_id);
-    }
-  }
-}
-function resolveRun(root, id) {
-  const which = !id || id === "latest" ? "latest" : id;
-  const p = path6.join(root, which);
-  try {
-    const st = fs5.lstatSync(p);
-    if (st.isSymbolicLink())
-      return path6.join(root, fs5.readlinkSync(p));
-    if (st.isFile())
-      return path6.join(root, fs5.readFileSync(p, "utf8").trim());
-    if (st.isDirectory())
-      return p;
-  } catch {
-    if (which === "latest") {
-      const runs = listRuns(root);
-      return runs.length ? path6.join(root, runs[runs.length - 1]) : null;
-    }
-  }
-  return null;
-}
-function listRuns(root) {
-  try {
-    return fs5.readdirSync(root).filter((d) => /^r-\d{8}-\d{6}-[0-9a-f]{4}$/.test(d) && fs5.existsSync(path6.join(root, d, "status.json"))).sort();
-  } catch {
-    return [];
-  }
-}
-async function reapStale(root, graceMs, log) {
-  const reaped = [];
-  for (const id of listRuns(root)) {
-    const dir = path6.join(root, id);
-    const status = readJson(path6.join(dir, "status.json"), null);
-    const state = readJson(path6.join(dir, "state.json"), null);
-    if (!status || status.phase === "finished" || !state || state.pid === process.pid || pidAlive(state.pid))
-      continue;
-    const fresh = Date.now() - Date.parse(state.started_at) < 24 * 3600000;
-    let killed = 0;
-    if (fresh) {
-      for (const p of state.procs)
-        if (await killTracked(p, graceMs))
-          killed++;
-    }
-    for (const wt of state.worktrees ?? [])
-      removeWorktree(wt);
-    status.phase = "finished";
-    status.outcome = "interrupted";
-    status.finished_at = new Date().toISOString();
-    status.last_event = `reaped: witness (pid ${state.pid}) exited without finishing${killed ? `; killed ${killed} leftover process group(s)` : ""}`;
-    writeJson(path6.join(dir, "status.json"), status);
-    fs5.appendFileSync(path6.join(dir, "events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type: "reaped", by: process.pid, killed }) + `
-`);
-    state.procs = [];
-    writeJson(path6.join(dir, "state.json"), state);
-    log(`reaped stale run ${id}${killed ? ` (killed ${killed} leftover process group(s))` : ""}`);
-    reaped.push(id);
-  }
-  return reaped;
-}
-async function killTracked(p, graceMs, opts = {}) {
-  let hit = false;
-  const pid = p.pidfile ? Number(readText(p.pidfile)) : 0;
-  if (p.stop && opts.runStop !== false && (pidAlive(pid) || groupAlive(p.pgid))) {
-    spawnSync2("bash", ["-c", p.stop], { cwd: p.cwd, stdio: "ignore", timeout: 60000 });
-    hit = true;
-  }
-  if (pid > 1 && pidAlive(pid)) {
-    try {
-      process.kill(pid, graceMs ? "SIGTERM" : "SIGKILL");
-    } catch {}
-    const until = Date.now() + graceMs;
-    while (pidAlive(pid) && Date.now() < until)
-      await new Promise((r) => setTimeout(r, 100));
-    if (pidAlive(pid)) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {}
-    }
-    hit = true;
-  }
-  if (groupAlive(p.pgid)) {
-    await killGroup(p.pgid, graceMs);
-    hit = true;
-  }
-  return hit;
-}
-function readText(f) {
-  try {
-    return fs5.readFileSync(f, "utf8").trim();
-  } catch {
-    return "";
-  }
-}
-function removeWorktree(wt) {
-  const common = git(wt, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
-  if (common.ok)
-    spawnSync2("git", ["--git-dir", common.out, "worktree", "remove", "--force", wt]);
-  fs5.rmSync(wt, { recursive: true, force: true });
-  if (common.ok)
-    spawnSync2("git", ["--git-dir", common.out, "worktree", "prune"]);
-}
-function pruneRuns(root, keep) {
-  const runs = listRuns(root);
-  for (const id of runs.slice(0, Math.max(0, runs.length - keep))) {
-    const st = readJson(path6.join(root, id, "status.json"), null);
-    if (st && st.phase !== "finished")
-      continue;
-    fs5.rmSync(path6.join(root, id), { recursive: true, force: true });
-  }
-}
-
-class LockError extends Error {
-}
-function acquireLock(file) {
-  fs5.mkdirSync(path6.dirname(file), { recursive: true });
-  for (let attempt = 0;attempt < 2; attempt++) {
-    try {
-      const fd = fs5.openSync(file, "wx");
-      fs5.writeSync(fd, String(process.pid));
-      fs5.closeSync(fd);
-      return () => {
-        try {
-          if (fs5.readFileSync(file, "utf8").trim() === String(process.pid))
-            fs5.rmSync(file, { force: true });
-        } catch {}
-      };
-    } catch (e) {
-      if (e.code !== "EEXIST")
-        throw e;
-      const pid = Number(fs5.readFileSync(file, "utf8").trim());
-      if (pidAlive(pid) && pid !== process.pid)
-        throw new LockError(`another witness run (pid ${pid}) is using this checkout; wait for it or stop it (lock: ${file})`);
-      fs5.rmSync(file, { force: true });
-    }
-  }
-  throw new LockError(`could not take the lock ${file}`);
-}
-
-// src/run.ts
-import * as fs9 from "node:fs";
-import * as os from "node:os";
-import * as path9 from "node:path";
-
-// src/ctrf.ts
-var SCHEMA = "witness.run/v1";
-var VERSION = "1.0.0-mvp";
-function runSource() {
-  const s = process.env.WITNESS_SOURCE;
-  if (s === "morph" || s === "ci" || s === "local")
-    return s;
-  return process.env.CI && process.env.CI !== "false" ? "ci" : "local";
-}
-function buildCtrf(meta, tests) {
-  const summary = { tests: tests.length, passed: 0, failed: 0, skipped: 0, pending: 0, other: 0, start: meta.startedAt, stop: meta.finishedAt };
-  for (const t of tests)
-    summary[t.status]++;
-  const witness = {
-    schema: SCHEMA,
-    version: VERSION,
-    run_id: meta.runId,
-    outcome: meta.outcome,
-    commit: meta.commit,
-    branch: meta.branch,
-    dirty: meta.dirty,
-    source: runSource(),
-    started_at: new Date(meta.startedAt).toISOString(),
-    finished_at: new Date(meta.finishedAt).toISOString()
-  };
-  if (meta.label)
-    witness.label = meta.label;
-  if (meta.against)
-    witness.against = meta.against;
-  if (meta.diagnosis)
-    witness.diagnosis = meta.diagnosis;
-  return {
-    reportFormat: "CTRF",
-    specVersion: "0.0.0",
-    results: {
-      tool: { name: "witness", version: VERSION, extra: { adapters: meta.adapters } },
-      summary,
-      tests: tests.map((t) => {
-        const w = { id: t.id, suite: t.suite, adapter: t.adapter, obtained: t.obtained };
-        if (t.statusDetail)
-          w.status_detail = t.statusDetail;
-        if (t.parity)
-          w.parity = t.parity;
-        if (t.originStatus)
-          w.origin_status = t.originStatus;
-        const o = { name: t.name, status: t.status, duration: t.durationMs };
-        if (t.message)
-          o.message = t.message;
-        if (t.trace)
-          o.trace = t.trace;
-        if (t.filePath)
-          o.filePath = t.filePath;
-        o.suite = t.suite;
-        if (t.retries)
-          o.retries = t.retries;
-        if (t.flaky)
-          o.flaky = true;
-        o.extra = { witness: w };
-        return o;
-      }),
-      extra: { witness }
-    }
-  };
-}
-
-// src/stack.ts
-import * as fs6 from "node:fs";
-import * as path7 from "node:path";
-class Failure extends Error {
-  diagnosis;
-  constructor(d) {
-    super(`${d.cause}${d.evidence ? `: ${d.evidence}` : ""}`);
-    this.diagnosis = d;
-  }
-}
-var SETUP_TIMEOUT = 30 * 60000;
-var upFile = (root) => path7.join(root, ".witness", "up.json");
-function readUp2(root) {
-  return readJson(upFile(root), null);
-}
-
-class Stack {
-  o;
-  live = new Map;
-  depsStarted = [];
-  taken = new Set;
-  constructor(o) {
-    this.o = o;
-  }
-  vars(self) {
-    const v = { ...this.o.baseEnv, CHECKOUT: this.o.root };
-    if (this.o.runDirPath)
-      v.WITNESS_RUN_DIR = this.o.runDirPath;
-    for (const [n, l] of this.live)
-      v[`${n}.url`] = l.url;
-    if (self) {
-      v["self.url"] = self.url;
-      if (self.port)
-        v.PORT = String(self.port);
-    }
-    return v;
-  }
-  serviceUrlEnv() {
-    const e = {};
-    for (const [n, l] of this.live)
-      e[`WITNESS_${n.toUpperCase().replace(/-/g, "_")}_URL`] = l.url;
-    return e;
-  }
-  fail(stage, cause, extra = {}) {
-    throw new Failure(diagnose({ stage, cause, ...extra }));
-  }
-  async checkDep(d) {
-    if (d.checkHttp)
-      return httpProbe(substitute(d.checkHttp, this.vars()), undefined, 5000);
-    const r = await runCapture(substitute(d.check, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 15000 });
-    const last = r.out.trim().split(`
-`).pop() ?? "";
-    return { ok: r.code === 0, detail: r.timedOut ? "check timed out" : last || `exit code ${r.code}` };
-  }
-  async checkDeps(deps = this.o.cfg.dependencies) {
-    for (const d of deps) {
-      const t0 = Date.now();
-      let r = await this.checkDep(d);
-      if (r.ok) {
-        this.o.progress.line(`deps   ${d.name} · ok`);
-        continue;
-      }
-      const log = path7.join(this.o.logDir, `dep-${d.name}.log`);
-      if (d.start && !this.o.reuse?.deps_started.includes(d.name)) {
-        this.o.progress.line(`deps   ${d.name} · not reachable (${r.detail}); starting it`);
-        const s = await runCapture(substitute(d.start, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: d.timeoutMs, log, abort: this.o.abort, track: this.o.run?.tracker("dependency", d.name) });
-        if (this.o.abort.aborted)
-          return;
-        if (s.code !== 0)
-          this.fail("deps", "dependency_unreachable", { command: d.start, log, evidence: s.out.trim().split(`
-`).pop() });
-        this.depsStarted.push(d);
-        const until = Date.now() + d.timeoutMs;
-        while (Date.now() < until && !this.o.abort.aborted) {
-          r = await this.checkDep(d);
-          if (r.ok)
-            break;
-          await sleep(1000);
-        }
-      }
-      if (!r.ok)
-        this.fail("deps", "dependency_unreachable", { command: d.check ?? `curl ${d.checkHttp}`, evidence: `${d.name}: ${r.detail}`, log: fs6.existsSync(log) ? log : undefined });
-      this.o.progress.line(`deps   ${d.name} · ok (${fmtDuration(Date.now() - t0)})`);
-    }
-  }
-  async boot(names, as = new Map) {
-    for (const svc of topoOrder(this.o.cfg.services, names)) {
-      if (this.o.abort.aborted)
-        return;
-      const alias = as.get(svc.name) ?? svc.name;
-      if (this.live.has(alias))
-        continue;
-      await this.bootOne(svc, alias);
-    }
-  }
-  async bootOne(svc, alias) {
-    const t0 = Date.now();
-    const cwd = path7.resolve(this.o.root, svc.cwd);
-    const log = path7.join(this.o.logDir, `${svc.name}.log`);
-    const prev = this.o.reuse?.services[svc.name];
-    if (prev && this.o.reuse?.root === this.o.root && (prev.external || prev.pgid && groupAlive(prev.pgid) || prev.pid && pidAlive(prev.pid))) {
-      const ls2 = { name: alias, svc, port: prev.port, url: prev.url, pgid: prev.pgid, pid: prev.pid, log: prev.log, ownedByUs: false, probeFailures: 0, lastProbe: 0 };
-      if ((await this.probe(ls2)).ok) {
-        this.live.set(alias, ls2);
-        if (prev.port)
-          this.taken.add(prev.port);
-        this.o.progress.line(`boot   ${svc.name} · reusing the service from \`witness up\` at ${ls2.url}`);
-        return;
-      }
-    }
-    if (svc.external) {
-      const ls2 = { name: alias, svc, url: svc.external.replace(/\/$/, ""), log, ownedByUs: false, probeFailures: 0, lastProbe: 0 };
-      await this.waitReady(ls2, cwd, true);
-      this.live.set(alias, ls2);
-      this.o.progress.line(`boot   ${svc.name} · external ${ls2.url} is ready`);
-      return;
-    }
-    const alloc = await allocatePort(svc.ports, this.taken);
-    if (!alloc.port)
-      this.fail("boot", "port_in_use", { service: svc.name, evidence: alloc.tried, port: svc.ports?.[0] });
-    this.taken.add(alloc.port);
-    this.o.run?.state && (this.o.run.state.ports[svc.name] = alloc.port);
-    const ls = { name: alias, svc, port: alloc.port, url: `http://127.0.0.1:${alloc.port}`, log, ownedByUs: true, probeFailures: 0, lastProbe: 0 };
-    const vars = this.vars(ls);
-    const env = childEnv(this.o.baseEnv, { PORT: String(alloc.port), ...this.serviceUrlEnv(), ...mapValues(svc.env, (v) => substitute(v, vars)) });
-    if (svc.setup)
-      await this.setup(svc, cwd, env, vars, log);
-    if (this.o.abort.aborted)
-      return;
-    const readyUrl = svc.ready?.http ? substitute(svc.ready.http, vars) : undefined;
-    const held = readyUrl ? await heldReadyPort(readyUrl, alloc.port) : undefined;
-    if (held)
-      this.fail("boot", "port_in_use", { service: svc.name, port: held, url: readyUrl, evidence: `port ${held} (in ready.http ${readyUrl}) already accepts connections before ${svc.name} started: another process holds it, so the readiness check would talk to that process` });
-    const cmd = substitute(svc.start, vars);
-    const proc = spawnGroup(cmd, { name: svc.name, cwd, env, log });
-    ls.proc = proc;
-    ls.pgid = proc.pgid;
-    this.live.set(alias, ls);
-    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path7.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop ? substitute(svc.stop, vars) : undefined, cwd });
-    this.o.run?.event("service_started", { service: svc.name, pid: proc.pid, port: alloc.port, cmd }, `starting ${svc.name}`);
-    this.o.progress.line(`boot   ${svc.name} · starting (PORT=${alloc.port}${readyUrl ? `, ready check ${readyUrl}` : ""})`);
-    try {
-      await this.waitReady(ls, cwd, false, cmd);
-    } catch (e) {
-      this.live.delete(alias);
-      await this.stopOne(ls);
-      throw e;
-    }
-    if (this.o.abort.aborted)
-      return;
-    this.o.run?.event("service_ready", { service: svc.name, url: ls.url, ms: Date.now() - t0 }, `${svc.name} ready`);
-    this.o.progress.line(`boot   ${svc.name} · ready at ${ls.url} (${fmtDuration(Date.now() - t0)})`);
-  }
-  async setup(svc, cwd, env, vars, log) {
-    const cmd = substitute(svc.setup, vars);
-    if (this.o.noSetup) {
-      this.o.progress.line(`setup  ${svc.name} · skipped (--no-setup)`);
-      return;
-    }
-    const hash = this.o.setupCacheDir ? setupInputsHash(cwd, cmd) : null;
-    const cacheFile = this.o.setupCacheDir ? path7.join(this.o.setupCacheDir, `${svc.name}.json`) : null;
-    if (hash && cacheFile && readJson(cacheFile, {}).hash === hash) {
-      this.o.progress.line(`setup  ${svc.name} · skipped (inputs unchanged since the last successful setup)`);
-      return;
-    }
-    const t0 = Date.now();
-    this.o.progress.line(`setup  ${svc.name} · ${cmd}`);
-    this.o.run?.event("setup_started", { service: svc.name, cmd }, `setup ${svc.name}`);
-    const proc = spawnGroup(cmd, { name: `setup-${svc.name}`, cwd, env, log });
-    this.o.run?.track({ kind: "setup", name: svc.name, pid: proc.pid, pgid: proc.pgid });
-    const timer = setTimeout(() => void killGroup(proc.pgid, this.o.cfg.run.graceMs), SETUP_TIMEOUT);
-    const abortPoll = setInterval(() => this.o.abort.aborted && void killGroup(proc.pgid, this.o.cfg.run.graceMs), 200);
-    const { code } = await proc.exit;
-    clearTimeout(timer);
-    clearInterval(abortPoll);
-    this.o.run?.untrack(proc.pgid);
-    if (this.o.abort.aborted)
-      return;
-    if (code !== 0)
-      this.fail("boot", "setup_failed", { service: svc.name, command: cmd, log, cwd: svc.cwd });
-    if (hash && cacheFile)
-      writeJson(cacheFile, { hash, at: new Date().toISOString() });
-    this.o.progress.line(`setup  ${svc.name} · done (${fmtDuration(Date.now() - t0)})`);
-  }
-  async waitReady(ls, cwd, external, cmd) {
-    const svc = ls.svc;
-    const timeoutMs = svc.ready?.timeoutMs ?? 120000;
-    const until = Date.now() + timeoutMs;
-    const pidfile = svc.pidfile ? path7.resolve(cwd, substitute(svc.pidfile, this.vars(ls))) : undefined;
-    let delay = 200;
-    let last = "";
-    let steady;
-    const steadyAfter = Math.min(30000, timeoutMs / 2);
-    const exitedFail = () => this.fail("boot", "exited_before_ready", { service: svc.name, command: cmd, log: ls.log, cwd: svc.cwd, port: ls.port, evidence: undefined });
-    for (;; ) {
-      if (this.o.abort.aborted)
-        return;
-      if (pidfile && !ls.pid && fs6.existsSync(pidfile)) {
-        const pid = Number(fs6.readFileSync(pidfile, "utf8").trim());
-        if (pid > 0)
-          ls.pid = pid;
-      }
-      if (!external) {
-        if (pidfile) {
-          if (ls.pid && !pidAlive(ls.pid))
-            exitedFail();
-          if (!ls.pid && ls.proc?.exited && ls.proc.code !== 0)
-            exitedFail();
-        } else if (ls.proc?.exited)
-          exitedFail();
-      }
-      const r = await this.probe(ls);
-      if (r.ok)
-        return;
-      last = r.detail;
-      const http4xx = /^HTTP (4\d\d)$/.exec(r.detail);
-      const now = Date.now();
-      if (!http4xx)
-        steady = undefined;
-      else if (steady?.status !== Number(http4xx[1]))
-        steady = { status: Number(http4xx[1]), since: now };
-      const stuck = steady && now - steady.since >= steadyAfter;
-      if (now > until || stuck) {
-        const url = svc.ready?.http ? substitute(svc.ready.http, this.vars(ls)) : external ? ls.url : undefined;
-        const evidence = stuck ? `${url ?? "the ready URL"} answered HTTP ${steady.status} for ${fmtDuration(now - steady.since)}: the app is up but this URL is not its health check` : `not ready after ${fmtDuration(timeoutMs)}: ${last}`;
-        this.fail("boot", "ready_timeout", { service: svc.name, command: svc.ready?.cmd ?? cmd, log: external ? undefined : ls.log, url, port: ls.port, evidence, cwd: svc.cwd, steadyStatus: stuck ? steady.status : undefined });
-      }
-      await sleep(delay);
-      delay = Math.min(delay * 1.5, 1000);
-    }
-  }
-  async probe(ls) {
-    const r = ls.svc.ready;
-    if (!r) {
-      if (!ls.svc.external)
-        return { ok: false, detail: "no readiness check configured" };
-      const h = await httpProbe(ls.url);
-      return /^HTTP [1-4]\d\d$/.test(h.detail) ? { ok: true, detail: h.detail } : h;
-    }
-    const vars = this.vars(ls);
-    if (r.http)
-      return httpProbe(substitute(r.http, vars), r.status);
-    const env = childEnv(this.o.baseEnv, { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv(), ...mapValues(ls.svc.env, (v) => substitute(v, vars)) });
-    const res = await runCapture(substitute(r.cmd, vars), { cwd: path7.resolve(this.o.root, ls.svc.cwd), env, timeoutMs: 1e4 });
-    return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split(`
-`).pop() || `exit code ${res.code}` };
-  }
-  async watch() {
-    const now = Date.now();
-    for (const ls of this.live.values()) {
-      let dead = "";
-      if (ls.ownedByUs && ls.proc && !ls.svc.pidfile && ls.proc.exited)
-        dead = `exited with code ${ls.proc.code}`;
-      else if (ls.pid && !pidAlive(ls.pid))
-        dead = `pid ${ls.pid} is gone`;
-      else if (!ls.ownedByUs && ls.pgid && !groupAlive(ls.pgid))
-        dead = "process group is gone";
-      if (!dead && (ls.svc.ready || ls.svc.external) && now - ls.lastProbe >= 5000) {
-        ls.lastProbe = now;
-        const r = await this.probe(ls);
-        ls.probeFailures = r.ok ? 0 : ls.probeFailures + 1;
-        if (ls.probeFailures >= 3)
-          dead = `readiness check failed 3 times in a row (${r.detail})`;
-      }
-      if (dead) {
-        const d = diagnose({ stage: "suite", cause: "service_died", service: ls.svc.name, log: fs6.existsSync(ls.log) ? ls.log : undefined, cwd: ls.svc.cwd });
-        if (!d.evidence || d.cause === "service_died")
-          d.evidence = d.evidence ? `${dead}; last log line: ${d.evidence}` : dead;
-        return d;
-      }
-    }
-    return null;
-  }
-  async stopOne(ls) {
-    if (!ls.ownedByUs)
-      return;
-    const grace = this.o.cfg.run.graceMs;
-    if (ls.svc.stop) {
-      const cwd = path7.resolve(this.o.root, ls.svc.cwd);
-      const r = await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? "") }), timeoutMs: 60000, log: ls.log });
-      if (r.code !== 0)
-        this.o.progress.line(`stop   ${ls.svc.name} · stop command failed (exit ${r.code ?? "timeout"}); killing its processes; see ${ls.log}`);
-    }
-    if (ls.pid && pidAlive(ls.pid)) {
-      try {
-        process.kill(ls.pid, "SIGTERM");
-      } catch {}
-      const until = Date.now() + grace;
-      while (pidAlive(ls.pid) && Date.now() < until)
-        await sleep(100);
-      if (pidAlive(ls.pid)) {
-        try {
-          process.kill(ls.pid, "SIGKILL");
-        } catch {}
-      }
-    }
-    if (ls.pgid) {
-      await killGroup(ls.pgid, grace);
-      this.o.run?.untrack(ls.pgid);
-    }
-  }
-  async teardown(opts = {}) {
-    for (const ls of [...this.live.values()].reverse())
-      await this.stopOne(ls);
-    this.live.clear();
-    if (opts.keepDeps)
-      return;
-    for (const d of this.depsStarted.reverse()) {
-      if (!d.stop)
-        continue;
-      this.o.progress.line(`deps   ${d.name} · stopping`);
-      const log = path7.join(this.o.logDir, `dep-${d.name}.log`);
-      const r = await runCapture(substitute(d.stop, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 120000, log });
-      if (r.code !== 0)
-        this.o.progress.line(`deps   ${d.name} · stop command failed (exit ${r.code ?? "timeout"}); it may still be running; see ${log}`);
-    }
-    this.depsStarted = [];
-  }
-}
-var LOCAL = new Set(["127.0.0.1", "localhost", "0.0.0.0", "[::1]", "::1"]);
-async function heldReadyPort(url, allocated) {
-  let u;
-  try {
-    u = new URL(url);
-  } catch {
-    return;
-  }
-  const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
-  if (port === allocated || !LOCAL.has(u.hostname))
-    return;
-  return await portAnswers(u.hostname === "localhost" || u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, ""), port) ? port : undefined;
-}
-function mapValues(o, f) {
-  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)]));
-}
-function setupInputsHash(cwd, cmd) {
-  const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!top.ok)
-    return null;
-  const head = git(cwd, ["rev-parse", "HEAD:./"]);
-  const diff = git(cwd, ["diff", "HEAD", "--", ".", ":(exclude).witness"]);
-  const untracked = git(cwd, ["ls-files", "--others", "--exclude-standard", "--", ".", ":(exclude).witness"]);
-  if (!head.ok || !diff.ok || !untracked.ok)
-    return null;
-  const stamps = untracked.out.split(`
-`).filter(Boolean).slice(0, 5000).map((f) => {
-    try {
-      const p = path7.join(cwd, f);
-      const st = fs6.statSync(p);
-      return st.size < 1024 * 1024 ? `${f}:${sha(fs6.readFileSync(p))}` : `${f}:${st.size}`;
-    } catch {
-      return f;
-    }
-  }).join(`
-`);
-  return sha([cmd, head.out, diff.out, stamps].join("\x00"));
-}
-
-// src/suite.ts
-import * as fs8 from "node:fs";
-import * as path8 from "node:path";
-
-// src/parsers/index.ts
-import * as fs7 from "node:fs";
-
-// src/parsers/types.ts
-class ReportError extends Error {
-}
-
-// src/parsers/gotest.ts
-function parseGoJson(text) {
-  const tests = new Map;
-  const pkgOut = new Map;
-  const pkgEnd = new Map;
-  let events = 0;
-  for (const line of text.split(/\r?\n/)) {
-    const l = line.trim();
-    if (!l.startsWith("{"))
-      continue;
-    let e;
-    try {
-      e = JSON.parse(l);
-    } catch {
-      continue;
-    }
-    if (!e.Action)
-      continue;
-    events++;
-    const pkg = e.Package ?? "";
-    if (!e.Test) {
-      if (e.Action === "output")
-        (pkgOut.get(pkg) ?? pkgOut.set(pkg, []).get(pkg)).push(e.Output ?? "");
-      else if (["pass", "fail", "skip"].includes(e.Action))
-        pkgEnd.set(pkg, e.Action);
-      continue;
-    }
-    const key = `${pkg}#${e.Test}`;
-    let t = tests.get(key);
-    if (!t) {
-      t = { name: e.Test, classname: pkg, status: "other", durationMs: 0, out: [], done: false };
-      tests.set(key, t);
-    }
-    if (e.Action === "output")
-      t.out.push(e.Output ?? "");
-    else if (e.Action === "pass" || e.Action === "fail" || e.Action === "skip") {
-      t.status = e.Action === "pass" ? "passed" : e.Action === "fail" ? "failed" : "skipped";
-      t.durationMs = Math.round((e.Elapsed ?? 0) * 1000);
-      t.done = true;
-    }
-  }
-  if (events === 0)
-    throw new ReportError("no go test -json events found");
-  const out = [];
-  for (const t of tests.values()) {
-    const { out: lines, done, ...c2 } = t;
-    if (!done) {
-      c2.status = "failed";
-      c2.statusDetail = /panic: test timed out/.test((pkgOut.get(c2.classname) ?? []).join("")) ? "timeout" : "error";
-      c2.message = "test started but never finished (binary crashed, timed out or was killed)";
-    }
-    if (c2.status === "failed") {
-      const body = lines.filter((x) => !/^(=== |--- |\s*$)/.test(x)).join("");
-      c2.message = c2.message ?? (body.trim().split(`
-`)[0]?.trim().slice(0, 2000) || undefined);
-      if (body.trim())
-        c2.trace = body.slice(0, 20000);
-    }
-    out.push(c2);
-  }
-  for (const [pkg, end] of pkgEnd) {
-    const has = out.some((c2) => c2.classname === pkg);
-    if (end === "fail" && !out.some((c2) => c2.classname === pkg && c2.status === "failed")) {
-      const body = (pkgOut.get(pkg) ?? []).join("");
-      out.push({ name: "(package)", classname: pkg, status: "failed", statusDetail: "error", durationMs: 0, message: has ? "package failed outside any test" : "package failed to build or run", trace: body.slice(0, 20000) || undefined });
-    }
-  }
-  return out;
-}
-
-// src/parsers/jest.ts
-var MAP = { passed: "passed", failed: "failed", pending: "skipped", skipped: "skipped", disabled: "skipped", todo: "pending", focused: "passed" };
-var stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
-function parseJestJson(json, cwd) {
-  const doc = json;
-  if (!doc || typeof doc !== "object" || !Array.isArray(doc.testResults))
-    throw new ReportError("not a Jest JSON report (no testResults)");
-  const out = [];
-  for (const f of doc.testResults) {
-    const file = f.name && cwd && f.name.startsWith(cwd + "/") ? f.name.slice(cwd.length + 1) : f.name;
-    const asserts = f.assertionResults ?? [];
-    if (!asserts.length && f.status === "failed") {
-      out.push({ name: "(test file failed to run)", file, titles: ["(test file failed to run)"], status: "failed", statusDetail: "error", durationMs: 0, message: stripAnsi(f.message ?? "").split(`
-`).map((l) => l.trim()).find((l) => l && !l.startsWith("●")), trace: stripAnsi(f.message ?? "").slice(0, 20000) });
-      continue;
-    }
-    for (const a of asserts) {
-      const fail = (a.failureMessages ?? []).map(stripAnsi).join(`
-`);
-      out.push({
-        name: a.title ?? "(unnamed)",
-        file,
-        titles: [...a.ancestorTitles ?? [], a.title ?? "(unnamed)"],
-        status: MAP[a.status ?? ""] ?? "other",
-        durationMs: a.duration ?? 0,
-        message: fail ? fail.trim().split(`
-`)[0].slice(0, 2000) : undefined,
-        trace: fail ? fail.slice(0, 20000) : undefined,
-        retries: a.invocations && a.invocations > 1 ? a.invocations - 1 : undefined,
-        flaky: a.invocations && a.invocations > 1 && a.status === "passed" ? true : undefined
-      });
-    }
-  }
-  return out;
-}
-
-// src/parsers/junit.ts
-var import_fast_xml_parser = __toESM(require_fxp(), 1);
-var ARRAYS = new Set(["testsuite", "testcase", "failure", "error", "skipped", "flakyFailure", "flakyError", "rerunFailure", "rerunError", "property", "system-out"]);
-var xmlParser = new import_fast_xml_parser.XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: "@_",
-  textNodeName: "#text",
-  processEntities: true,
-  htmlEntities: true,
-  parseAttributeValue: false,
-  parseTagValue: false,
-  trimValues: false,
-  isArray: (name) => ARRAYS.has(name)
-});
-function parseXml(xml) {
-  const body = xml.replace(/^﻿/, "").trim();
-  if (!body)
-    throw new ReportError("empty report");
-  const v = import_fast_xml_parser.XMLValidator.validate(body);
-  if (v !== true) {
-    const open = /^Invalid '\[(.*)\]' found/s.exec(v.err.msg);
-    const what = open ? `truncated: unclosed ${open[1].replace(/\s+/g, "").replace(/"/g, "").split(",").map((t) => `<${t}>`).join(" ")}` : v.err.msg;
-    throw new ReportError(`invalid XML at line ${v.err.line}: ${what}`);
-  }
-  return xmlParser.parse(body);
-}
-function attr(n, k) {
-  if (!n || typeof n !== "object")
-    return;
-  const v = n[`@_${k}`];
-  return v == null ? undefined : String(v);
-}
-function textOf(n) {
-  if (n == null)
-    return "";
-  if (typeof n === "string" || typeof n === "number")
-    return String(n);
-  const t = n["#text"];
-  return t == null ? "" : String(t);
-}
-var secToMs = (v) => {
-  const n = Number(String(v ?? "0").replace(/,/g, ""));
-  return Number.isFinite(n) ? Math.round(n * 1000) : 0;
-};
-function attachmentsFrom(out) {
-  const res = [];
-  for (const m of out.matchAll(/\[\[ATTACHMENT\|([^\]]+)\]\]/g))
-    res.push({ name: m[1].split(/[\\/]/).pop(), path: m[1].trim(), contentType: "" });
-  return res;
-}
-function caseFrom(tc, suite) {
-  const failures = arr(tc.failure);
-  const errors = arr(tc.error);
-  const skipped = arr(tc.skipped);
-  const flaky = [...arr(tc.flakyFailure), ...arr(tc.flakyError)];
-  const reruns = [...arr(tc.rerunFailure), ...arr(tc.rerunError)];
-  const out = arr(tc["system-out"]).map(textOf).join(`
-`);
-  const c2 = {
-    name: attr(tc, "name") ?? "(unnamed)",
-    classname: attr(tc, "class") ?? attr(tc, "classname") ?? attr(suite, "name"),
-    file: attr(tc, "file") ?? attr(suite, "file"),
-    line: attr(tc, "line") ? Number(attr(tc, "line")) : undefined,
-    status: "passed",
-    durationMs: secToMs(attr(tc, "time"))
-  };
-  const bad = failures[0] ?? errors[0];
-  if (bad !== undefined) {
-    c2.status = "failed";
-    if (failures.length === 0)
-      c2.statusDetail = "error";
-    c2.message = (attr(bad, "message") ?? textOf(bad).trim().split(`
-`)[0] ?? "").slice(0, 2000) || undefined;
-    const trace = textOf(bad).trim();
-    if (trace)
-      c2.trace = trace.slice(0, 20000);
-    if (/Timeout/.test(attr(bad, "type") ?? "") || /timed out|timeout of \d+|timeout \d+ ?ms exceeded/i.test(c2.message ?? ""))
-      c2.statusDetail = "timeout";
-    if (reruns.length)
-      c2.retries = reruns.length;
-  } else if (skipped.length) {
-    c2.status = "skipped";
-    c2.message = attr(skipped[0], "message") ?? (textOf(skipped[0]).trim() || undefined);
-  } else if (flaky.length) {
-    c2.flaky = true;
-    c2.retries = flaky.length;
-    c2.message = attr(flaky[0], "message");
-  }
-  const atts = attachmentsFrom(out);
-  if (atts.length)
-    c2.attachments = atts;
-  return c2;
-}
-function parseJUnit(xml) {
-  const doc = parseXml(xml);
-  if (!("testsuites" in doc) && !("testsuite" in doc) && !("testcase" in doc))
-    throw new ReportError("not a JUnit report (no <testsuites>, <testsuite> or <testcase>)");
-  const out = [];
-  const walk = (suite) => {
-    for (const tc of arr(suite.testcase))
-      out.push(caseFrom(typeof tc === "object" && tc ? tc : {}, suite));
-    for (const s of arr(suite.testsuite))
-      if (s && typeof s === "object")
-        walk(s);
-  };
-  const roots = doc.testsuites;
-  for (const r of arr(roots))
-    if (r && typeof r === "object")
-      walk(r);
-  walk(doc);
-  return out;
-}
-
-// src/parsers/playwright.ts
-var stripAnsi2 = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
-function parsePlaywright(json) {
-  const doc = json;
-  if (!doc || typeof doc !== "object" || !Array.isArray(doc.suites))
-    throw new ReportError("not a Playwright JSON report (no suites)");
-  const rows = [];
-  const walk = (s, titles, file) => {
-    const f = s.file ?? file;
-    const here = f && s.title === f && titles.length === 0 ? titles : s.title ? [...titles, s.title] : titles;
-    for (const spec of s.specs ?? []) {
-      for (const t of spec.tests ?? []) {
-        const results = t.results ?? [];
-        const last = results[results.length - 1];
-        const st = t.status ?? "";
-        const c2 = {
-          name: spec.title ?? "(unnamed)",
-          file: spec.file ?? f,
-          titles: [...here, spec.title ?? "(unnamed)"],
-          line: spec.line,
-          status: "other",
-          durationMs: results.reduce((a, r) => a + (r.duration ?? 0), 0),
-          _project: t.projectName ?? ""
-        };
-        if (st === "skipped" || t.expectedStatus === "skipped" || last?.status === "skipped")
-          c2.status = "skipped";
-        else if (st === "expected")
-          c2.status = "passed";
-        else if (st === "flaky") {
-          c2.status = "passed";
-          c2.flaky = true;
-        } else if (st === "unexpected") {
-          c2.status = "failed";
-          if (last?.status === "timedOut")
-            c2.statusDetail = "timeout";
-          else if (last?.status === "interrupted")
-            c2.statusDetail = "error";
-        } else if (last?.status === "passed")
-          c2.status = "passed";
-        else if (last?.status === "failed" || last?.status === "timedOut")
-          c2.status = "failed";
-        if (results.length > 1)
-          c2.retries = results.length - 1;
-        const err = [...results].reverse().find((r) => r.error || r.errors?.length);
-        const e = err?.error ?? err?.errors?.[0];
-        if (e && c2.status !== "passed") {
-          c2.message = stripAnsi2(e.message ?? "").split(`
-`)[0].slice(0, 2000) || undefined;
-          if (e.stack || e.message)
-            c2.trace = stripAnsi2(e.stack ?? e.message ?? "").slice(0, 20000);
-        }
-        const atts = [];
-        for (const r of results)
-          for (const a of r.attachments ?? [])
-            if (a.path)
-              atts.push({ name: a.name ?? "", path: a.path, contentType: a.contentType ?? "" });
-        if (atts.length)
-          c2.attachments = atts;
-        rows.push(c2);
-      }
-    }
-    for (const sub of s.suites ?? [])
-      walk(sub, here, f);
-  };
-  for (const s of doc.suites)
-    walk(s, [], undefined);
-  const multi = new Set(rows.map((r) => r._project)).size > 1;
-  return rows.map(({ _project, ...c2 }) => multi && _project ? { ...c2, project: _project } : c2);
-}
-
-// src/parsers/trx.ts
-function durMs(v) {
-  const m = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(v ?? "");
-  return m ? Math.round((Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])) * 1000) : 0;
-}
-var OUTCOME = {
-  passed: ["passed"],
-  passedbutrunaborted: ["passed"],
-  warning: ["passed"],
-  failed: ["failed"],
-  error: ["failed", "error"],
-  aborted: ["failed", "error"],
-  timeout: ["failed", "timeout"],
-  notexecuted: ["skipped"],
-  notrunnable: ["skipped"],
-  inconclusive: ["other"],
-  pending: ["pending"],
-  inprogress: ["other"],
-  disconnected: ["other", "error"],
-  completed: ["passed"]
-};
-function one(n) {
-  const a = arr(n);
-  return a[0] && typeof a[0] === "object" ? a[0] : undefined;
-}
-function parseTrx(xml) {
-  const doc = parseXml(xml);
-  const run = one(doc.TestRun);
-  if (!run)
-    throw new ReportError("not a TRX report (no <TestRun>)");
-  const classes = new Map;
-  for (const ut of arr(one(run.TestDefinitions)?.UnitTest)) {
-    const tm = one(ut.TestMethod);
-    const cls = attr(tm, "className");
-    if (cls)
-      classes.set(attr(ut, "id") ?? "", cls.split(",")[0].trim());
-  }
-  const out = [];
-  const add = (r) => {
-    const inner = arr(one(r.InnerResults)?.UnitTestResult);
-    if (inner.length) {
-      inner.forEach(add);
-      return;
-    }
-    const [status, detail] = OUTCOME[(attr(r, "outcome") ?? "").toLowerCase()] ?? ["other"];
-    const info = one(one(r.Output)?.ErrorInfo);
-    const message = textOf(one(info?.Message) ?? info?.Message).trim();
-    const trace = textOf(one(info?.StackTrace) ?? info?.StackTrace).trim();
-    out.push({
-      name: attr(r, "testName") ?? "(unnamed)",
-      classname: classes.get(attr(r, "testId") ?? ""),
-      status,
-      statusDetail: detail,
-      durationMs: durMs(attr(r, "duration")),
-      message: message ? message.slice(0, 2000) : undefined,
-      trace: trace ? trace.slice(0, 20000) : undefined
-    });
-  };
-  for (const r of arr(one(run.Results)?.UnitTestResult))
-    add(r);
-  return out;
-}
-
-// src/parsers/index.ts
-function parseReportText(text, hint, cwd) {
-  const body = text.replace(/^﻿/, "").trim();
-  if (!body)
-    throw new ReportError("empty report");
-  if (hint === "go-json")
-    return { format: "go-json", cases: parseGoJson(body) };
-  if (body.startsWith("<")) {
-    if (/<TestRun[\s>]/.test(body.slice(0, 4000)))
-      return { format: "trx", cases: parseTrx(body) };
-    return { format: "junit", cases: parseJUnit(body) };
-  }
-  if (body.startsWith("{") || body.startsWith("[")) {
-    let doc;
-    try {
-      doc = JSON.parse(body);
-    } catch (e) {
-      if (/^\{"(Time|Action)"/.test(body))
-        return { format: "go-json", cases: parseGoJson(body) };
-      throw new ReportError(`invalid JSON: ${e.message}`);
-    }
-    const o = doc;
-    if (o && typeof o === "object" && "testResults" in o)
-      return { format: "jest-json", cases: parseJestJson(o, cwd) };
-    if (o && typeof o === "object" && "suites" in o)
-      return { format: "playwright-json", cases: parsePlaywright(o) };
-    if (o && typeof o === "object" && "Action" in o)
-      return { format: "go-json", cases: parseGoJson(body) };
-    throw new ReportError("unrecognised JSON report");
-  }
-  throw new ReportError("unrecognised report format");
-}
-function parseReportFile(file, hint, cwd) {
-  try {
-    const { format, cases } = parseReportText(fs7.readFileSync(file, "utf8"), hint, cwd);
-    return { file, format, cases };
-  } catch (e) {
-    return { file, cases: [], error: e instanceof ReportError ? e.message : `unreadable: ${e.message}` };
-  }
-}
-
-// src/suite.ts
-var MAX_RERUNS = 200;
-var BUILD_FAILED = [
-  /\berror (CS|FS|BC|MSB|NU|NETSDK)\d{4}\b/,
-  /\bBuild FAILED\b/,
-  /\[ERROR\] (COMPILATION ERROR|Failed to execute goal \S+:(compile|testCompile|resources))/,
-  /^FAILURE: Build failed with an exception/,
-  /^e: .*\.kts?:\d+/,
-  /\berror TS\d{4}\b/,
-  /^(FAIL|ok)\s+\S+\s+\[(build|setup) failed\]/,
-  /^No test projects were found\.?$/,
-  /: command not found$|^bash: .*: No such file or directory$/
-];
-function buildFailure(text, exitCode) {
-  const lines = text.split(/\r?\n/);
-  for (const re of BUILD_FAILED) {
-    const hit = lines.find((l) => re.test(l.trim()));
-    if (hit)
-      return hit.trim().slice(0, 500);
-  }
-  return exitCode === 127 ? lines.filter((l) => l.trim()).at(-1)?.trim().slice(0, 500) : undefined;
-}
-function reportPathEvidence(text) {
-  const paths = [];
-  let listing = false;
-  for (const line of text.split(/\r?\n/)) {
-    const named = /Results File:\s*(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
-    if (named)
-      paths.push(named[1]);
-    if (/artifacts produced:?\s*$/i.test(line))
-      listing = true;
-    else if (listing) {
-      const m = /^\s*-\s+(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
-      if (m)
-        paths.push(m[1]);
-      else if (line.trim())
-        listing = false;
-    }
-  }
-  const p = paths.find((x) => path8.isAbsolute(x));
-  if (!p)
-    return;
-  return fs8.existsSync(p) ? `the test run wrote its report to ${p}, outside the folders witness reads; set report = "<glob>" for the suite` : `the test run says it wrote ${p}, but there is no such file here (written inside a container, or on another filesystem?)`;
-}
-function readFrom(file, offset) {
-  try {
-    const fd = fs8.openSync(file, "r");
-    try {
-      const size = fs8.fstatSync(fd).size;
-      const start = Math.max(offset, size - 512 * 1024);
-      const buf = Buffer.alloc(Math.max(0, size - start));
-      fs8.readSync(fd, buf, 0, buf.length, start);
-      return buf.toString("utf8");
-    } finally {
-      fs8.closeSync(fd);
-    }
-  } catch {
-    return "";
-  }
-}
-var safeId = (id) => id.replace(/[^\w.@-]+/g, "_").slice(0, 180);
-function dirSize(dir) {
-  let n = 0;
-  const walk = (d) => {
-    let es;
-    try {
-      es = fs8.readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of es) {
-      const p = path8.join(d, e.name);
-      if (e.isDirectory())
-        walk(p);
-      else
-        n += fileSize(p) + 1;
-    }
-  };
-  walk(dir);
-  return n;
-}
-function suiteCommand(suite, adapter, vars, reportDir, select, cwd = ".") {
-  let cmd = substitute(suite.cmd, vars);
-  if (select?.length) {
-    const sel = selectCommand(adapter, cmd, select, suite.select ? substitute(suite.select, vars) : undefined);
-    if (!sel)
-      throw new Error(`suite ${suite.name}: adapter ${adapter.name} cannot select single tests; add select = "... {ids}" to the suite`);
-    cmd = sel;
-  }
-  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd)))
-    cmd = appendArgs(cmd, adapter.reportArgs(reportDir, cwd, cmd));
-  const ptt = suite.perTestTimeoutMs && adapter.perTestTimeout ? adapter.perTestTimeout(suite.perTestTimeoutMs, cwd, cmd) : null;
-  if (ptt)
-    cmd = appendArgs(cmd, ptt);
-  return cmd;
-}
-async function runSuite(ctx, suite, select, retries) {
-  const adapter = ADAPTERS[suite.adapter];
-  const cwd = path8.resolve(ctx.root, suite.cwd);
-  const p = ctx.prefix ?? "";
-  const reportDir = path8.join(ctx.outDir, "reports", suite.name);
-  const log = path8.join(ctx.outDir, "logs", `${suite.name}.log`);
-  fs8.rmSync(reportDir, { recursive: true, force: true });
-  fs8.mkdirSync(reportDir, { recursive: true });
-  const t0 = Date.now();
-  const vars = { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir };
-  const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
-  ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
-  ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
-  const logStart = fileSize(log);
-  const before = snapshotReports(ctx, suite, adapter, cwd, reportDir);
-  const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
-  const files = collect(ctx, suite, adapter, cwd, reportDir, log, before);
-  let expected = select;
-  const usable = files.some((f) => f.cases.length);
-  const hint = adapter.reportHint?.(cwd, cmd);
-  const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
-  const output = !usable && exec.end === "exit" && !exitCodeOnly ? readFrom(log, logStart) : "";
-  const broken = output && exec.code !== 0 ? buildFailure(output, exec.code) : undefined;
-  if (!expected && !usable && !hint && !broken && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
-    expected = await listTests(ctx, suite, adapter, cwd, log);
-  }
-  let res = broken ? { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it" } : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
-  if (res.rerun?.length && !ctx.abort.aborted) {
-    if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select) && !hint) {
-      ctx.progress.line(`${p}suite  ${suite.name} · ${res.cause === "report_unreadable" ? "report unreadable" : "no report"}; rerunning ${res.rerun.length} test(s) one at a time`);
-      const results = [];
-      for (const [i, id] of res.rerun.entries()) {
-        if (ctx.abort.aborted)
-          break;
-        const dir = path8.join(reportDir, "rerun", String(i + 1));
-        fs8.mkdirSync(dir, { recursive: true });
-        const c2 = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
-        const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
-        const e = await execWatched(ctx, suite, adapter, c2, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60000));
-        if (e.died) {
-          exec.died = e.died;
-          break;
-        }
-        const got = collect(ctx, suite, adapter, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), snap);
-        if (i === 0 && !got.some((f) => f.cases.length)) {
-          ctx.progress.line(`${p}suite  ${suite.name} · a single test run alone wrote no report either; not rerunning the rest`);
-          results.length = 0;
-          break;
-        }
-        results.push({ id, exitCode: e.code, files: got, timedOut: e.end !== "exit" });
-      }
-      const ids = res.rerun;
-      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause) : { ...res, rerun: undefined, tests: ids.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", `no report from the suite (exit code ${exec.code}), nor when one test ran alone`)) };
-    } else {
-      res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
-    }
-  }
-  if (retries > 0 && res.state === "failed" && exec.end === "exit" && !exec.died && (adapter.select || suite.select)) {
-    await retryFailed(ctx, suite, adapter, cwd, vars, reportDir, res.tests, retries);
-    if (!res.tests.some((t) => t.status === "failed"))
-      res = { ...res, state: "passed" };
-  }
-  const summary = summarize(suite.name, res.state, res.tests);
-  summary.exit_code = exec.code;
-  if (res.cause)
-    summary.cause = res.cause;
-  if (res.note)
-    summary.note = res.note;
-  let diagnosis;
-  if (exec.died)
-    diagnosis = exec.died;
-  else if (res.cause && res.state !== "failed" && res.state !== "passed") {
-    const h = res.cause === "report_missing" ? hint : undefined;
-    const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
-    const extraTry = [h, res.hint].filter((x) => !!x);
-    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeout && adapter.perTestTimeout(60000, cwd, cmd)), adapter: suite.adapter });
-  }
-  ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
-  const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");
-  ctx.progress.line(`${p}suite  ${suite.name} · ${summary.state} · ${counts} · exit ${exec.code ?? "-"} (${fmtDuration(Date.now() - t0)})${res.note ? ` · ${res.note}` : ""}`);
-  return { summary, tests: res.tests, diagnosis, serviceDied: exec.died };
-}
-async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeoutMs) {
-  const artifacts = path8.join(ctx.outDir, "artifacts");
-  fs8.mkdirSync(artifacts, { recursive: true });
-  const vars = ctx.stack.vars();
-  const env = childEnv(ctx.baseEnv, {
-    ...ctx.stack.serviceUrlEnv(),
-    WITNESS_REPORT_DIR: reportDir,
-    WITNESS_ARTIFACTS: artifacts,
-    WITNESS_RUN_DIR: ctx.run.dir,
-    ...adapter.reportEnv && !suite.report ? adapter.reportEnv(reportDir) : {},
-    ...Object.fromEntries(Object.entries(suite.env).map(([k, v]) => [k, substitute(v, { ...vars, WITNESS_REPORT_DIR: reportDir })]))
-  });
-  const t0 = Date.now();
-  const proc = spawnGroup(cmd, { name: suite.name, cwd, env, log });
-  ctx.run.track({ kind: "suite", name: suite.name, pid: proc.pid, pgid: proc.pgid });
-  let lastSize = -1;
-  let lastProgress = Date.now();
-  let lastWatch = 0;
-  let end = "exit";
-  let died;
-  const logStart = fileSize(log);
-  for (;; ) {
-    const exited = await Promise.race([proc.exit.then(() => true), sleep(500).then(() => false)]);
-    if (exited)
-      break;
-    const now = Date.now();
-    const size = fileSize(log) + dirSize(reportDir);
-    if (size !== lastSize) {
-      lastSize = size;
-      lastProgress = now;
-    }
-    ctx.activity.text = `suite ${suite.name} running ${fmtDuration(now - t0)} · log ${fmtBytes(fileSize(log) - logStart)} · last output ${fmtDuration(now - lastProgress)} ago`;
-    if (ctx.abort.aborted)
-      end = "interrupted";
-    else if (now - t0 > timeoutMs)
-      end = "timeout";
-    else if (now - lastProgress > ctx.cfg.run.stallMs)
-      end = "stalled";
-    else if (now - lastWatch >= 1000) {
-      lastWatch = now;
-      const d = await ctx.stack.watch();
-      if (d) {
-        died = d;
-        end = "service_died";
-      }
-    }
-    if (end !== "exit") {
-      const why = end === "timeout" ? `suite timeout (${fmtDuration(timeoutMs)})` : end === "stalled" ? `no output and no report growth for ${fmtDuration(ctx.cfg.run.stallMs)}` : end === "service_died" ? `service ${died?.service} died` : "interrupted";
-      ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · stopping: ${why}`);
-      fs8.appendFileSync(log, `
-witness: stopping suite: ${why}
-`);
-      await killGroup(proc.pgid, ctx.cfg.run.graceMs);
-      break;
-    }
-  }
-  await Promise.race([proc.exit, sleep(2000)]);
-  ctx.run.untrack(proc.pgid);
-  ctx.activity.text = "";
-  return { code: end === "exit" ? proc.code : null, end, ms: Date.now() - t0, died };
-}
-function outsideReports(ctx, suite, adapter, cwd, reportDir) {
-  const out = [];
-  const globs = suite.report ? [{ base: "cwd", glob: substitute(suite.report, { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
-  for (const g of globs) {
-    if (g.base === "report-dir")
-      continue;
-    let base = cwd;
-    let glob = g.glob;
-    if (path8.isAbsolute(glob)) {
-      const fixed = glob.split("/").findIndex((x) => /[*?{]/.test(x));
-      const parts = glob.split("/");
-      base = fixed < 0 ? path8.dirname(glob) : parts.slice(0, fixed).join("/") || "/";
-      glob = fixed < 0 ? path8.basename(glob) : parts.slice(fixed).join("/");
-    }
-    for (const rel of globFiles(base, [glob], { skipDirs: new Set([".git", "node_modules", ".witness"]) }))
-      out.push({ src: path8.join(base, rel), rel });
-  }
-  return out;
-}
-var stamp = (f) => {
-  try {
-    const st = fs8.statSync(f);
-    return `${st.mtimeMs}:${st.size}`;
-  } catch {
-    return "";
-  }
-};
-function snapshotReports(ctx, suite, adapter, cwd, reportDir) {
-  return new Map(outsideReports(ctx, suite, adapter, cwd, reportDir).filter((f) => !f.src.startsWith(reportDir + path8.sep)).map((f) => [f.src, stamp(f.src)]));
-}
-function collect(ctx, suite, adapter, cwd, reportDir, log, before) {
-  const files = [];
-  if (adapter.fromStdout && !suite.report) {
-    const out = path8.join(reportDir, "stdout.jsonl");
-    try {
-      fs8.copyFileSync(log, out);
-      files.push(out);
-    } catch {}
-  }
-  if (!suite.report) {
-    for (const g of adapter.reportGlobs)
-      if (g.base === "report-dir")
-        for (const f of globFiles(reportDir, [g.glob], { skipDirs: new Set(["rerun", "retry"]) }))
-          files.push(path8.join(reportDir, f));
-  }
-  for (const { src, rel } of outsideReports(ctx, suite, adapter, cwd, reportDir)) {
-    if (src.startsWith(reportDir + path8.sep)) {
-      files.push(src);
-      continue;
-    }
-    if (before.get(src) === stamp(src))
-      continue;
-    const dst = path8.join(reportDir, rel.replace(/[\\/]/g, "__"));
-    fs8.copyFileSync(src, dst);
-    files.push(dst);
-  }
-  const uniq = [...new Set(files)];
-  return uniq.map((f) => parseReportFile(f, adapter.format, cwd));
-}
-async function listTests(ctx, suite, adapter, cwd, log) {
-  const base = substitute(suite.cmd, ctx.stack.vars());
-  const cmd = adapter.list.cmd(base);
-  if (!cmd)
-    return;
-  ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · listing tests to see what the run left out`);
-  const r = await runCapture(cmd, { cwd, env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: log.replace(/\.log$/, ".list.log"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
-  if (r.code !== 0)
-    return;
-  const ids = adapter.list.parse(r.out);
-  return ids.length ? ids : undefined;
-}
-async function retryFailed(ctx, suite, adapter, cwd, vars, reportDir, tests, retries) {
-  for (let k = 1;k <= retries; k++) {
-    const failing = tests.filter((t) => t.status === "failed" && t.obtained !== "suite-level");
-    if (!failing.length || ctx.abort.aborted)
-      return;
-    const ids = failing.map((t) => t.id.slice(adapter.name.length + 1));
-    const dir = path8.join(reportDir, "retry", String(k));
-    fs8.mkdirSync(dir, { recursive: true });
-    const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids, cwd);
-    ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids.length} failed test(s)`);
-    const rlog = path8.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
-    const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
-    const e = await execWatched(ctx, suite, adapter, cmd, cwd, dir, rlog, suite.timeoutMs);
-    if (e.end !== "exit")
-      return;
-    const again = collect(ctx, suite, adapter, cwd, dir, rlog, snap).flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite.name, cwd)));
-    for (const t of failing) {
-      const r = again.find((a) => a.id === t.id);
-      t.retries = (t.retries ?? 0) + 1;
-      if (r?.status === "passed") {
-        t.status = "passed";
-        t.flaky = true;
-        delete t.statusDetail;
-      }
-    }
-  }
-}
-var MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".webm": "video/webm", ".mp4": "video/mp4", ".mov": "video/quicktime", ".zip": "application/zip", ".json": "application/json", ".xml": "application/xml", ".trx": "application/xml", ".html": "text/html", ".txt": "text/plain", ".log": "text/plain", ".md": "text/markdown" };
-function artifactType(file, ct) {
-  if (ct.startsWith("image/"))
-    return "screenshot";
-  if (ct.startsWith("video/"))
-    return "video";
-  if (/trace/i.test(path8.basename(file)) || ct === "application/zip")
-    return "trace";
-  if (ct === "text/plain")
-    return "log";
-  return "report";
-}
-function collectArtifacts(runDir, outDir, tests) {
-  const out = [];
-  const artDir = path8.join(outDir, "artifacts");
-  const bySafe = new Map;
-  for (const t of tests) {
-    bySafe.set(safeId(t.id), t);
-    bySafe.set(safeId(t.id.slice(t.adapter.length + 1)), t);
-    bySafe.set(safeId(t.name), t);
-  }
-  for (const t of tests) {
-    for (const a of t.attachments ?? []) {
-      if (!fs8.existsSync(a.path) || fs8.statSync(a.path).size > 200 * 1024 * 1024)
-        continue;
-      const dst = path8.join(artDir, safeId(t.id), path8.basename(a.path));
-      if (path8.resolve(a.path) !== dst) {
-        fs8.mkdirSync(path8.dirname(dst), { recursive: true });
-        fs8.copyFileSync(a.path, dst);
-      }
-      a.path = path8.relative(runDir, dst);
-    }
-  }
-  const walk = (d, test, dirName) => {
-    let es;
-    try {
-      es = fs8.readdirSync(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of es) {
-      const p = path8.join(d, e.name);
-      if (e.isDirectory())
-        walk(p, test, dirName);
-      else {
-        const ext = path8.extname(e.name).toLowerCase();
-        const ct = MIME[ext] ?? "application/octet-stream";
-        const fromAttachment = test?.attachments?.find((a) => path8.resolve(runDir, a.path) === p);
-        const step = /^(?:step[-_]?)?(\d+)[-_](.+)\.\w+$/.exec(e.name);
-        const entry = { file: path8.relative(runDir, p), artifact_type: artifactType(e.name, fromAttachment?.contentType || ct), test_name: test?.name ?? dirName, test_id: test?.id ?? null, content_type: fromAttachment?.contentType || ct, size_bytes: fileSize(p) };
-        if (step) {
-          entry.step_index = Number(step[1]);
-          entry.step_label = step[2].replace(/[-_]+/g, " ");
-        }
-        out.push(entry);
-      }
-    }
-  };
-  try {
-    for (const e of fs8.readdirSync(artDir, { withFileTypes: true })) {
-      if (e.isDirectory())
-        walk(path8.join(artDir, e.name), bySafe.get(e.name), e.name);
-    }
-  } catch {}
-  return out;
-}
-
-// src/run.ts
-class UsageError extends Error {
-}
-function pickSuites(cfg, names) {
-  if (!names?.length)
-    return cfg.suites;
-  const out = [];
-  for (const n of names) {
-    const s = cfg.suites.find((x) => x.name === n);
-    if (!s)
-      throw new UsageError(`unknown suite "${n}"; suites: ${cfg.suites.map((x) => x.name).join(", ") || "(none)"}`);
-    out.push(s);
-  }
-  return out;
-}
-function splitSelect(suites, select) {
-  if (!select?.length)
-    return;
-  const m = new Map;
-  for (const raw of select) {
-    let colon = raw.indexOf(":");
-    let pre = colon > 0 ? raw.slice(0, colon) : "";
-    let pool = suites;
-    if (pre && !(pre in ADAPTERS) && suites.some((s) => s.name === pre)) {
-      const rest = raw.slice(colon + 1);
-      const c2 = rest.indexOf(":");
-      if (c2 > 0 && rest.slice(0, c2) in ADAPTERS) {
-        pool = suites.filter((s) => s.name === pre);
-        colon += c2 + 1;
-        pre = rest.slice(0, c2);
-      }
-    }
-    const owners = pre in ADAPTERS ? pool.filter((s) => s.adapter === pre) : pool;
-    const id = pre in ADAPTERS ? raw.slice(colon + 1) : raw;
-    if (!owners.length)
-      throw new UsageError(`--select ${raw}: no selected suite uses adapter ${pre}`);
-    if (owners.length > 1)
-      throw new UsageError(`--select ${raw}: suites ${owners.map((s) => s.name).join(", ")} could all own it; add --suite or write it as <suite>:${raw}`);
-    m.set(owners[0].name, [...m.get(owners[0].name) ?? [], id]);
-  }
-  return m;
-}
-function neededServices(cfg, suites, role = "target") {
-  const all = cfg.services.filter((s) => s.role === role).map((s) => s.name);
-  return [...new Set(suites.flatMap((s) => s.services ?? all))];
-}
-function originMap(cfg) {
-  const m = new Map;
-  for (const o of cfg.services.filter((s) => s.role === "origin")) {
-    const target = o.originFor ?? o.name.replace(/[-_]origin$/, "");
-    if (cfg.services.some((s) => s.name === target && s.role === "target"))
-      m.set(target, o);
-  }
-  return m;
-}
-async function runCommand(cfg, opts) {
-  let suites = pickSuites(cfg, opts.suites);
-  const select = splitSelect(suites, opts.select);
-  if (select && !opts.suites?.length)
-    suites = suites.filter((s) => select.has(s.name));
-  if (opts.against && !originMap(cfg).size && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
-    throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`)`);
-  if (!suites.length)
-    throw new UsageError("no [[suite]] in the config");
-  for (const [name, ids] of select ?? []) {
-    const s = suites.find((x) => x.name === name);
-    if (!selectCommand(ADAPTERS[s.adapter], s.cmd, ids, s.select))
-      throw new UsageError(`suite ${name}: adapter ${s.adapter} cannot select tests${s.select ? ` with select = "${s.select}" (use {ids}, or {id} for one test)` : '; add select = "<cmd> {ids}" to the suite'}`);
-  }
-  const progress = new Progress(Date.now(), false);
-  let release;
-  try {
-    release = acquireLock(path9.join(cfg.root, ".witness", "run.lock"));
-  } catch (e) {
-    if (e instanceof LockError) {
-      progress.plain(color.red(e.message));
-      return EXIT.error;
-    }
-    throw e;
-  }
-  await reapStale(opts.runDirRoot, cfg.run.graceMs, (m) => progress.line(m));
-  const g = gitInfo(cfg.root);
-  const run = new RunDir(opts.runDirRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: opts.label });
-  run.linkLatest();
-  const abort = { aborted: false };
-  const activity = { text: "" };
-  const t0 = Date.now();
-  progress.line(`run ${run.runId} · ${g.branch || "(no branch)"} @ ${g.commit.slice(0, 10) || "(no commit)"}${g.dirty ? " (dirty)" : ""} · ${suites.length} suite(s)`);
-  let sigints = 0;
-  const onSignal = (sig) => {
-    sigints++;
-    abort.aborted = true;
-    run.event("signal", { signal: sig }, `interrupted by ${sig}`);
-    if (sigints === 1)
-      progress.line(`${sig}: stopping (press Ctrl-C again to kill everything now)`);
-    else {
-      for (const p of run.state.procs)
-        killTracked(p, 0, { runStop: false });
-      run.status.phase = "finished";
-      run.status.outcome = "interrupted";
-      run.status.finished_at = new Date().toISOString();
-      run.saveStatus();
-      release();
-      process.exit(EXIT.interrupted);
-    }
-  };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
-  const hb = setInterval(() => {
-    if (Date.now() - progress.lastAt >= cfg.run.heartbeatMs)
-      progress.line(`… ${activity.text || run.status.last_event}`);
-  }, Math.min(cfg.run.heartbeatMs, 1000));
-  const { env: baseEnv, missing: missing2 } = loadEnv(cfg);
-  let target = { outcome: "passed", suites: [], tests: [], artifacts: [] };
-  let against;
-  let internalError;
-  try {
-    if (missing2.length) {
-      target = { ...target, outcome: "mistrial", diagnosis: diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 }) };
-    } else {
-      target = await runSide(cfg, {
-        root: cfg.root,
-        run,
-        outDir: run.dir,
-        progress,
-        abort,
-        activity,
-        baseEnv,
-        suites,
-        select,
-        retries: opts.retries,
-        noSetup: opts.noSetup,
-        setupCacheDir: path9.join(cfg.root, ".witness", "cache", "setup"),
-        reuseUp: true
-      });
-      if (opts.against && !abort.aborted && target.outcome !== "mistrial") {
-        run.setPhase("against", `running against ${opts.against}`);
-        const origin = await runAgainst(cfg, opts, { run, progress, abort, activity, baseEnv, suites, select });
-        const { tests, counts } = applyParity(target.tests, origin.tests);
-        target.tests = tests;
-        against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis };
-        target.artifacts.push(...origin.artifacts);
-        progress.line(`against ${opts.against} · origin ${origin.outcome} · parity: ${counts.same} same, ${counts.differs} differ, ${counts.target_only} only on target, ${counts.origin_only} only on origin`);
-        if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed")
-          for (const l of formatDiagnosis(origin.diagnosis))
-            progress.plain(`  origin ${l}`);
-      }
-    }
-  } catch (e) {
-    internalError = e.stack ?? String(e);
-    progress.plain(color.red(`witness internal error: ${internalError}`));
-    target = { ...target, outcome: "error" };
-  } finally {
-    clearInterval(hb);
-  }
-  if (abort.aborted)
-    target.outcome = "interrupted";
-  run.setPhase("report", "writing results");
-  const finishedAt = Date.now();
-  const status = run.status;
-  status.suites = target.suites;
-  status.outcome = target.outcome;
-  if (target.diagnosis)
-    status.diagnosis = target.diagnosis;
-  if (internalError)
-    status.internal_error = internalError.split(`
-`)[0];
-  if (against)
-    status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {} };
-  const ctrf = buildCtrf({
-    runId: run.runId,
-    outcome: target.outcome,
-    commit: g.commit,
-    branch: g.branch,
-    dirty: g.dirty,
-    label: opts.label,
-    startedAt: t0,
-    finishedAt,
-    diagnosis: target.diagnosis,
-    against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity } : undefined,
-    adapters: [...new Set(suites.map((s) => s.adapter))]
-  }, target.tests);
-  writeJson(run.file("results.ctrf.json"), ctrf);
-  writeJson(run.file("artifacts.json"), target.artifacts);
-  status.summary = { tests: ctrf.results.summary.tests, passed: ctrf.results.summary.passed, failed: ctrf.results.summary.failed, skipped: ctrf.results.summary.skipped, pending: ctrf.results.summary.pending, other: ctrf.results.summary.other };
-  status.finished_at = new Date(finishedAt).toISOString();
-  status.phase = "finished";
-  status.last_event = `finished: ${target.outcome}`;
-  run.saveStatus();
-  run.event("run_finished", { outcome: target.outcome, summary: status.summary });
-  process.off("SIGINT", onSignal);
-  process.off("SIGTERM", onSignal);
-  pruneRuns(opts.runDirRoot, cfg.run.keepRuns);
-  release();
-  printVerdict(progress, status, finishedAt - t0, run.dir);
-  if (opts.json)
-    process.stdout.write(JSON.stringify(status, null, 2) + `
-`);
-  return EXIT[target.outcome];
-}
-function verdictSummary(status, ms) {
-  const parts = [];
-  if (status.summary) {
-    const sum = (k) => status.suites.reduce((a, x) => a + (x[k] ?? 0), 0);
-    parts.push(`${sum("passed")} passed, ${sum("failed")} failed`);
-    if (sum("error"))
-      parts.push(`${sum("error")} error`);
-    if (sum("missing"))
-      parts.push(`${sum("missing")} missing`);
-    if (sum("skipped"))
-      parts.push(`${sum("skipped")} skipped`);
-    if (status.against?.parity?.origin_only)
-      parts.push(`${status.against.parity.origin_only} only on origin`);
-  }
-  parts.push(`${status.suites.length} suite(s)`);
-  if (status.against)
-    parts.push(`against ${status.against.ref}: origin ${status.against.outcome}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
-  if (ms != null)
-    parts.push(fmtDuration(ms));
-  return parts.join(" · ");
-}
-function printVerdict(progress, status, ms, dir) {
-  const o = status.outcome ?? "error";
-  progress.plain(`${color.bold(outcomeColor(o)(`VERDICT ${o}`))} · ${verdictSummary(status, ms)}`);
-  if (status.diagnosis && o !== "passed" && o !== "failed")
-    for (const l of formatDiagnosis(status.diagnosis))
-      progress.plain(`  ${l}`);
-  for (const s of status.suites)
-    if (s.state !== "passed")
-      progress.plain(`  suite ${s.name}: ${s.state}${s.cause ? ` (${s.cause})` : ""}${s.note ? ` · ${s.note}` : ""}`);
-  progress.plain(`  run dir: ${dir}`);
-}
-async function runSide(cfg, o) {
-  const side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
-  const logDir = path9.join(o.outDir, "logs");
-  fs9.mkdirSync(logDir, { recursive: true });
-  const stack = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp2(cfg.root) : null });
-  const isTarget = !o.prefix;
-  try {
-    if (isTarget)
-      o.run.setPhase("deps", "checking dependencies");
-    await stack.checkDeps();
-    if (isTarget)
-      o.run.setPhase("boot", "booting services");
-    const alias = new Map;
-    const bootName = (n) => {
-      const org = o.origin?.get(n);
-      if (org)
-        alias.set(org.name, n);
-      return org?.name ?? n;
-    };
-    const chain = (names) => topoOrder(cfg.services, names.map(bootName)).map((x) => x.name);
-    const bootFailed = new Map;
-    const blocker = (names) => chain(names).find((n) => bootFailed.has(n));
-    for (const n of neededServices(cfg, o.suites)) {
-      if (o.abort.aborted || blocker([n]))
-        continue;
-      try {
-        await stack.boot([bootName(n)], alias);
-      } catch (e) {
-        if (!(e instanceof Failure))
-          throw e;
-        bootFailed.set(e.diagnosis.service && chain([n]).includes(e.diagnosis.service) ? e.diagnosis.service : bootName(n), e.diagnosis);
-        o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
-        side.outcome = "mistrial";
-        side.diagnosis ??= e.diagnosis;
-      }
-    }
-    if (isTarget)
-      o.run.setPhase("suite", "running suites");
-    const ctx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
-    for (const s of o.suites) {
-      if (o.abort.aborted)
-        break;
-      const blocked = blocker(neededServices(cfg, [s]));
-      if (blocked) {
-        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: `not run: service ${blocked} ${bootFailed.get(blocked).cause}` });
-        continue;
-      }
-      const r = await runSuite(ctx, s, o.select?.get(s.name), o.retries);
-      side.suites.push(r.summary);
-      side.tests.push(...r.tests);
-      const so = suiteOutcome(r.summary);
-      if (worst(side.outcome, so) !== side.outcome) {
-        side.outcome = worst(side.outcome, so);
-        if (r.diagnosis)
-          side.diagnosis = r.diagnosis;
-      }
-      if (isTarget) {
-        o.run.status.suites = side.suites;
-        o.run.saveStatus();
-      }
-      if (r.serviceDied) {
-        for (const rest of o.suites.slice(o.suites.indexOf(s) + 1))
-          side.suites.push({ name: rest.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: "not run: a service died" });
-        break;
-      }
-    }
-  } catch (e) {
-    if (!(e instanceof Failure))
-      throw e;
-    side.outcome = "mistrial";
-    side.diagnosis = e.diagnosis;
-    o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
-    for (const s of o.suites)
-      if (!side.suites.some((x) => x.name === s.name))
-        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: `not run: ${e.diagnosis.cause}` });
-  } finally {
-    await stack.teardown();
-  }
-  side.artifacts = collectArtifacts(o.run.dir, o.outDir, side.tests);
-  return side;
-}
-async function runAgainst(cfg, opts, o) {
-  const outDir = path9.join(o.run.dir, "against");
-  const origin = originMap(cfg);
-  if (origin.size) {
-    o.progress.line(`against ${opts.against} · using role = "origin" services: ${[...origin.values()].map((s) => s.name).join(", ")}`);
-    return runSide(cfg, { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup, setupCacheDir: path9.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin });
-  }
-  const ref = opts.against;
-  const w = addWorktree(cfg, ref);
-  if ("diagnosis" in w)
-    return { outcome: "mistrial", suites: [], tests: [], diagnosis: w.diagnosis, artifacts: [] };
-  o.run.state.worktrees.push(w.wt);
-  o.run.saveState();
-  o.progress.line(`against ${ref} · checked out ${w.sha.slice(0, 10)} in ${w.wt}`);
-  if (w.copied)
-    o.progress.line(`against ${ref} · copied the target's .witness/ (config helpers) into the worktree`);
-  try {
-    return await runSide(cfg, { ...o, root: w.root, outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
-  } finally {
-    removeWorktree2(cfg, w.wt);
-    o.run.state.worktrees = o.run.state.worktrees.filter((x) => x !== w.wt);
-    o.run.saveState();
-  }
-}
-function addWorktree(cfg, ref) {
-  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
-  if (!resolved.ok)
-    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` }) };
-  const wt = fs9.mkdtempSync(path9.join(os.tmpdir(), "witness-against-"));
-  const add = git(cfg.root, ["worktree", "add", "--detach", wt, resolved.out]);
-  if (!add.ok) {
-    fs9.rmSync(wt, { recursive: true, force: true });
-    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` }) };
-  }
-  const root = path9.join(wt, path9.relative(gitTop(cfg.root), fs9.realpathSync(cfg.root)));
-  const copied = copyWitnessDir(path9.join(cfg.root, ".witness"), path9.join(root, ".witness"));
-  return { wt, root, sha: resolved.out, copied };
-}
-function removeWorktree2(cfg, wt) {
-  git(cfg.root, ["worktree", "remove", "--force", wt]);
-  fs9.rmSync(wt, { recursive: true, force: true });
-  git(cfg.root, ["worktree", "prune"]);
-}
-var NOT_COPIED = new Set(["runs", "check", "cache", "up", "up.json", "run.lock", "scratch"]);
-function copyWitnessDir(src, dst) {
-  if (!fs9.existsSync(src))
-    return false;
-  fs9.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path9.relative(src, p).split(path9.sep)[0]) });
-  return true;
-}
-function ensureScratch(root) {
-  const dir = path9.join(root, ".witness", "scratch");
-  try {
-    fs9.mkdirSync(dir, { recursive: true });
-    if (!fs9.existsSync(path9.join(dir, ".gitignore")))
-      fs9.writeFileSync(path9.join(dir, ".gitignore"), `*
-`);
-  } catch {}
-}
-function gitTop(dir) {
-  const r = git(dir, ["rev-parse", "--show-toplevel"]);
-  return r.ok ? fs9.realpathSync(r.out) : dir;
-}
-
-// src/commands.ts
-var STAGES = ["config", "deps", "boot", "suite"];
-function printDiag(p, d) {
-  for (const l of formatDiagnosis(d))
-    p.plain(`  ${l}`);
-}
-async function checkCommand(cfg, o) {
-  const p = new Progress;
-  const upTo = STAGES.indexOf(o.stage ?? "suite");
-  const report = [];
-  const done = (code2) => {
-    if (o.json)
-      process.stdout.write(JSON.stringify({ ok: code2 === 0, stages: report }, null, 2) + `
-`);
-    return code2;
-  };
-  report.push({ stage: "config", ok: true, detail: `${cfg.services.length} service(s), ${cfg.suites.length} suite(s), adapters: ${[...new Set(cfg.suites.map((s) => s.adapter))].join(", ") || "-"}` });
-  p.line(`check  config · ok · ${report[0].detail}`);
-  if (upTo < 1) {
-    p.plain(color.green("CHECK ok · config"));
-    return done(0);
-  }
-  const { env, missing: missing2, fileUsed } = loadEnv(cfg);
-  if (missing2.length) {
-    const d = diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 });
-    report.push({ stage: "deps", ok: false, detail: "missing env", diagnosis: d });
-    p.line(color.red(`check  env · missing ${missing2.join(", ")}${fileUsed ? ` (env file ${fileUsed})` : ""}`));
-    printDiag(p, d);
-    return done(EXIT.mistrial);
-  }
-  let release;
-  try {
-    release = acquireLock(path10.join(cfg.root, ".witness", "run.lock"));
-  } catch (e) {
-    if (e instanceof LockError) {
-      p.plain(color.red(e.message));
-      return done(EXIT.error);
-    }
-    throw e;
-  }
-  const checkRoot = path10.join(cfg.root, ".witness", "check");
-  await reapStale(checkRoot, cfg.run.graceMs, (m) => p.line(m));
-  fs10.rmSync(checkRoot, { recursive: true, force: true });
-  const g = gitInfo(cfg.root);
-  const run = new RunDir(checkRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: "check" });
-  const abort = { aborted: false };
-  const onSig = () => abort.aborted = true;
-  process.on("SIGINT", onSig);
-  process.on("SIGTERM", onSig);
-  let root = cfg.root;
-  let wt;
-  if (o.against) {
-    const w = addWorktree(cfg, o.against);
-    if ("diagnosis" in w) {
-      release();
-      p.line(color.red(`check  --against ${o.against} · ${w.diagnosis.evidence}`));
-      return done(EXIT_USAGE);
-    }
-    ({ wt, root } = w);
-    run.state.worktrees.push(wt);
-    run.saveState();
-    p.line(`check  against ${o.against} · checked out ${w.sha.slice(0, 10)} in ${wt}${w.copied ? " (with this checkout's .witness/)" : ""}`);
-  }
-  const stack = new Stack({ cfg, root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !wt, setupCacheDir: wt ? null : path10.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: wt ? null : readUp2(cfg.root) });
-  let code = 0;
-  try {
-    await stack.checkDeps();
-    report.push({ stage: "deps", ok: true, detail: `${cfg.dependencies.length} dependency check(s) passed` });
-    if (upTo < 2) {
-      p.plain(color.green(`CHECK ok · up to deps${o.against ? ` · against ${o.against}` : ""}`));
-      return done(0);
-    }
-    const services = o.service ? [o.service] : cfg.services.filter((s) => s.role === "target").map((s) => s.name);
-    for (const s of services)
-      if (!cfg.services.some((x) => x.name === s))
-        throw new Error(`unknown service "${s}"`);
-    await stack.boot(services);
-    report.push({ stage: "boot", ok: true, detail: [...stack.live.values()].map((l) => `${l.svc.name} at ${l.url}`).join(", ") || "no services" });
-    if (upTo < 3) {
-      p.plain(color.green(`CHECK ok · up to boot${o.against ? ` · against ${o.against}` : ""}`));
-      return done(0);
-    }
-    const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
-    const ctx = { cfg, root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
-    for (const s of suites) {
-      const ad = ADAPTERS[s.adapter];
-      const hint = s.report ? undefined : ad.reportHint?.(path10.resolve(root, s.cwd), s.cmd);
-      if (hint) {
-        const d = diagnose({ stage: "report", cause: "report_missing", suite: s.name, command: s.cmd, evidence: hint, extraTry: [hint] });
-        report.push({ stage: "suite", ok: false, detail: `${s.name}: cannot write a per-test report`, diagnosis: d });
-        p.line(color.red(`check  suite ${s.name} · cannot write a per-test report`));
-        printDiag(p, d);
-        code = Math.max(code, EXIT.error);
-        continue;
-      }
-      const listCmd = ad.list?.cmd(s.cmd);
-      if (listCmd) {
-        const r2 = await runCapture(listCmd, { cwd: path10.resolve(root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: run.file("logs", `${s.name}.list.log`), abort, track: run.tracker("list", s.name) });
-        const ids = r2.code === 0 ? ad.list.parse(r2.out) : [];
-        if (ids.length) {
-          report.push({ stage: "suite", ok: true, detail: `${s.name}: ${ids.length} test(s) listed` });
-          p.line(`check  suite ${s.name} · ${ids.length} test(s) listed, e.g. ${s.adapter}:${ids[0]}`);
-          continue;
-        }
-        p.line(`check  suite ${s.name} · listing gave no tests (exit ${r2.code}); doing a smoke run`);
-      }
-      const r = await runSuite(ctx, s, undefined, 0);
-      const ok = r.summary.state === "passed" || r.summary.state === "failed";
-      report.push({ stage: "suite", ok, detail: `${s.name}: ${r.summary.state}`, diagnosis: r.diagnosis });
-      if (!ok) {
-        code = Math.max(code, r.serviceDied ? EXIT.mistrial : EXIT.error);
-        if (r.diagnosis)
-          printDiag(p, r.diagnosis);
-      }
-      if (r.serviceDied)
-        break;
-    }
-  } catch (e) {
-    if (!(e instanceof Failure))
-      throw e;
-    const stage = e.diagnosis.stage === "deps" ? "deps" : "boot";
-    report.push({ stage, ok: false, detail: e.diagnosis.cause, diagnosis: e.diagnosis });
-    p.line(color.red(`check  ${stage} · ${e.diagnosis.cause}`));
-    printDiag(p, e.diagnosis);
-    code = EXIT.mistrial;
-  } finally {
-    await stack.teardown();
-    if (wt) {
-      removeWorktree2(cfg, wt);
-      run.state.worktrees = [];
-      run.saveState();
-    }
-    run.status.phase = "finished";
-    run.saveStatus();
-    release();
-    process.off("SIGINT", onSig);
-    process.off("SIGTERM", onSig);
-  }
-  if (abort.aborted)
-    code = EXIT.interrupted;
-  const on = o.against ? ` · against ${o.against}` : "";
-  p.plain(code === 0 ? color.green(`CHECK ok${on}`) : color.yellow(`CHECK failed${on} · logs: ${run.file("logs")}`));
-  return done(code);
-}
-var EXIT_USAGE = 64;
-async function upCommand(cfg, o) {
-  const p = new Progress;
-  const existing = readUp2(cfg.root);
-  if (existing && Object.values(existing.services).some((s) => s.pgid && groupAlive(s.pgid) || s.pid && pidAlive(s.pid))) {
-    p.plain(`services are already up (${Object.keys(existing.services).join(", ")}); run \`witness down\` first`);
-    return EXIT.error;
-  }
-  const { env, missing: missing2 } = loadEnv(cfg);
-  if (missing2.length) {
-    printDiag(p, diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 }));
-    return EXIT.mistrial;
-  }
-  await reapStale(o.runDirRoot, cfg.run.graceMs, (m) => p.line(m));
-  const logDir = path10.join(cfg.root, ".witness", "up", "logs");
-  fs10.mkdirSync(logDir, { recursive: true });
-  const abort = { aborted: false };
-  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir, progress: p, noSetup: o.noSetup, setupCacheDir: path10.join(cfg.root, ".witness", "cache", "setup"), abort });
-  try {
-    await stack.checkDeps();
-    await stack.boot(o.service ? [o.service] : neededServices(cfg, cfg.suites));
-  } catch (e) {
-    if (!(e instanceof Failure))
-      throw e;
-    await stack.teardown();
-    p.plain(color.yellow(`UP failed · ${e.diagnosis.cause}`));
-    printDiag(p, e.diagnosis);
-    return EXIT.mistrial;
-  }
-  const state = { pid: process.pid, started_at: new Date().toISOString(), root: cfg.root, services: {}, deps_started: stack.depsStarted.map((d) => d.name) };
-  for (const [n, l] of stack.live)
-    state.services[n] = { pgid: l.pgid, pid: l.pid, port: l.port, url: l.url, log: l.log, external: !!l.svc.external };
-  writeJson(upFile(cfg.root), state);
-  for (const l of stack.live.values())
-    l.proc?.child.unref();
-  p.plain(color.green(`UP · ${[...stack.live.values()].map((l) => `${l.svc.name} ${l.url}`).join(" · ")}`));
-  if (o.json)
-    process.stdout.write(JSON.stringify(state, null, 2) + `
-`);
-  return 0;
-}
-async function downCommand(cfg, o) {
-  const p = new Progress;
-  const state = readUp2(cfg.root);
-  if (!state) {
-    p.plain("nothing is up");
-    return 0;
-  }
-  const { env } = loadEnv(cfg);
-  for (const [name, s] of Object.entries(state.services).reverse()) {
-    const svc = cfg.services.find((x) => x.name === name);
-    if (s.external)
-      continue;
-    if (svc?.stop)
-      await runCapture(svc.stop, { cwd: path10.resolve(cfg.root, svc.cwd), env: childEnv(env, { PORT: String(s.port ?? "") }), timeoutMs: 60000, log: s.log });
-    if (s.pid && pidAlive(s.pid)) {
-      try {
-        process.kill(s.pid, "SIGTERM");
-      } catch {}
-      for (let i = 0;i < 50 && pidAlive(s.pid); i++)
-        await sleep(100);
-    }
-    if (s.pgid)
-      await killGroup(s.pgid, cfg.run.graceMs);
-    p.line(`down   ${name} · stopped`);
-  }
-  for (const d of [...state.deps_started].reverse()) {
-    const dep = cfg.dependencies.find((x) => x.name === d);
-    if (dep?.stop) {
-      await runCapture(dep.stop, { cwd: cfg.root, env: childEnv(env), timeoutMs: 120000 });
-      p.line(`down   ${d} · stopped`);
-    }
-  }
-  fs10.rmSync(upFile(cfg.root), { force: true });
-  if (o.json)
-    process.stdout.write(JSON.stringify({ ok: true }) + `
-`);
-  return 0;
-}
-function statusCommand(runRoot, id, json) {
-  const dir = resolveRun(runRoot, id);
-  const st = dir ? readJson(path10.join(dir, "status.json"), null) : null;
-  if (!st) {
-    process.stderr.write(`witness  no run found${id ? ` for ${id}` : ""} under ${runRoot}
-`);
-    return EXIT.error;
-  }
-  if (json) {
-    process.stdout.write(JSON.stringify(st, null, 2) + `
-`);
-    return 0;
-  }
-  const o = st.outcome ?? "running";
-  const lines = [`${st.run_id} · ${st.phase}${st.outcome ? ` · ${outcomeColor(o)(o)}` : ""} · ${st.branch} @ ${st.commit.slice(0, 10)}${st.dirty ? " (dirty)" : ""}`];
-  lines.push(`last event: ${st.last_event}`);
-  if (st.phase !== "finished" && !pidAlive(st.pid))
-    lines.push(color.yellow(`witness (pid ${st.pid}) is gone; the next run will reap this one`));
-  for (const s of st.suites)
-    lines.push(`  ${s.name.padEnd(20)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}`);
-  if (st.summary)
-    lines.push(verdictSummary(st));
-  if (st.diagnosis)
-    lines.push(...formatDiagnosis(st.diagnosis).map((l) => `  ${l}`));
-  process.stdout.write(lines.join(`
-`) + `
-`);
-  return 0;
-}
-function reportCommand(runRoot, id, format) {
-  const dir = resolveRun(runRoot, id);
-  const st = dir ? readJson(path10.join(dir, "status.json"), null) : null;
-  if (!dir || !st) {
-    process.stderr.write(`witness  no run found${id ? ` for ${id}` : ""} under ${runRoot}
-`);
-    return EXIT.error;
-  }
-  const ctrf = readJson(path10.join(dir, "results.ctrf.json"), null);
-  const tests = ctrf?.results?.tests ?? [];
-  const bad = tests.filter((t) => t.status === "failed" || t.status === "other");
-  const differs = tests.filter((t) => t.extra?.witness?.parity === "differs");
-  if (format === "json") {
-    const out = { run_id: st.run_id, outcome: st.outcome, commit: st.commit, branch: st.branch, dirty: st.dirty, summary: st.summary, suites: st.suites, diagnosis: st.diagnosis, against: st.against, not_passing: bad.map((t) => ({ id: t.extra?.witness?.id, status: t.status, status_detail: t.extra?.witness?.status_detail, message: t.message })), parity_differs: differs.map((t) => ({ id: t.extra?.witness?.id, status: t.status, origin_status: t.extra?.witness?.origin_status })) };
-    process.stdout.write(JSON.stringify(out, null, 2) + `
-`);
-    return 0;
-  }
-  const md = [];
-  md.push(`# Witness run ${st.run_id}: ${st.outcome ?? st.phase}`);
-  md.push("");
-  md.push(`${st.branch} @ \`${st.commit.slice(0, 12)}\`${st.dirty ? " (uncommitted changes)" : ""}${st.label ? ` · ${st.label}` : ""} · ${verdictSummary(st)}`);
-  md.push("");
-  md.push("| Suite | State | Passed | Failed | Error | Missing | Skipped |");
-  md.push("| --- | --- | ---: | ---: | ---: | ---: | ---: |");
-  for (const s of st.suites)
-    md.push(`| ${s.name} | ${s.state}${s.cause ? ` (${s.cause})` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
-  if (st.diagnosis) {
-    md.push("", "## Diagnosis", "");
-    for (const l of formatDiagnosis(st.diagnosis))
-      md.push(`- ${l.replace(/^(\w+):/, "**$1**:")}`);
-  }
-  if (bad.length) {
-    md.push("", `## Not passing (${bad.length})`, "");
-    for (const t of bad.slice(0, 50))
-      md.push(`- \`${t.extra?.witness?.id ?? t.name}\` ${t.status}${t.extra?.witness?.status_detail ? ` (${t.extra.witness.status_detail})` : ""}${t.message ? `: ${t.message.split(`
-`)[0].slice(0, 200)}` : ""}`);
-    if (bad.length > 50)
-      md.push(`- … ${bad.length - 50} more in results.ctrf.json`);
-  }
-  if (st.against) {
-    md.push("", `## Against ${st.against.ref}`, "", `Origin outcome: ${st.against.outcome}.${st.against.parity ? ` Parity: ${Object.entries(st.against.parity).map(([k, v]) => `${v} ${k}`).join(", ")}.` : ""}`);
-    for (const t of differs.slice(0, 50))
-      md.push(`- \`${t.extra?.witness?.id}\`: ${t.extra?.witness?.origin_status} on origin, ${t.status} on target`);
-  }
-  md.push("", `Run dir: \`${dir}\``);
-  process.stdout.write(md.join(`
-`) + `
-`);
-  return 0;
-}
-
-// src/init.ts
-import * as fs11 from "node:fs";
-import * as path11 from "node:path";
-var read = (f) => {
-  try {
-    return fs11.readFileSync(f, "utf8");
-  } catch {
-    return "";
-  }
-};
-var SKIP = new Set([".git", "node_modules", ".witness", ".venv", "venv", "bin", "obj", "target", "build", "dist", "vendor", ".gradle"]);
-function guess(root) {
-  const files = globFiles(root, ["**/*"], { maxDepth: 4, skipDirs: SKIP });
-  const has = (re) => files.filter((f) => re.test(f));
-  const g = { suites: [], services: [] };
-  const name = (base) => {
-    let n = base.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "tests";
-    if (!/^[a-z]/.test(n))
-      n = `t-${n}`;
-    let k = n;
-    for (let i = 2;g.suites.some((s) => s.name === k) || g.services.some((s) => s.name === k); i++)
-      k = `${n}-${i}`;
-    return k;
-  };
-  const dirOf = (f) => path11.dirname(f) || ".";
-  const py = has(/(^|\/)(pytest\.ini|conftest\.py|pyproject\.toml|setup\.cfg|tox\.ini)$/).filter((f) => /pytest\.ini|conftest\.py/.test(f) || /\[tool\.pytest|\[tool:pytest\]|\[pytest\]|pytest/.test(read(path11.join(root, f))));
-  const pyDirs = [...new Set(py.map(dirOf))].filter((d, _i, a) => !a.some((o) => o !== d && (d.startsWith(`${o}/`) || o === ".")) || d === ".");
-  for (const d of pyDirs.slice(0, 3))
-    g.suites.push({ name: name(d === "." ? "pytest" : `${path11.basename(d)}-pytest`), adapter: "pytest", cwd: d, cmd: "python -m pytest", why: `found ${py.find((f) => dirOf(f) === d)}` });
-  const pom = has(/(^|\/)pom\.xml$/).sort((a, b) => a.length - b.length)[0];
-  if (pom) {
-    g.suites.push({ name: name("maven-tests"), adapter: "junit-maven", cwd: dirOf(pom), cmd: "mvn -B verify", why: `found ${pom}` });
-    if (/spring-boot/.test(read(path11.join(root, pom))))
-      g.services.push({ name: name("app"), cwd: dirOf(pom), setup: "mvn -B -DskipTests package", start: "mvn -B spring-boot:run -Dspring-boot.run.arguments=--server.port=${PORT}", ready: "${self.url}/actuator/health", why: "spring-boot in pom.xml" });
-  }
-  const gradle = has(/(^|\/)build\.gradle(\.kts)?$/).sort((a, b) => a.length - b.length)[0];
-  if (gradle)
-    g.suites.push({ name: name("gradle-tests"), adapter: "junit-gradle", cwd: dirOf(gradle), cmd: fs11.existsSync(path11.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", why: `found ${gradle}` });
-  const csproj = has(/\.csproj$/);
-  const testProjects = csproj.filter((f) => /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i.test(read(path11.join(root, f))));
-  const sln = has(/\.(sln|slnx)$/).sort((a, b) => a.length - b.length)[0];
-  const mtp = dotnetMode(root) !== "vstest";
-  if (testProjects.length && testProjects.length <= 6) {
-    for (const f of testProjects)
-      g.suites.push({ name: name(path11.basename(f, ".csproj")), adapter: "dotnet", cwd: ".", cmd: `dotnet test ${mtp ? "--project " : ""}${f}`, why: `test project ${f}${mtp ? " (Microsoft.Testing.Platform)" : ""}` });
-  } else if (testProjects.length || sln)
-    g.suites.push({ name: name("dotnet-tests"), adapter: "dotnet", cwd: sln ? dirOf(sln) : ".", cmd: sln ? `dotnet test ${mtp ? "--solution " : ""}${path11.basename(sln)}` : "dotnet test", why: sln ? `found ${sln}` : "test projects found" });
-  for (const f of csproj.filter((f2) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(read(path11.join(root, f2)))).slice(0, 3)) {
-    g.services.push({ name: name(path11.basename(f, ".csproj")), cwd: ".", setup: `dotnet build ${f}`, start: `dotnet run --no-build --project ${f} --urls http://127.0.0.1:\${PORT}`, ready: "${self.url}/", why: `web project ${f}` });
-  }
-  for (const pj of has(/(^|\/)package\.json$/).filter((f) => f.split("/").length <= 3)) {
-    let doc;
-    try {
-      doc = JSON.parse(read(path11.join(root, pj)));
-    } catch {
-      continue;
-    }
-    const deps = { ...doc.dependencies, ...doc.devDependencies };
-    const d = dirOf(pj);
-    const base = d === "." ? "" : `${path11.basename(d)}-`;
-    if (deps["@playwright/test"])
-      g.suites.push({ name: name(`${base}playwright`), adapter: "playwright", cwd: d, cmd: "npx playwright test", why: `@playwright/test in ${pj}` });
-    if (deps.vitest)
-      g.suites.push({ name: name(`${base}vitest`), adapter: "vitest", cwd: d, cmd: "npx vitest run", why: `vitest in ${pj}` });
-    if (deps.jest)
-      g.suites.push({ name: name(`${base}jest`), adapter: "jest", cwd: d, cmd: "npx jest", why: `jest in ${pj}` });
-    if (deps.mocha)
-      g.suites.push({ name: name(`${base}mocha`), adapter: "mocha", cwd: d, cmd: "npx mocha", why: `mocha in ${pj}` });
-    if (doc.scripts?.start)
-      g.services.push({ name: name(`${base}web`.replace(/-$/, "")), cwd: d, setup: fs11.existsSync(path11.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}` });
-  }
-  const gomod = has(/(^|\/)go\.mod$/).sort((a, b) => a.length - b.length)[0];
-  if (gomod)
-    g.suites.push({ name: name("go-tests"), adapter: "go", cwd: dirOf(gomod), cmd: "go test ./...", why: `found ${gomod}` });
-  const gem = has(/(^|\/)Gemfile$/).find((f) => /rspec/.test(read(path11.join(root, f))));
-  if (gem)
-    g.suites.push({ name: name("rspec"), adapter: "rspec", cwd: dirOf(gem), cmd: "bundle exec rspec", why: `rspec in ${gem}` });
-  const php = has(/(^|\/)phpunit\.xml(\.dist)?$/)[0];
-  if (php)
-    g.suites.push({ name: name("phpunit"), adapter: "phpunit", cwd: dirOf(php), cmd: "vendor/bin/phpunit", why: `found ${php}` });
-  if (fs11.existsSync(path11.join(root, "manage.py")))
-    g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py" });
-  return g;
-}
-var q = (s) => JSON.stringify(s);
-function renderExample(g) {
-  const out = [
-    "# Witness config (version 1). Generated by `witness init` from the files in this repo: review it,",
-    "# then save it as .witness/witness.toml. Run `witness check` to try it.",
-    "version = 1",
-    "",
-    "[env]",
-    'file = ".witness/.env"        # KEY=VALUE lines, gitignored',
-    'required = []                 # names that must be set, e.g. ["DATABASE_URL"]',
-    "",
-    "# [[dependency]]",
-    '# name = "postgres"',
-    '# check = "pg_isready -h localhost"',
-    '# start = "docker compose up -d db"',
-    '# timeout = "60s"',
-    ""
-  ];
-  for (const s of g.services) {
-    out.push(`# ${s.why}`, "[[service]]", `name = ${q(s.name)}`, `cwd = ${q(s.cwd)}`);
-    if (s.setup)
-      out.push(`setup = ${q(s.setup)}`);
-    out.push(`start = ${q(s.start)}`, `ready = { http = ${q(s.ready)}, timeout = "180s" }`, "");
-  }
-  if (!g.services.length)
-    out.push("# [[service]]", '# name = "api"', '# start = "npm start -- --port ${PORT}"', '# ready = { http = "${self.url}/health", timeout = "120s" }', "");
-  for (const s of g.suites) {
-    out.push(`# ${s.why}`, "[[suite]]", `name = ${q(s.name)}`, `adapter = ${q(s.adapter)}`, `cwd = ${q(s.cwd)}`, `cmd = ${q(s.cmd)}`);
-    if (g.services.length)
-      out.push("service = []                 # services this suite needs up; omit for all");
-    out.push('timeout = "20m"', "");
-  }
-  if (!g.suites.length)
-    out.push("# No test framework detected.", "# [[suite]]", '# name = "tests"', '# adapter = "generic"', '# cmd = "./run-tests.sh"', '# report = "reports/*.xml"', "");
-  out.push("[run]", 'stall_timeout = "5m"', 'heartbeat = "60s"', "keep_runs = 10", "");
-  return out.join(`
-`);
-}
-function initCommand(root, json) {
-  const g = guess(root);
-  const dir = path11.join(root, ".witness");
-  fs11.mkdirSync(dir, { recursive: true });
-  const example = path11.join(dir, "witness.example.toml");
-  fs11.writeFileSync(example, renderExample(g));
-  const gi = path11.join(dir, ".gitignore");
-  if (!fs11.existsSync(gi))
-    fs11.writeFileSync(gi, `runs/
-check/
-cache/
-up/
-up.json
-run.lock
-scratch/
-.env
-`);
-  else if (!/^scratch\/$/m.test(fs11.readFileSync(gi, "utf8")))
-    fs11.appendFileSync(gi, `scratch/
-`);
-  if (json)
-    process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + `
-`);
-  else {
-    process.stderr.write(`witness  wrote ${example}
-`);
-    for (const s of g.suites)
-      process.stderr.write(`witness    suite ${s.name} (${s.adapter}): ${s.why}
-`);
-    for (const s of g.services)
-      process.stderr.write(`witness    service ${s.name}: ${s.why}
-`);
-    if (!fs11.existsSync(path11.join(dir, "witness.toml")))
-      process.stderr.write(`witness  review it, then: mv ${example} ${path11.join(dir, "witness.toml")}
-`);
-  }
-  return 0;
-}
-
-// src/lint.ts
-import * as fs13 from "node:fs";
-import * as path13 from "node:path";
-
-// src/plan.ts
-import * as fs12 from "node:fs";
-import * as path12 from "node:path";
-
-// node_modules/yaml/dist/index.js
-var composer = require_composer();
-var Document = require_Document();
-var Schema = require_Schema();
-var errors = require_errors();
-var Alias = require_Alias();
-var identity = require_identity();
-var Pair = require_Pair();
-var Scalar = require_Scalar();
-var YAMLMap = require_YAMLMap();
-var YAMLSeq = require_YAMLSeq();
-var cst = require_cst();
-var lexer = require_lexer();
-var lineCounter = require_line_counter();
-var parser = require_parser();
-var publicApi = require_public_api();
-var visit = require_visit();
-var $Composer = composer.Composer;
-var $Document = Document.Document;
-var $Schema = Schema.Schema;
-var $YAMLError = errors.YAMLError;
-var $YAMLParseError = errors.YAMLParseError;
-var $YAMLWarning = errors.YAMLWarning;
-var $Alias = Alias.Alias;
-var $isAlias = identity.isAlias;
-var $isCollection = identity.isCollection;
-var $isDocument = identity.isDocument;
-var $isMap = identity.isMap;
-var $isNode = identity.isNode;
-var $isPair = identity.isPair;
-var $isScalar = identity.isScalar;
-var $isSeq = identity.isSeq;
-var $Pair = Pair.Pair;
-var $Scalar = Scalar.Scalar;
-var $YAMLMap = YAMLMap.YAMLMap;
-var $YAMLSeq = YAMLSeq.YAMLSeq;
-var $Lexer = lexer.Lexer;
-var $LineCounter = lineCounter.LineCounter;
-var $Parser = parser.Parser;
-var $parse = publicApi.parse;
-var $parseAllDocuments = publicApi.parseAllDocuments;
-var $parseDocument = publicApi.parseDocument;
-var $stringify = publicApi.stringify;
-var $visit = visit.visit;
-var $visitAsync = visit.visitAsync;
 
 // src/plan.ts
 var KINDS = ["new", "changed", "parity"];
@@ -13979,8 +11470,8 @@ async function listSuites(cfg, adapters, logDir, onStart) {
       continue;
     }
     onStart?.(s);
-    const log = path12.join(logDir, `${s.name}.list.log`);
-    const r = await runCapture(cmd, { cwd: path12.resolve(cfg.root, s.cwd), env: childEnv(env), timeoutMs: 5 * 60000, log });
+    const log = path5.join(logDir, `${s.name}.list.log`);
+    const r = await runCapture(cmd, { cwd: path5.resolve(cfg.root, s.cwd), env: childEnv(env), timeoutMs: 5 * 60000, log });
     const ids = r.code === 0 ? ad.list.parse(r.out) : [];
     if (r.code !== 0 || !ids.length)
       out.push({ suite: s.name, adapter: s.adapter, error: r.timedOut ? "listing timed out" : `listing failed (exit ${r.code}${r.code === 0 ? ", no tests in the output" : ""})`, log });
@@ -14039,9 +11530,9 @@ function matchTests(plan, cfg, listings, draft) {
   return { checks, problems };
 }
 function readPlanFile(file) {
-  if (!fs12.existsSync(file))
+  if (!fs5.existsSync(file))
     throw new Error(`${file} does not exist`);
-  return fs12.readFileSync(file, "utf8");
+  return fs5.readFileSync(file, "utf8");
 }
 async function planCheckCommand(file, cfg, o) {
   let text;
@@ -14054,14 +11545,14 @@ async function planCheckCommand(file, cfg, o) {
 `);
     return 2;
   }
-  const rel = path12.relative(process.cwd(), file) || file;
+  const rel = path5.relative(process.cwd(), file) || file;
   const { plan, problems } = parsePlan(text, { draft: o.draft });
   let checks = [];
   if (plan) {
     const adapters = new Set(plan.items.flatMap((i) => i.tests.map((t) => splitId(t)[0])));
     let listings = [];
     if (cfg && o.list && adapters.size) {
-      listings = await listSuites(cfg, adapters, path12.join(cfg.root, ".witness", "check", "plan"), (s) => o.log(`plan  listing tests of suite ${s.name} (${s.adapter}) ...`));
+      listings = await listSuites(cfg, adapters, path5.join(cfg.root, ".witness", "check", "plan"), (s) => o.log(`plan  listing tests of suite ${s.name} (${s.adapter}) ...`));
     } else if (cfg && !o.list) {
       listings = cfg.suites.filter((s) => adapters.has(s.adapter)).map((s) => ({ suite: s.name, adapter: s.adapter, error: "listing skipped (--no-list)" }));
     }
@@ -14075,15 +11566,15 @@ async function planCheckCommand(file, cfg, o) {
   for (const p of problems)
     o.log(`plan  ${p.level === "error" ? "ERROR" : "warn "} ${rel}${p.line ? `:${p.line}` : ""} ${p.where}: ${p.message}`);
   if (plan) {
-    for (const c2 of checks.filter((c3) => c3.state === "found"))
-      o.log(`plan  ok    ${c2.item} ${c2.test} (suite ${c2.suites.join(", ")}${c2.detail ? `; ${c2.detail}` : ""})`);
+    for (const c of checks.filter((c2) => c2.state === "found"))
+      o.log(`plan  ok    ${c.item} ${c.test} (suite ${c.suites.join(", ")}${c.detail ? `; ${c.detail}` : ""})`);
     for (const i of plan.items.filter((i2) => !i2.tests.length))
       o.log(`plan  todo  ${i.id} ${i.behavior}`);
   }
-  const found = checks.filter((c2) => c2.state === "found");
+  const found = checks.filter((c) => c.state === "found");
   if (found.length)
-    o.log(`plan  run the plan's tests: witness run --select ${shq([...new Set(found.map((c2) => `${c2.suites[0]}:${c2.test}`))].join(","))}`);
-  const count = (s) => checks.filter((c2) => c2.state === s).length;
+    o.log(`plan  run the plan's tests: witness run --select ${shq([...new Set(found.map((c) => `${c.suites[0]}:${c.test}`))].join(","))}`);
+  const count = (s) => checks.filter((c) => c.state === s).length;
   const summary = plan ? `${plan.items.length} item(s), ${checks.length} test ref(s): ${count("found")} found, ${count("missing")} missing, ${count("unverified")} unverified` : `${errors2.length} error(s)`;
   o.log(`PLAN ${errors2.length ? "invalid" : "ok"} · ${summary}`);
   if (o.json)
@@ -14111,7 +11602,7 @@ var EXT = {
   ".rb": "rb",
   ".php": "php"
 };
-var langOf = (file) => EXT[path13.extname(file).toLowerCase()];
+var langOf = (file) => EXT[path6.extname(file).toLowerCase()];
 var TEST_PATH = [/(^|\/)[^/]*(tests?|specs?|__tests__|e2e)\//i, /([._-](test|spec)s?|Tests?|IT)\.[a-z]+$/, /(^|\/)test_[^/]*\.py$/, /_(test|spec)\.(go|py|rb)$/];
 var isTestPath = (rel) => !!langOf(rel) && TEST_PATH.some((re) => re.test(rel.replace(/\\/g, "/")));
 function mask(src, lang) {
@@ -14127,34 +11618,34 @@ function mask(src, lang) {
   const slash = lang !== "py" && lang !== "rb";
   let i = 0;
   while (i < n) {
-    const c2 = src[i];
-    const c22 = src.slice(i, i + 2);
-    if (slash && c22 === "//") {
+    const c = src[i];
+    const c2 = src.slice(i, i + 2);
+    if (slash && c2 === "//") {
       const e = src.indexOf(`
 `, i);
       blank(i, e < 0 ? n : e);
       i = e < 0 ? n : e;
-    } else if (slash && c22 === "/*") {
+    } else if (slash && c2 === "/*") {
       const e = src.indexOf("*/", i + 2);
       blank(i, e < 0 ? n : e + 2);
       i = e < 0 ? n : e + 2;
-    } else if (hash && c2 === "#" && !(lang === "php" && src[i + 1] === "[")) {
+    } else if (hash && c === "#" && !(lang === "php" && src[i + 1] === "[")) {
       const e = src.indexOf(`
 `, i);
       blank(i, e < 0 ? n : e);
       i = e < 0 ? n : e;
     } else if ((lang === "py" || lang === "cs") && (src.startsWith('"""', i) || lang === "py" && src.startsWith("'''", i))) {
-      const q2 = src.slice(i, i + 3);
-      const e = src.indexOf(q2, i + 3);
+      const q = src.slice(i, i + 3);
+      const e = src.indexOf(q, i + 3);
       blank(i, e < 0 ? n : e + 3);
       i = e < 0 ? n : e + 3;
-    } else if (lang === "cs" && c22 === '@"') {
+    } else if (lang === "cs" && c2 === '@"') {
       let j = i + 2;
       while (j < n && !(src[j] === '"' && src[j + 1] !== '"'))
         j += src[j] === '"' ? 2 : 1;
       blank(i + 2, j);
       i = j + 1;
-    } else if (lang === "js" && c2 === "/" && regexAllowed(src, i)) {
+    } else if (lang === "js" && c === "/" && regexAllowed(src, i)) {
       let j = i + 1;
       let cls = false;
       while (j < n && src[j] !== `
@@ -14169,14 +11660,14 @@ function mask(src, lang) {
       }
       blank(i + 1, j);
       i = j + 1;
-    } else if (c2 === '"' || c2 === "'" || c2 === "`" && (lang === "js" || lang === "go")) {
-      const raw = c2 === "`" && lang === "go";
+    } else if (c === '"' || c === "'" || c === "`" && (lang === "js" || lang === "go")) {
+      const raw = c === "`" && lang === "go";
       let j = i + 1;
-      while (j < n && src[j] !== c2) {
+      while (j < n && src[j] !== c) {
         if (src[j] === "\\" && !raw)
           j++;
         else if (src[j] === `
-` && c2 !== "`")
+` && c !== "`")
           break;
         j++;
       }
@@ -14309,9 +11800,9 @@ function findTests(raw, code, lang) {
       const close = matchBracket(code, open);
       if (close < 0)
         continue;
-      const q2 = open + 1 + (code.slice(open + 1).length - code.slice(open + 1).trimStart().length);
-      const qEnd = code.indexOf(raw[q2], q2 + 1);
-      add(raw.slice(q2 + 1, qEnd), m.index, open, close + 1, /skip|todo|fixme/.test(m[2]));
+      const q = open + 1 + (code.slice(open + 1).length - code.slice(open + 1).trimStart().length);
+      const qEnd = code.indexOf(raw[q], q + 1);
+      add(raw.slice(q + 1, qEnd), m.index, open, close + 1, /skip|todo|fixme/.test(m[2]));
     }
   } else if (lang === "go") {
     const re = /\bfunc\s+(Test\w*)\s*\(\s*\w+\s+\*testing\.T\s*\)/g;
@@ -14535,15 +12026,15 @@ var expectsSuccess = (item) => !EXPECTS_FAILURE.test(`${item.expect}`);
 var lastSegment2 = (id) => (id.split(/::|#| > /).pop() ?? id).replace(/[[(].*$/, "").trim();
 function planFiles(plan, root, roots = []) {
   const out = new Set;
-  const bases = [root, ...roots.map((r) => path13.resolve(root, r))];
+  const bases = [root, ...roots.map((r) => path6.resolve(root, r))];
   let all;
   for (const t of plan.items.flatMap((i) => i.tests)) {
     const [, id] = splitId(t);
     const file = id.includes("::") ? id.split("::")[0] : id.includes(" > ") ? id.split(" > ")[0] : undefined;
     if (file) {
       for (const b of bases)
-        if (fs13.existsSync(path13.join(b, file)))
-          out.add(path13.join(b, file));
+        if (fs6.existsSync(path6.join(b, file)))
+          out.add(path6.join(b, file));
       continue;
     }
     const cls = id.split("#")[0].split(".").pop();
@@ -14551,8 +12042,8 @@ function planFiles(plan, root, roots = []) {
       continue;
     all ??= globFiles(root, ["**/*.{cs,java,kt,php,go}"], { maxDepth: 8, skipDirs: new Set([".git", "node_modules", "bin", "obj", "target", "build", "dist", "vendor", ".witness"]) });
     for (const f of all)
-      if (path13.basename(f).replace(/\.\w+$/, "") === cls && isTestPath(f))
-        out.add(path13.join(root, f));
+      if (path6.basename(f).replace(/\.\w+$/, "") === cls && isTestPath(f))
+        out.add(path6.join(root, f));
   }
   return [...out];
 }
@@ -14650,17 +12141,17 @@ function changedTestFiles(root) {
   const names = [...git(base, ["diff", "--name-only", "HEAD"]).out.split(`
 `), ...git(base, ["ls-files", "--others", "--exclude-standard"]).out.split(`
 `)];
-  return [...new Set(names.map((s) => s.trim()).filter((s) => s && isTestPath(s)))].map((s) => path13.join(base, s)).filter((f) => fs13.existsSync(f));
+  return [...new Set(names.map((s) => s.trim()).filter((s) => s && isTestPath(s)))].map((s) => path6.join(base, s)).filter((f) => fs6.existsSync(f));
 }
 function expandArgs(args, cwd) {
   const out = [];
   for (const a of args) {
-    const abs = path13.resolve(cwd, a);
-    if (fs13.existsSync(abs) && fs13.statSync(abs).isDirectory()) {
+    const abs = path6.resolve(cwd, a);
+    if (fs6.existsSync(abs) && fs6.statSync(abs).isDirectory()) {
       const skip = new Set([".git", "node_modules", "bin", "obj", "target", "build", "dist", "vendor", ".witness", ".venv", "venv"]);
       for (const f of globFiles(abs, ["**/*"], { maxDepth: 12, skipDirs: skip })) {
-        const full = path13.isAbsolute(f) ? f : path13.join(abs, f);
-        if (isTestPath(path13.join(path13.basename(abs), f)))
+        const full = path6.isAbsolute(f) ? f : path6.join(abs, f);
+        if (isTestPath(path6.join(path6.basename(abs), f)))
           out.push(full);
       }
     } else
@@ -14679,7 +12170,7 @@ function lintCommand(o) {
   let tests = 0;
   const linted = [];
   for (const f of files) {
-    const rel = path13.relative(o.cwd, f) || f;
+    const rel = path6.relative(o.cwd, f) || f;
     if (!langOf(f)) {
       if (o.files.length)
         o.log(`lint  skip  ${rel} (not a supported language)`);
@@ -14687,7 +12178,7 @@ function lintCommand(o) {
     }
     let raw;
     try {
-      raw = fs13.readFileSync(f, "utf8");
+      raw = fs6.readFileSync(f, "utf8");
     } catch (e) {
       o.log(`lint  skip  ${rel}: ${e.message}`);
       continue;
@@ -14707,22 +12198,3068 @@ function lintCommand(o) {
   for (const f of findings)
     o.log(`lint  ${f.level === "error" ? "ERROR" : "warn "} ${f.file}:${f.line} ${f.rule}: ${f.message}`);
   const errors2 = findings.filter((f) => f.level === "error").length;
-  o.log(`LINT ${errors2 ? "failed" : "ok"} · ${linted.length} file(s), ${tests} test(s), ${errors2} error(s)${o.planFile ? ` · plan ${path13.relative(o.cwd, o.planFile)}` : ""}`);
+  o.log(`LINT ${errors2 ? "failed" : "ok"} · ${linted.length} file(s), ${tests} test(s), ${errors2} error(s)${o.planFile ? ` · plan ${path6.relative(o.cwd, o.planFile)}` : ""}`);
   if (o.json)
     process.stdout.write(JSON.stringify({ ok: !errors2, files: linted, tests, findings }, null, 2) + `
 `);
   return errors2 ? 1 : 0;
 }
 
-// src/skills.ts
+// src/functional.ts
+var MAX_SCAN = 4000;
+var URLISH = /URL|HOST|ORIGIN|ENDPOINT|BASE/i;
+var LOCALHOST = /\b(localhost|127\.0\.0\.1|0\.0\.0\.0):\d+|https?:\/\/localhost\b/;
+var ALL = ["py", "js", "cs", "java", "go", "rb", "php"];
+var RULES = [
+  { langs: ["py"], type: "host", label: "TestClient", mod: /^(fastapi|starlette)\.testclient$/ },
+  { langs: ["py"], type: "host", label: "TestClient", code: /\bTestClient\s*\(/ },
+  { langs: ["py"], type: "host", label: "httpx ASGI/WSGI transport", code: /\b(ASGITransport|WSGITransport)\s*\(|\bAsyncClient\s*\(\s*app\s*=/ },
+  { langs: ["py"], type: "host", label: "Flask test_client", code: /\.test_client\s*\(/ },
+  { langs: ["py"], type: "host", label: "Django/DRF test client", code: /\bAPIClient\s*\(|\bAPITestCase\b|\bLiveServerTestCase\b|\blive_server\b/ },
+  { langs: ["py"], type: "api", label: "Django test client", code: /\bself\.client\.(get|post|put|patch|delete|head|options)\s*\(/ },
+  { langs: ["py"], type: "http", label: "HTTP requests on a client", code: /\b\w*client\.(get|post|put|patch|delete|head|options|request)\s*\(\s*(?:f|rf|fr)?["']/i, arg: /^(\/|https?:|\{)/ },
+  { langs: ["py"], type: "api", label: "TestClient", code: /\bTestClient\s*\([^()]*\)\s*\.(get|post|put|patch|delete|head|options|request)\s*\(/ },
+  { langs: ["py"], type: "call", label: "HTTP requests on a client", code: /\b\w*client\.(get|post|put|patch|delete|head|options|request|stream)\s*\(/i },
+  { langs: ["py"], type: "call", label: "HTTP requests on a client", code: /\)\s*\.(get|post|put|patch|delete|head|options)\s*\(\s*(?:f|rf|fr)?["']/, arg: /^\// },
+  { langs: ["py"], type: "http", label: "requests/httpx calls", code: /\b(requests|httpx|session|aiohttp)\.(get|post|put|patch|delete|head|request)\s*\(/ },
+  { langs: ["py"], type: "url", label: "base URL from the environment", code: /\bos\.(?:environ\s*(?:\.get\s*\(|\[)|getenv\s*\()\s*["']/, arg: URLISH },
+  { langs: ["py"], type: "ui", label: "browser driver", mod: /^(playwright|selenium|splinter|pyppeteer|pytest_playwright)\b/ },
+  { langs: ["py"], type: "ui", label: "browser driver", code: /\bpage\.goto\s*\(/ },
+  { langs: ["py"], type: "self", label: "starts a server", code: /\bsubprocess\.Popen\s*\(|\buvicorn\.(run|Server)\b/ },
+  { langs: ["py"], type: "db", label: "database", mod: /^(sqlalchemy|sqlmodel|psycopg2?|asyncpg|pymongo|motor|redis|aiosqlite|sqlite3|alembic)\b/ },
+  { langs: ["py"], type: "db", label: "database", code: /@pytest\.mark\.django_db\b/ },
+  { langs: ["py"], type: "httpmock", label: "HTTP mock", mod: /^(responses|requests_mock|respx|httpretty|aioresponses|vcr|pytest_httpx)\b/ },
+  { langs: ["py"], type: "httpmock", label: "HTTP mock", code: /\bpatch(\.object)?\s*\(\s*["']/, arg: /^(requests|httpx|aiohttp|urllib)\b/ },
+  { langs: ["js"], type: "host", label: "supertest", mod: /^supertest$/ },
+  { langs: ["js"], type: "api", label: "supertest request(app)", code: /\brequest\s*\(\s*[\w.]+\s*\)\s*\.(get|post|put|patch|delete|head|options)\s*\(/ },
+  { langs: ["js"], type: "api", label: "fastify inject", code: /\.inject\s*\(\s*\{/ },
+  { langs: ["js"], type: "api", label: "app.request", code: /\bapp\.request\s*\(/ },
+  { langs: ["js"], type: "host", label: "app server started in the test", code: /\bapp\.listen\s*\(|\bcreateServer\s*\(\s*app\b/ },
+  { langs: ["js"], type: "http", label: "HTTP client calls", code: /\bfetch\s*\(|\baxios(\.\w+)?\s*\(|\bgot(\.\w+)?\s*\(/ },
+  { langs: ["js"], type: "http", label: "HTTP client", mod: /^(axios|got|ky|undici|node-fetch|superagent)$/ },
+  { langs: ["js"], type: "url", label: "base URL from the environment", code: /\bprocess\.env\.\w*(URL|HOST|ORIGIN|ENDPOINT|BASE)\w*/i },
+  { langs: ["js"], type: "url", label: "base URL from the environment", code: /\bprocess\.env\[\s*["'`]/, arg: URLISH },
+  { langs: ["js"], type: "ui", label: "browser driver", mod: /^(playwright|playwright-core|puppeteer|puppeteer-core|selenium-webdriver|webdriverio|cypress|testcafe|nightwatch)$|^@wdio\// },
+  { langs: ["js"], type: "ui", label: "browser driver", code: /\bcy\.(visit|get|contains|request)\s*\(|\bpage\.(goto|click|fill|locator|getBy\w+|waitFor\w*)\s*\(|\bbrowser\.url\s*\(/ },
+  { langs: ["js"], type: "http", label: "Playwright request", code: /\brequest\.(get|post|put|patch|delete|fetch|head)\s*\(/ },
+  { langs: ["js"], type: "url", label: "baseURL", code: /\bbaseURL\s*:/ },
+  { langs: ["js"], type: "self", label: "Playwright webServer", code: /\bwebServer\s*:/ },
+  { langs: ["js"], type: "db", label: "database", mod: /^(@prisma\/client|knex|typeorm|mongoose|pg|mysql2|sequelize|drizzle-orm|ioredis|redis|mongodb|better-sqlite3)$/ },
+  { langs: ["js"], type: "httpmock", label: "HTTP mock", mod: /^(nock|msw|msw\/node|fetch-mock|jest-fetch-mock|axios-mock-adapter)$/ },
+  { langs: ["js"], type: "httpmock", label: "HTTP mock", code: /\b(global|globalThis|window)\.fetch\s*=|\bspyOn\s*\(\s*(global|globalThis|window)\b/ },
+  { langs: ["js"], type: "httpmock", label: "HTTP mock", code: /\b(jest|vi)\.mock\s*\(\s*["'`]/, arg: /^(axios|node-fetch|got|ky)\b/ },
+  { langs: ["cs"], type: "host", label: "WebApplicationFactory", code: /\bWebApplicationFactory\s*</ },
+  { langs: ["cs"], type: "host", label: "TestServer", code: /\bnew\s+TestServer\s*\(|\bUseTestServer\s*\(/ },
+  { langs: ["cs"], type: "host", label: "Microsoft.AspNetCore.Mvc.Testing", mod: /^Microsoft\.AspNetCore\.(Mvc\.Testing|TestHost)$/ },
+  { langs: ["cs"], type: "host", label: "Aspire CreateHttpClient", code: /\bCreateHttpClient\s*\(/ },
+  { langs: ["cs"], type: "http", label: "HttpClient calls", code: /\bHttp(Client|RequestMessage|ResponseMessage|StatusCode|Method)\b|\.(Post|Put|Patch)AsJsonAsync\s*\(|\.GetFromJsonAsync\s*[(<]|\bGet(String|ByteArray|Stream)Async\s*\(/ },
+  { langs: ["cs"], type: "http", label: "HttpClient calls", code: /\.(Get|Post|Put|Patch|Delete)Async\s*\(\s*\$?@?"/, arg: /^(\/|https?:|\{|[\w-]+\/)/ },
+  { langs: ["cs"], type: "url", label: "base URL from the environment", code: /\bEnvironment\.GetEnvironmentVariable\s*\(\s*"/, arg: URLISH },
+  { langs: ["cs"], type: "url", label: "HttpClient BaseAddress", code: /\bBaseAddress\s*=/ },
+  { langs: ["cs"], type: "ui", label: "browser driver", mod: /^(Microsoft\.Playwright|OpenQA\.Selenium)\b/ },
+  { langs: ["cs"], type: "ui", label: "browser driver", code: /\bGotoAsync\s*\(|\bIWebDriver\b/ },
+  { langs: ["cs"], type: "self", label: "starts the app process", code: /\bProcessStartInfo\b|\bProcess\.Start\s*\(/ },
+  { langs: ["cs"], type: "db", label: "database", code: /\bDbContext\b|\bUseInMemoryDatabase\b|\bUseSqlServer\b|\bUseSqlite\b|\bSqlConnection\b|\bNpgsqlConnection\b/ },
+  { langs: ["cs"], type: "db", label: "database", mod: /^(Microsoft\.EntityFrameworkCore|Testcontainers|Dapper)\b/ },
+  { langs: ["cs"], type: "note", label: "inspects the Aspire app model without starting the app or calling it", code: /\bDistributedApplicationTestingBuilder\b/ },
+  { langs: ["java"], type: "api", label: "MockMvc", code: /\b(mockMvc|mvc)\.perform\s*\(/ },
+  { langs: ["java"], type: "host", label: "Spring web test", code: /\bMockMvc\b|@SpringBootTest\b|@AutoConfigureMockMvc\b|@WebMvcTest\b|@WebFluxTest\b|@LocalServerPort\b|@QuarkusTest\b|@MicronautTest\b/ },
+  { langs: ["java"], type: "http", label: "HTTP client", code: /\bTestRestTemplate\b|\bWebTestClient\b|\bRestAssured\b|\bgiven\s*\(\s*\)\s*\.|\bHttpClient\.newHttpClient\b|\bHttpRequest\.newBuilder\b|\bRestTemplate\b|\bOkHttpClient\b/ },
+  { langs: ["java"], type: "http", label: "RestAssured", mod: /^io\.restassured\b/ },
+  { langs: ["java"], type: "url", label: "base URL from the environment", code: /\bSystem\.getenv\s*\(\s*"/, arg: URLISH },
+  { langs: ["java"], type: "ui", label: "browser driver", mod: /^(org\.openqa\.selenium|com\.microsoft\.playwright|com\.codeborne\.selenide)\b/ },
+  { langs: ["java"], type: "db", label: "database", code: /@DataJpaTest\b|@JdbcTest\b|\bJdbcTemplate\b|\bEntityManager\b/ },
+  { langs: ["java"], type: "db", label: "database", mod: /^org\.testcontainers\b/ },
+  { langs: ["java"], type: "httpmock", label: "HTTP mock", mod: /^(com\.github\.tomakehurst\.wiremock|okhttp3\.mockwebserver|org\.mockserver)\b/ },
+  { langs: ["go"], type: "host", label: "httptest server", code: /\bhttptest\.New(TLS)?Server\s*\(\s*(?!http\.HandlerFunc)/ },
+  { langs: ["go"], type: "api", label: "router ServeHTTP", code: /\.ServeHTTP\s*\(/ },
+  { langs: ["go"], type: "http", label: "HTTP calls", code: /\bhttp\.(Get|Post|Head|PostForm|NewRequest(WithContext)?)\s*\(|\bhttptest\.NewRequest\s*\(|\.Do\s*\(\s*req\b/ },
+  { langs: ["go"], type: "url", label: "base URL from the environment", code: /\bos\.(Getenv|LookupEnv)\s*\(\s*"/, arg: URLISH },
+  { langs: ["go"], type: "ui", label: "browser driver", mod: /(chromedp|go-rod|playwright-go|tebeka\/selenium)/ },
+  { langs: ["go"], type: "db", label: "database", mod: /^(database\/sql|gorm\.io|github\.com\/jackc\/pgx|github\.com\/lib\/pq|go\.mongodb\.org)/ },
+  { langs: ["go"], type: "httpmock", label: "HTTP mock", mod: /(jarcoal\/httpmock|h2non\/gock)/ },
+  { langs: ["rb"], type: "host", label: "rails_helper", mod: /^(rails_helper|rack\/test)$/ },
+  { langs: ["rb"], type: "api", label: "request spec", code: /\btype:\s*:request\b|\bActionDispatch::IntegrationTest\b/ },
+  { langs: ["rb"], type: "http", label: "HTTP requests", code: /^\s*(get|post|put|patch|delete|head)\s*\(?\s*(["']|\w+_(path|url)\b)|\bRack::Test\b/m },
+  { langs: ["rb"], type: "url", label: "base URL from the environment", code: /\bENV(\.fetch\s*\(|\[)\s*["']/, arg: URLISH },
+  { langs: ["rb"], type: "ui", label: "browser driver", code: /\btype:\s*:(system|feature)\b|\bdriven_by\b|\bCapybara\b|^\s*visit\s*\(?\s*(["']|\w+_(path|url)\b)/m },
+  { langs: ["rb"], type: "ui", label: "browser driver", mod: /^(capybara|selenium-webdriver|cuprite|ferrum)/ },
+  { langs: ["rb"], type: "db", label: "database", code: /\bActiveRecord\b/ },
+  { langs: ["php"], type: "api", label: "Laravel HTTP test", code: /\$this\s*->\s*(get|post|put|patch|delete|json|call|getJson|postJson|putJson|patchJson|deleteJson)\s*\(/ },
+  { langs: ["php"], type: "host", label: "Symfony WebTestCase", code: /\bWebTestCase\b|\b(static|self)::createClient\s*\(|\bApiTestCase\b/ },
+  { langs: ["php"], type: "http", label: "HTTP requests", code: /->\s*(request|jsonRequest|xmlHttpRequest)\s*\(\s*["']/ },
+  { langs: ["php"], type: "http", label: "Guzzle", mod: /^GuzzleHttp\b/ },
+  { langs: ["php"], type: "url", label: "base URL from the environment", code: /\b(getenv|env)\s*\(\s*["']|\$_ENV\s*\[\s*["']/, arg: URLISH },
+  { langs: ["php"], type: "ui", label: "browser driver", mod: /^(Laravel\\Dusk|Symfony\\Component\\Panther|Facebook\\WebDriver)\b/ },
+  { langs: ["php"], type: "ui", label: "browser driver", code: /\$browser\s*->\s*visit\s*\(/ },
+  { langs: ["php"], type: "db", label: "database", code: /\bRefreshDatabase\b|\bDatabaseTransactions\b|\bDB::|\bKernelTestCase\b/ },
+  { langs: ALL, type: "url", label: "localhost URL", lit: LOCALHOST }
+];
+var has = (f, t) => !!f.sigs.get(t)?.size;
+function rawString(raw, at) {
+  const q = raw[at];
+  if (q !== '"' && q !== "'" && q !== "`")
+    return "";
+  let j = at + 1;
+  while (j < raw.length && raw[j] !== q && raw[j] !== `
+`)
+    j += raw[j] === "\\" ? 2 : 1;
+  return raw.slice(at + 1, j);
+}
+function importsOf(raw, code, lang) {
+  const out = [];
+  const each = (re, f) => {
+    for (const m of code.matchAll(re))
+      f(m);
+  };
+  const quoted = (m) => out.push(rawString(raw, m.index + m[0].length - 1));
+  if (lang === "py") {
+    each(/^\s*from\s+([\w.]+)\s+import\b/gm, (m) => out.push(m[1]));
+    each(/^\s*import\s+([\w.]+(?:\s*,\s*[\w.]+)*)/gm, (m) => out.push(...m[1].split(/\s*,\s*/)));
+  } else if (lang === "js") {
+    each(/\bimport\s+(?:type\s+)?(?:[^;'"`]*?\bfrom\s*)?["']/g, quoted);
+    each(/\b(?:require|import)\s*\(\s*["']/g, quoted);
+  } else if (lang === "cs")
+    each(/^\s*(?:global\s+)?using\s+(?:static\s+)?([\w.]+)\s*;/gm, (m) => out.push(m[1]));
+  else if (lang === "java")
+    each(/^\s*import\s+(?:static\s+)?([\w.*]+)/gm, (m) => out.push(m[1]));
+  else if (lang === "go") {
+    each(/\bimport\s*\(([^)]*)\)/g, (m) => {
+      const at = m.index + m[0].indexOf("(") + 1;
+      [...m[1].matchAll(/"/g)].forEach((q, i) => i % 2 === 0 && out.push(rawString(raw, at + q.index)));
+    });
+    each(/\bimport\s+(?:\w+\s+)?"/g, quoted);
+  } else if (lang === "rb")
+    each(/\brequire(?:_relative)?\s*\(?\s*["']/g, quoted);
+  else if (lang === "php")
+    each(/^\s*use\s+([\w\\]+)/gm, (m) => out.push(m[1]));
+  return out.filter(Boolean);
+}
+var NOT_TAGS = new Set(["parametrize", "skip", "skipif", "xfail", "asyncio", "anyio", "usefixtures", "django_db", "timeout", "filterwarnings", "flaky", "order", "dependency"]);
+function tagsOf(raw, code, lang) {
+  const t = new Set;
+  const add = (re, src, f) => {
+    for (const m of src.matchAll(re)) {
+      const v = f(m);
+      if (v)
+        t.add(v);
+    }
+  };
+  if (lang === "py")
+    add(/\bpytest\.mark\.(\w+)/g, code, (m) => NOT_TAGS.has(m[1]) ? undefined : m[1]);
+  if (lang === "cs") {
+    add(/\[\s*Trait\s*\(\s*"([^"]+)"\s*,\s*"([^"]+)"/g, raw, (m) => `${m[1]}=${m[2]}`);
+    add(/\[\s*(?:TestCategory|Category)\s*\(\s*"([^"]+)"/g, raw, (m) => `Category=${m[1]}`);
+  }
+  if (lang === "java")
+    add(/@Tag\s*\(\s*"([^"]+)"/g, raw, (m) => m[1]);
+  if (lang === "rb")
+    add(/\btype:\s*:(\w+)/g, code, (m) => `type:${m[1]}`);
+  if (lang === "php") {
+    add(/@group\s+([\w-]+)/g, raw, (m) => m[1]);
+    add(/#\[Group\(\s*['"]([^'"]+)/g, raw, (m) => m[1]);
+  }
+  return [...t];
+}
+function scanSource(rel, raw, opts = {}) {
+  const lang = langOf(rel);
+  if (!lang)
+    return null;
+  const code = mask(raw, lang);
+  const mods = importsOf(raw, code, lang);
+  const sigs = new Map;
+  const hit = (r) => (sigs.get(r.type) ?? sigs.set(r.type, new Set).get(r.type)).add(r.label);
+  const rawLines = raw.split(`
+`);
+  const codeLines = code.split(`
+`);
+  for (const r of RULES) {
+    if (!r.langs.includes(lang))
+      continue;
+    if (r.mod && mods.some((m) => r.mod.test(m)))
+      hit(r);
+    if (r.code) {
+      const re = new RegExp(r.code.source, r.code.flags.includes("g") ? r.code.flags : `${r.code.flags}g`);
+      for (const m of code.matchAll(re)) {
+        if (!r.arg || r.arg.test(rawString(raw, m.index + m[0].length - 1))) {
+          hit(r);
+          break;
+        }
+      }
+    }
+    if (r.lit && rawLines.some((l, i) => /["'`]/.test(codeLines[i] ?? "") && r.lit.test(l)))
+      hit(r);
+  }
+  const isTest = opts.isTest ?? findTests(raw, code, lang).length > 0;
+  const ns = lang === "cs" || lang === "java" ? /^\s*(?:namespace|package)\s+([\w.]+)/m.exec(code)?.[1] : undefined;
+  const classes = lang === "cs" || lang === "java" ? [...code.matchAll(/\bclass\s+(\w+)/g)].map((m) => m[1]) : [];
+  return { rel, isTest, sigs, tags: tagsOf(raw, code, lang), namespace: ns, classes };
+}
+function scanFile(root, rel, isTest) {
+  let raw;
+  try {
+    raw = fs7.readFileSync(path7.join(root, rel), "utf8");
+  } catch {
+    return null;
+  }
+  if (raw.length > 512 * 1024)
+    return null;
+  return scanSource(rel, raw, { isTest });
+}
+function fileKind(f, ctx) {
+  if (has(f, "ui"))
+    return "ui";
+  if (has(f, "api"))
+    return "api";
+  if (has(f, "call") && (has(f, "host") || has(f, "self")))
+    return "api";
+  if (has(f, "http") && !has(f, "httpmock") && (ctx.host || ctx.url || has(f, "host") || has(f, "url") || has(f, "self")))
+    return "api";
+  return null;
+}
+var labels = (files, types) => [...new Set(files.flatMap((f) => types.flatMap((t) => [...f.sigs.get(t) ?? []])))];
+function classify(files, name = "") {
+  const ctx = { host: files.some((f) => has(f, "host") || has(f, "self")), url: files.some((f) => !f.isTest && has(f, "url")) };
+  const tests = files.filter((f) => f.isTest);
+  const functional = [];
+  const other = [];
+  const kinds = new Set;
+  for (const f of tests) {
+    const k = fileKind(f, ctx);
+    if (k) {
+      functional.push(f);
+      kinds.add(k);
+    } else
+      other.push(f);
+  }
+  const hostsApp = files.some((f) => has(f, "host") || has(f, "self") || has(f, "api"));
+  const kind = kinds.has("ui") ? "ui" : kinds.size ? "api" : undefined;
+  const drivers = labels([...files.filter((f) => !f.isTest), ...functional], ["host", "self", "api", "ui"]);
+  const evidence = functional.length ? `${[...drivers, ...labels(functional, ["http", "url"])].slice(0, 4).join(", ")}` : "";
+  const base = { kind, hostsApp, tests: tests.length, functional, other, evidence };
+  if (!tests.length)
+    return { ...base, status: "excluded", reason: "no tests found" };
+  if (!other.length)
+    return { ...base, status: "functional", reason: `${tests.length} test file(s) drive the app` };
+  if (!functional.length) {
+    const db = tests.filter((f) => has(f, "db")).length;
+    const integration = /integration/i.test(name) || db * 2 >= tests.length;
+    const hosts = labels(files, ["host"]);
+    const why = hosts.length ? `${hosts[0]} found, but no test sends a request through it` : "no app host, HTTP client or browser driver";
+    const notes = labels(files, ["note"]);
+    return { ...base, status: "excluded", reason: `${integration ? "integration (database access; " : "unit ("}${why})${notes.length ? `; ${notes.join("; ")}` : ""}` };
+  }
+  const dirs = folderFilter(functional, other);
+  const few = other.length <= 5 && functional.length >= 2 * other.length ? { skip: other } : undefined;
+  const filter = dirs?.length === 1 ? { dirs } : tagFilter(functional, other) ?? few ?? (dirs ? { dirs } : undefined);
+  return { ...base, status: "mixed", reason: `${functional.length} of ${tests.length} test files drive the app`, filter };
+}
+function folderFilter(functional, other) {
+  const inDir = (rel, d) => rel.startsWith(`${d}/`);
+  const dirs = new Set;
+  for (const f of functional) {
+    const parts = f.rel.split("/").slice(0, -1);
+    let found;
+    for (let i = 1;i <= parts.length; i++) {
+      const d = parts.slice(0, i).join("/");
+      if (!other.some((o) => inDir(o.rel, d))) {
+        found = d;
+        break;
+      }
+    }
+    if (!found)
+      return;
+    dirs.add(found);
+  }
+  const out = [...dirs].filter((d) => ![...dirs].some((o) => o !== d && inDir(d, o))).sort();
+  return out.length && out.length <= 6 ? out : undefined;
+}
+function tagFilter(functional, other) {
+  const common = functional[0].tags.filter((t) => functional.every((f) => f.tags.includes(t)) && !other.some((o) => o.tags.includes(t)));
+  return common.length ? { tag: common[0] } : undefined;
+}
+function namespaceFor(v, dir) {
+  const ns = v.functional.filter((f) => f.rel.startsWith(`${dir}/`)).map((f) => f.namespace ?? "");
+  if (!ns.length || ns.some((n) => !n))
+    return;
+  let prefix = ns[0].split(".");
+  for (const n of ns) {
+    const p = n.split(".");
+    let i = 0;
+    while (i < prefix.length && prefix[i] === p[i])
+      i++;
+    prefix = prefix.slice(0, i);
+  }
+  return prefix.join(".") || undefined;
+}
+var sq = (s) => /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
+function filteredCmd(adapter, cmd, v, opts = {}) {
+  const f = v.filter;
+  if (!f)
+    return;
+  const dirs = f.dirs;
+  const skip = f.skip?.map((x) => x.rel);
+  const each = (flag, xs) => xs.map((x) => `${flag}${sq(x)}`).join(" ");
+  const reEsc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  switch (adapter) {
+    case "pytest":
+      return dirs ? `${cmd} ${dirs.map(sq).join(" ")}` : skip ? `${cmd} ${each("--ignore=", skip)}` : `${cmd} -m ${sq(f.tag)}`;
+    case "jest":
+      return dirs ? `${cmd} ${dirs.map(sq).join(" ")}` : skip ? `${cmd} ${each("--testPathIgnorePatterns=", skip.map(reEsc))}` : undefined;
+    case "vitest":
+      return dirs ? `${cmd} ${dirs.map(sq).join(" ")}` : skip ? `${cmd} ${each("--exclude ", skip)}` : undefined;
+    case "playwright":
+      return dirs ? `${cmd} ${dirs.map(sq).join(" ")}` : undefined;
+    case "mocha":
+      return dirs ? `${cmd} --recursive ${dirs.map(sq).join(" ")}` : skip ? `${cmd} ${each("--ignore ", skip)}` : undefined;
+    case "go":
+      return dirs ? `${cmd.replace(/\s\.\/\.\.\.$/, "")} ${dirs.map((d) => `./${d}/...`).join(" ")}` : undefined;
+    case "rspec":
+      return dirs ? `${cmd} ${dirs.map(sq).join(" ")}` : skip ? `${cmd} --exclude-pattern ${sq(skip.length > 1 ? `{${skip.join(",")}}` : skip[0])}` : `${cmd} --tag ${sq(f.tag)}`;
+    case "phpunit":
+      return dirs ? dirs.length === 1 ? `${cmd} ${sq(dirs[0])}` : undefined : f.tag ? `${cmd} --group ${sq(f.tag)}` : undefined;
+    case "junit-maven": {
+      if (f.tag)
+        return `${cmd} -Dgroups=${sq(f.tag)}`;
+      const pats = dirs ? dirs.map((d) => d.replace(/^.*?src\/test\/(java|kotlin)\/?/, "")).filter(Boolean).map((p) => `${p}/**/*`) : f.skip.flatMap((x) => x.classes.map((c) => `!${c}`));
+      return pats.length && (!dirs || pats.length === dirs.length) ? `${cmd} -Dtest=${sq(pats.join(","))} -Dsurefire.failIfNoSpecifiedTests=false` : undefined;
+    }
+    case "junit-gradle": {
+      if (!dirs)
+        return;
+      const pk = dirs.map((d) => d.replace(/^.*?src\/test\/(java|kotlin)\/?/, "").replace(/\//g, ".")).filter(Boolean);
+      return pk.length === dirs.length ? `${cmd} ${pk.map((p) => `--tests ${sq(`${p}.*`)}`).join(" ")}` : undefined;
+    }
+    case "dotnet": {
+      if (f.tag)
+        return opts.xunitMtp ? `${cmd} --filter-trait ${sq(f.tag)}` : `${cmd} --filter ${sq(f.tag)}`;
+      if (f.skip) {
+        const fqns = f.skip.flatMap((x) => x.namespace ? x.classes.map((c) => `${x.namespace}.${c}`) : []);
+        if (!fqns.length || f.skip.some((x) => !x.namespace))
+          return;
+        return opts.xunitMtp ? `${cmd} ${each("--filter-not-class ", fqns)}` : `${cmd} --filter ${sq(fqns.map((n) => `FullyQualifiedName!~${n}`).join("&"))}`;
+      }
+      const ns = dirs.map((d) => namespaceFor(v, d));
+      if (ns.some((n) => !n))
+        return;
+      return opts.xunitMtp ? `${cmd} ${ns.map((n) => `--filter-namespace ${sq(`${n}*`)}`).join(" ")}` : `${cmd} --filter ${sq(ns.map((n) => `FullyQualifiedName~${n}`).join("|"))}`;
+    }
+    default:
+      return;
+  }
+}
+function describeFilter(v) {
+  const f = v.filter;
+  if (!f)
+    return "";
+  if (f.dirs)
+    return `runs only folder${f.dirs.length > 1 ? "s" : ""} ${f.dirs.join(", ")}`;
+  if (f.tag)
+    return `runs only tests tagged ${f.tag}`;
+  return `skips ${f.skip.map((x) => x.rel).join(", ")}`;
+}
+var FILTER_FLAG = /\s(--filter\S*|-m|-k|--tests|-Dtest=\S*|-Dgroups=\S*|--group|--tag|-run|--grep|-t|--testPathPattern\S*|--testNamePattern\S*|--exclude\S*|--ignore\S*|--testPathIgnorePatterns\S*|--deselect)(?=[\s=]|$)/;
+function suiteTargets(cwd, cmd) {
+  const words = (shellWords(cmd) ?? cmd.split(/\s+/)).slice(1).filter((w) => w && !w.startsWith("-") && !w.includes("${"));
+  const out = [];
+  for (const w of words) {
+    const abs = path7.resolve(cwd, w.replace(/^--\w+=/, ""));
+    if (!fs7.existsSync(abs) || abs === cwd)
+      continue;
+    if (/\.(sln|slnx)$/.test(abs))
+      continue;
+    out.push(/\.(csproj|fsproj|vbproj)$/.test(abs) ? path7.dirname(abs) : abs);
+  }
+  return out;
+}
+function functionalWarnings(cfg) {
+  const out = [];
+  for (const s of cfg.suites) {
+    const cwd = path7.resolve(cfg.root, s.cwd);
+    const targets = suiteTargets(cwd, s.cmd);
+    if (!targets.length && s.adapter === "generic")
+      continue;
+    const roots = targets.length ? targets : [cwd];
+    const scans = expandArgs(roots, cwd).filter((f) => langOf(f)).slice(0, MAX_SCAN).map((f) => scanFile(cfg.root, path7.relative(cfg.root, f))).filter((f) => !!f);
+    const v = classify(scans, s.name);
+    if (!v.tests)
+      continue;
+    const where = roots.map((r) => path7.relative(cfg.root, r) || ".").join(", ");
+    const fix = "Witness runs functional tests only: give the suite a filter that selects the tests that drive the app over HTTP or in a browser, or remove it";
+    const sample = (xs) => `${xs.slice(0, 3).map((f) => f.rel).join(", ")}${xs.length > 3 ? ", ..." : ""}`;
+    if (v.status === "excluded")
+      out.push({ suite: s.name, files: v.other.map((f) => f.rel), message: `suite ${s.name} looks non-functional: ${v.reason}. Scanned ${v.tests} test file(s) under ${where} (${sample(v.other)}). ${fix}.` });
+    else if (v.status === "mixed" && !FILTER_FLAG.test(` ${s.cmd.replace(/^\s*\S*python\S*\s+-m\s+\S+/, "")}`))
+      out.push({ suite: s.name, files: v.other.map((f) => f.rel), message: `suite ${s.name}: ${v.other.length} of ${v.tests} test files under ${where} don't drive the app (${sample(v.other)}). ${fix}.` });
+  }
+  return out;
+}
+
+// src/output.ts
+var useColor = process.stderr.isTTY && !process.env.NO_COLOR;
+var c = (code) => (s) => useColor ? `\x1B[${code}m${s}\x1B[0m` : s;
+var color = { dim: c("2"), bold: c("1"), red: c("31"), green: c("32"), yellow: c("33") };
+
+class Progress {
+  t0;
+  quiet;
+  lastAt = 0;
+  constructor(t0 = Date.now(), quiet = false) {
+    this.t0 = t0;
+    this.quiet = quiet;
+  }
+  line(msg) {
+    this.lastAt = Date.now();
+    if (this.quiet)
+      return;
+    process.stderr.write(`witness  ${color.dim(`[${fmtClock(Date.now() - this.t0)}]`)} ${msg}
+`);
+  }
+  plain(msg) {
+    if (!this.quiet)
+      process.stderr.write(`witness  ${msg}
+`);
+  }
+}
+function outcomeColor(outcome) {
+  return outcome === "passed" ? color.green : outcome === "failed" ? color.red : color.yellow;
+}
+
+// src/reconcile.ts
+import * as path8 from "node:path";
+var SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
+var cleanId = (adapter, id) => id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id;
+function toRecord(c2, adapter, suite, cwd, obtained = "report") {
+  const file = normFile(c2.file, cwd);
+  const raw = { ...c2, file };
+  const local = adapter.id(raw);
+  const r = { id: stableId(adapter.name, local), name: local, suite, adapter: adapter.name, status: c2.status, durationMs: c2.durationMs, obtained };
+  if (c2.statusDetail)
+    r.statusDetail = c2.statusDetail;
+  else if (c2.status === "failed" && SETUP_FAILURE.test(c2.message ?? ""))
+    r.statusDetail = "error";
+  if (c2.message)
+    r.message = c2.message;
+  if (c2.trace)
+    r.trace = c2.trace;
+  if (file)
+    r.filePath = file;
+  if (c2.retries)
+    r.retries = c2.retries;
+  if (c2.flaky)
+    r.flaky = true;
+  if (c2.attachments?.length)
+    r.attachments = c2.attachments.map((a) => ({ ...a, path: path8.isAbsolute(a.path) ? a.path : path8.join(cwd, a.path) }));
+  return r;
+}
+function dedupe(tests) {
+  const m = new Map;
+  for (const t of tests) {
+    const prev = m.get(t.id);
+    if (!prev) {
+      m.set(t.id, t);
+      continue;
+    }
+    const merged = { ...t, retries: (prev.retries ?? 0) + (t.retries ?? 0) + 1 };
+    if (t.status === "passed" && prev.status === "failed")
+      merged.flaky = true;
+    merged.attachments = [...prev.attachments ?? [], ...t.attachments ?? []];
+    if (!merged.attachments.length)
+      delete merged.attachments;
+    m.set(t.id, merged);
+  }
+  return [...m.values()];
+}
+function summarize(name, state, tests) {
+  const s = { name, state, passed: 0, failed: 0, skipped: 0, error: 0, missing: 0 };
+  for (const t of tests) {
+    if (t.status === "passed")
+      s.passed++;
+    else if (t.status === "skipped" || t.status === "pending")
+      s.skipped++;
+    else if (t.status === "failed" && !t.statusDetail)
+      s.failed++;
+    else if (t.statusDetail === "missing")
+      s.missing++;
+    else
+      s.error++;
+  }
+  return s;
+}
+function suiteLevel(adapter, suite, exitCode, message, exitCodeOnly = false) {
+  const ok = exitCode === 0;
+  const r = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? exitCodeOnly ? "passed" : "other" : "failed", durationMs: 0, obtained: "suite-level", message };
+  if (!exitCodeOnly)
+    r.statusDetail = ok ? "missing" : "error";
+  return r;
+}
+function presentIn(ids, id) {
+  if (ids.has(id))
+    return true;
+  for (const x of ids)
+    if (x.startsWith(`${id}(`) || x.startsWith(`${id} (`) || x.startsWith(`${id}[`))
+      return true;
+  return false;
+}
+function reconcile(inp) {
+  const { adapter, suite, exitCode, end, cwd } = inp;
+  const unreadable = inp.files.filter((f) => f.error);
+  let tests = dedupe(inp.files.flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite, cwd))));
+  const expected = (inp.expected ?? []).map((id) => stableId(adapter.name, cleanId(adapter, id)));
+  if (end === "interrupted" || end === "service_died" || end === "timeout" || end === "stalled") {
+    const have = new Set(tests.map((t) => t.id));
+    for (const id of expected)
+      if (!presentIn(have, id))
+        tests.push(missing(id, adapter, suite, end === "timeout" || end === "stalled" ? "timeout" : "missing"));
+    const state = end === "interrupted" ? "interrupted" : end === "service_died" ? "error" : end === "timeout" ? "timeout" : "stalled";
+    const cause2 = end === "service_died" ? "service_died" : end === "timeout" ? "suite_timeout" : end === "stalled" ? "stalled" : undefined;
+    if (!tests.length && end !== "interrupted")
+      tests = [{ ...suiteLevel(adapter, suite, 1, `suite ${end === "service_died" ? "aborted: a service died" : end}`), statusDetail: end === "service_died" ? "error" : "timeout" }];
+    return { tests, state, cause: cause2 };
+  }
+  if (tests.length) {
+    const have = new Set(tests.map((t) => t.id));
+    const absent = expected.filter((id) => !presentIn(have, id));
+    for (const id of absent)
+      tests.push(missing(id, adapter, suite, "missing"));
+    const failed = tests.filter((t) => t.status === "failed");
+    if (failed.length && failed.every((t) => t.statusDetail === "error")) {
+      const lines = (failed[0].message ?? "").split(`
+`).map((l) => l.replace(/^[-\s]+/, "").trim()).filter(Boolean);
+      const inner = lines.slice(1).find((l) => /exception|error|did not|timed? ?out|refused|not found/i.test(l));
+      return { tests, state: "error", cause: "setup_failed", note: `${failed.length} test(s) errored in fixture setup; none failed its own checks`, evidence: [lines[0], inner].filter(Boolean).join(" · ").slice(0, 500), hint: "a test fixture's setup failed (it starts a browser, app, container or database), so no test ran its own checks: fix what the fixture needs, then run the suite again" };
+    }
+    if (failed.length)
+      return { tests, state: "failed", note: unreadable.length ? `${unreadable.length} report file(s) unreadable` : undefined };
+    if (exitCode !== 0)
+      return { tests, state: "error", cause: "report_incomplete", note: `exit code ${exitCode} but the report shows no failures` };
+    if (absent.length)
+      return { tests, state: "error", cause: "report_incomplete", note: `${absent.length} expected test(s) missing from the report` };
+    if (unreadable.length)
+      return { tests, state: "error", cause: "report_unreadable", note: `${unreadable.length} report file(s) unreadable: ${unreadable[0].error}` };
+    if (tests.every((t) => t.status === "skipped" || t.status === "pending"))
+      return { tests, state: "error", cause: "report_incomplete", note: `all ${tests.length} test(s) were skipped; nothing was checked`, hint: "every test was skipped: look for a skip condition that fired (a fixture that skips when the app or a dependency is unreachable, a missing marker or env var)" };
+    return { tests, state: "passed" };
+  }
+  if (inp.exitCodeOnly) {
+    return { tests: [suiteLevel(adapter, suite, exitCode, `exit code ${exitCode}`, true)], state: exitCode === 0 ? "passed" : "failed" };
+  }
+  const cause = unreadable.length ? "report_unreadable" : "report_missing";
+  const note = unreadable.length ? `report unreadable: ${unreadable[0].error}` : inp.files.length ? "report lists no tests" : "no report written";
+  if (expected.length)
+    return { tests: [], state: "error", cause, note, rerun: expected.map((id) => cleanId(adapter, id.slice(adapter.name.length + 1))) };
+  return { tests: [suiteLevel(adapter, suite, exitCode, `${note}; exit code ${exitCode}`)], state: "error", cause, note };
+}
+function missing(id, adapter, suite, detail, message) {
+  return { id, name: id.slice(adapter.name.length + 1), suite, adapter: adapter.name, status: "other", statusDetail: detail, durationMs: 0, obtained: "report", message: message ?? (detail === "timeout" ? "did not finish before the suite was stopped" : "expected but absent from the report") };
+}
+function fromReruns(results, adapter, suite, cwd, originalExit, cause) {
+  const tests = [];
+  for (const r of results) {
+    const sid = stableId(adapter.name, r.id);
+    const cases = r.files.flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite, cwd, "per-test-rerun")));
+    const exact = cases.find((c2) => c2.id === sid);
+    const params = cases.filter((c2) => presentIn(new Set([c2.id]), sid));
+    const hit = exact ?? (params.length ? { ...params[0], id: sid, status: params.some((c2) => c2.status === "failed") ? "failed" : params[0].status } : cases.length === 1 ? { ...cases[0], id: sid } : undefined);
+    if (hit)
+      tests.push(hit);
+    else if (r.timedOut || r.exitCode !== 0) {
+      const t = { id: sid, name: r.id, suite, adapter: adapter.name, status: "failed", durationMs: 0, obtained: "per-test-rerun", message: r.timedOut ? "timed out when run alone" : `run alone: exit code ${r.exitCode}` };
+      if (r.timedOut)
+        t.statusDetail = "timeout";
+      tests.push(t);
+    } else {
+      tests.push({ id: sid, name: r.id, suite, adapter: adapter.name, status: "other", statusDetail: "missing", durationMs: 0, obtained: "per-test-rerun", message: "run alone: exit code 0 but the test is not in its report (the filter may have matched nothing)" });
+    }
+  }
+  const failed = tests.some((t) => t.status === "failed");
+  if (failed)
+    return { tests, state: "failed", cause, note: "suite report unusable; tests rerun one by one" };
+  if (tests.some((t) => t.status === "other"))
+    return { tests, state: "error", cause, note: "suite report unusable; some tests rerun alone are missing from their reports" };
+  if (originalExit !== 0)
+    return { tests, state: "error", cause: "report_incomplete", note: `suite exited ${originalExit} without a usable report, but each test passes alone` };
+  return { tests, state: "passed", cause, note: "suite report unusable; tests rerun one by one" };
+}
+var RANK = { passed: 0, failed: 1, error: 2, stalled: 3, mistrial: 4, interrupted: 5 };
+function worst(a, b) {
+  return RANK[b] > RANK[a] ? b : a;
+}
+function suiteOutcome(s) {
+  switch (s.state) {
+    case "passed":
+    case "skipped":
+      return "passed";
+    case "failed":
+      return "failed";
+    case "stalled":
+    case "timeout":
+      return "stalled";
+    case "interrupted":
+      return "interrupted";
+    case "error":
+      return s.cause === "service_died" ? "mistrial" : "error";
+    default:
+      return "error";
+  }
+}
+var EXIT = { passed: 0, failed: 1, error: 2, mistrial: 3, stalled: 4, interrupted: 5 };
+function applyParity(target, origin) {
+  const o = new Map(origin.map((t) => [t.id, t]));
+  const counts = { same: 0, differs: 0, origin_only: 0, target_only: 0 };
+  const out = target.map((t) => {
+    const ot = o.get(t.id);
+    o.delete(t.id);
+    if (!ot) {
+      counts.target_only++;
+      return { ...t, parity: "target_only" };
+    }
+    const p = ot.status === t.status ? "same" : "differs";
+    counts[p]++;
+    return { ...t, parity: p, originStatus: ot.status };
+  });
+  for (const ot of o.values()) {
+    if (ot.obtained === "suite-level")
+      continue;
+    counts.origin_only++;
+    out.push({ id: ot.id, name: ot.name, suite: ot.suite, adapter: ot.adapter, status: "other", statusDetail: "missing", durationMs: 0, obtained: ot.obtained, filePath: ot.filePath, parity: "origin_only", originStatus: ot.status, message: "present on the origin, absent on the target" });
+  }
+  return { tests: out, counts };
+}
+
+// src/rundir.ts
+import { spawnSync as spawnSync2 } from "node:child_process";
+import * as fs8 from "node:fs";
+import * as path9 from "node:path";
+function newRunId(now = new Date) {
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return `r-${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}-${randHex(4)}`;
+}
+
+class RunDir {
+  dir;
+  root;
+  status;
+  state;
+  constructor(root, runId, init) {
+    this.root = root;
+    this.dir = path9.join(root, runId);
+    fs8.mkdirSync(path9.join(this.dir, "logs"), { recursive: true });
+    fs8.mkdirSync(path9.join(this.dir, "reports"), { recursive: true });
+    const now = new Date().toISOString();
+    this.status = { run_id: runId, phase: "starting", started_at: now, suites: [], last_event: "run started", pid: process.pid, ...init };
+    this.state = { pid: process.pid, started_at: now, procs: [], ports: {}, worktrees: [] };
+    this.saveStatus();
+    this.saveState();
+    this.event("run_started", { label: init.label, commit: init.commit });
+  }
+  get runId() {
+    return this.status.run_id;
+  }
+  file(...p) {
+    return path9.join(this.dir, ...p);
+  }
+  saveStatus() {
+    writeJson(this.file("status.json"), this.status);
+  }
+  saveState() {
+    writeJson(this.file("state.json"), this.state);
+  }
+  event(type, data = {}, lastEvent) {
+    fs8.appendFileSync(this.file("events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type, ...data }) + `
+`);
+    if (lastEvent) {
+      this.status.last_event = lastEvent;
+      this.saveStatus();
+    }
+  }
+  setPhase(phase, lastEvent) {
+    this.status.phase = phase;
+    this.status.last_event = lastEvent;
+    this.saveStatus();
+    this.event("phase", { phase });
+  }
+  track(p) {
+    this.state.procs.push(p);
+    this.saveState();
+  }
+  untrack(pgid) {
+    this.state.procs = this.state.procs.filter((p) => p.pgid !== pgid);
+    this.saveState();
+  }
+  tracker(kind, name) {
+    return (pgid, running) => running ? this.track({ kind, name, pid: pgid, pgid }) : this.untrack(pgid);
+  }
+  linkLatest() {
+    const link = path9.join(this.root, "latest");
+    try {
+      fs8.rmSync(link, { force: true });
+      fs8.symlinkSync(this.status.run_id, link);
+    } catch {
+      fs8.writeFileSync(link, this.status.run_id);
+    }
+  }
+}
+function resolveRun(root, id) {
+  const which = !id || id === "latest" ? "latest" : id;
+  const p = path9.join(root, which);
+  try {
+    const st = fs8.lstatSync(p);
+    if (st.isSymbolicLink())
+      return path9.join(root, fs8.readlinkSync(p));
+    if (st.isFile())
+      return path9.join(root, fs8.readFileSync(p, "utf8").trim());
+    if (st.isDirectory())
+      return p;
+  } catch {
+    if (which === "latest") {
+      const runs = listRuns(root);
+      return runs.length ? path9.join(root, runs[runs.length - 1]) : null;
+    }
+  }
+  return null;
+}
+function listRuns(root) {
+  try {
+    return fs8.readdirSync(root).filter((d) => /^r-\d{8}-\d{6}-[0-9a-f]{4}$/.test(d) && fs8.existsSync(path9.join(root, d, "status.json"))).sort();
+  } catch {
+    return [];
+  }
+}
+async function reapStale(root, graceMs, log) {
+  const reaped = [];
+  for (const id of listRuns(root)) {
+    const dir = path9.join(root, id);
+    const status = readJson(path9.join(dir, "status.json"), null);
+    const state = readJson(path9.join(dir, "state.json"), null);
+    if (!status || status.phase === "finished" || !state || state.pid === process.pid || pidAlive(state.pid))
+      continue;
+    const fresh = Date.now() - Date.parse(state.started_at) < 24 * 3600000;
+    let killed = 0;
+    if (fresh) {
+      for (const p of state.procs)
+        if (await killTracked(p, graceMs))
+          killed++;
+    }
+    for (const wt of state.worktrees ?? [])
+      removeWorktree(wt);
+    status.phase = "finished";
+    status.outcome = "interrupted";
+    status.finished_at = new Date().toISOString();
+    status.last_event = `reaped: witness (pid ${state.pid}) exited without finishing${killed ? `; killed ${killed} leftover process group(s)` : ""}`;
+    writeJson(path9.join(dir, "status.json"), status);
+    fs8.appendFileSync(path9.join(dir, "events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type: "reaped", by: process.pid, killed }) + `
+`);
+    state.procs = [];
+    writeJson(path9.join(dir, "state.json"), state);
+    log(`reaped stale run ${id}${killed ? ` (killed ${killed} leftover process group(s))` : ""}`);
+    reaped.push(id);
+  }
+  return reaped;
+}
+async function killTracked(p, graceMs, opts = {}) {
+  let hit = false;
+  const pid = p.pidfile ? Number(readText(p.pidfile)) : 0;
+  if (p.stop && opts.runStop !== false && (pidAlive(pid) || groupAlive(p.pgid))) {
+    spawnSync2("bash", ["-c", p.stop], { cwd: p.cwd, stdio: "ignore", timeout: 60000 });
+    hit = true;
+  }
+  if (pid > 1 && pidAlive(pid)) {
+    try {
+      process.kill(pid, graceMs ? "SIGTERM" : "SIGKILL");
+    } catch {}
+    const until = Date.now() + graceMs;
+    while (pidAlive(pid) && Date.now() < until)
+      await new Promise((r) => setTimeout(r, 100));
+    if (pidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+    hit = true;
+  }
+  if (groupAlive(p.pgid)) {
+    await killGroup(p.pgid, graceMs);
+    hit = true;
+  }
+  return hit;
+}
+function readText(f) {
+  try {
+    return fs8.readFileSync(f, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+function removeWorktree(wt) {
+  const common = git(wt, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (common.ok)
+    spawnSync2("git", ["--git-dir", common.out, "worktree", "remove", "--force", wt]);
+  fs8.rmSync(wt, { recursive: true, force: true });
+  if (common.ok)
+    spawnSync2("git", ["--git-dir", common.out, "worktree", "prune"]);
+}
+function pruneRuns(root, keep) {
+  const runs = listRuns(root);
+  for (const id of runs.slice(0, Math.max(0, runs.length - keep))) {
+    const st = readJson(path9.join(root, id, "status.json"), null);
+    if (st && st.phase !== "finished")
+      continue;
+    fs8.rmSync(path9.join(root, id), { recursive: true, force: true });
+  }
+}
+
+class LockError extends Error {
+}
+function acquireLock(file) {
+  fs8.mkdirSync(path9.dirname(file), { recursive: true });
+  for (let attempt = 0;attempt < 2; attempt++) {
+    try {
+      const fd = fs8.openSync(file, "wx");
+      fs8.writeSync(fd, String(process.pid));
+      fs8.closeSync(fd);
+      return () => {
+        try {
+          if (fs8.readFileSync(file, "utf8").trim() === String(process.pid))
+            fs8.rmSync(file, { force: true });
+        } catch {}
+      };
+    } catch (e) {
+      if (e.code !== "EEXIST")
+        throw e;
+      const pid = Number(fs8.readFileSync(file, "utf8").trim());
+      if (pidAlive(pid) && pid !== process.pid)
+        throw new LockError(`another witness run (pid ${pid}) is using this checkout; wait for it or stop it (lock: ${file})`);
+      fs8.rmSync(file, { force: true });
+    }
+  }
+  throw new LockError(`could not take the lock ${file}`);
+}
+
+// src/run.ts
+import * as fs12 from "node:fs";
+import * as os from "node:os";
+import * as path12 from "node:path";
+
+// src/ctrf.ts
+var SCHEMA = "witness.run/v1";
+var VERSION = "1.0.0-mvp";
+function runSource() {
+  const s = process.env.WITNESS_SOURCE;
+  if (s === "morph" || s === "ci" || s === "local")
+    return s;
+  return process.env.CI && process.env.CI !== "false" ? "ci" : "local";
+}
+function buildCtrf(meta, tests) {
+  const summary = { tests: tests.length, passed: 0, failed: 0, skipped: 0, pending: 0, other: 0, start: meta.startedAt, stop: meta.finishedAt };
+  for (const t of tests)
+    summary[t.status]++;
+  const witness = {
+    schema: SCHEMA,
+    version: VERSION,
+    run_id: meta.runId,
+    outcome: meta.outcome,
+    commit: meta.commit,
+    branch: meta.branch,
+    dirty: meta.dirty,
+    source: runSource(),
+    started_at: new Date(meta.startedAt).toISOString(),
+    finished_at: new Date(meta.finishedAt).toISOString()
+  };
+  if (meta.label)
+    witness.label = meta.label;
+  if (meta.against)
+    witness.against = meta.against;
+  if (meta.diagnosis)
+    witness.diagnosis = meta.diagnosis;
+  return {
+    reportFormat: "CTRF",
+    specVersion: "0.0.0",
+    results: {
+      tool: { name: "witness", version: VERSION, extra: { adapters: meta.adapters } },
+      summary,
+      tests: tests.map((t) => {
+        const w = { id: t.id, suite: t.suite, adapter: t.adapter, obtained: t.obtained };
+        if (meta.kinds?.[t.suite])
+          w.kind = meta.kinds[t.suite];
+        if (t.statusDetail)
+          w.status_detail = t.statusDetail;
+        if (t.parity)
+          w.parity = t.parity;
+        if (t.originStatus)
+          w.origin_status = t.originStatus;
+        const o = { name: t.name, status: t.status, duration: t.durationMs };
+        if (t.message)
+          o.message = t.message;
+        if (t.trace)
+          o.trace = t.trace;
+        if (t.filePath)
+          o.filePath = t.filePath;
+        o.suite = t.suite;
+        if (t.retries)
+          o.retries = t.retries;
+        if (t.flaky)
+          o.flaky = true;
+        o.extra = { witness: w };
+        return o;
+      }),
+      extra: { witness }
+    }
+  };
+}
+
+// src/stack.ts
+import * as fs9 from "node:fs";
+import * as path10 from "node:path";
+class Failure extends Error {
+  diagnosis;
+  constructor(d) {
+    super(`${d.cause}${d.evidence ? `: ${d.evidence}` : ""}`);
+    this.diagnosis = d;
+  }
+}
+var SETUP_TIMEOUT = 30 * 60000;
+var upFile = (root) => path10.join(root, ".witness", "up.json");
+function readUp2(root) {
+  return readJson(upFile(root), null);
+}
+
+class Stack {
+  o;
+  live = new Map;
+  depsStarted = [];
+  taken = new Set;
+  constructor(o) {
+    this.o = o;
+  }
+  vars(self) {
+    const v = { ...this.o.baseEnv, CHECKOUT: this.o.root };
+    if (this.o.runDirPath)
+      v.WITNESS_RUN_DIR = this.o.runDirPath;
+    for (const [n, l] of this.live)
+      v[`${n}.url`] = l.url;
+    if (self) {
+      v["self.url"] = self.url;
+      if (self.port)
+        v.PORT = String(self.port);
+    }
+    return v;
+  }
+  serviceUrlEnv() {
+    const e = {};
+    for (const [n, l] of this.live)
+      e[`WITNESS_${n.toUpperCase().replace(/-/g, "_")}_URL`] = l.url;
+    return e;
+  }
+  fail(stage, cause, extra = {}) {
+    throw new Failure(diagnose({ stage, cause, ...extra }));
+  }
+  async checkDep(d) {
+    if (d.checkHttp)
+      return httpProbe(substitute(d.checkHttp, this.vars()), undefined, 5000);
+    const r = await runCapture(substitute(d.check, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 15000 });
+    const last = r.out.trim().split(`
+`).pop() ?? "";
+    return { ok: r.code === 0, detail: r.timedOut ? "check timed out" : last || `exit code ${r.code}` };
+  }
+  async checkDeps(deps = this.o.cfg.dependencies) {
+    for (const d of deps) {
+      const t0 = Date.now();
+      let r = await this.checkDep(d);
+      if (r.ok) {
+        this.o.progress.line(`deps   ${d.name} · ok`);
+        continue;
+      }
+      const log = path10.join(this.o.logDir, `dep-${d.name}.log`);
+      if (d.start && !this.o.reuse?.deps_started.includes(d.name)) {
+        this.o.progress.line(`deps   ${d.name} · not reachable (${r.detail}); starting it`);
+        const s = await runCapture(substitute(d.start, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: d.timeoutMs, log, abort: this.o.abort, track: this.o.run?.tracker("dependency", d.name) });
+        if (this.o.abort.aborted)
+          return;
+        if (s.code !== 0)
+          this.fail("deps", "dependency_unreachable", { command: d.start, log, evidence: s.out.trim().split(`
+`).pop() });
+        this.depsStarted.push(d);
+        const until = Date.now() + d.timeoutMs;
+        while (Date.now() < until && !this.o.abort.aborted) {
+          r = await this.checkDep(d);
+          if (r.ok)
+            break;
+          await sleep(1000);
+        }
+      }
+      if (!r.ok)
+        this.fail("deps", "dependency_unreachable", { command: d.check ?? `curl ${d.checkHttp}`, evidence: `${d.name}: ${r.detail}`, log: fs9.existsSync(log) ? log : undefined });
+      this.o.progress.line(`deps   ${d.name} · ok (${fmtDuration(Date.now() - t0)})`);
+    }
+  }
+  async boot(names, as = new Map) {
+    for (const svc of topoOrder(this.o.cfg.services, names)) {
+      if (this.o.abort.aborted)
+        return;
+      const alias = as.get(svc.name) ?? svc.name;
+      if (this.live.has(alias))
+        continue;
+      await this.bootOne(svc, alias);
+    }
+  }
+  async bootOne(svc, alias) {
+    const t0 = Date.now();
+    const cwd = path10.resolve(this.o.root, svc.cwd);
+    const log = path10.join(this.o.logDir, `${svc.name}.log`);
+    const prev = this.o.reuse?.services[svc.name];
+    if (prev && this.o.reuse?.root === this.o.root && (prev.external || prev.pgid && groupAlive(prev.pgid) || prev.pid && pidAlive(prev.pid))) {
+      const ls2 = { name: alias, svc, port: prev.port, url: prev.url, pgid: prev.pgid, pid: prev.pid, log: prev.log, ownedByUs: false, probeFailures: 0, lastProbe: 0 };
+      if ((await this.probe(ls2)).ok) {
+        this.live.set(alias, ls2);
+        if (prev.port)
+          this.taken.add(prev.port);
+        this.o.progress.line(`boot   ${svc.name} · reusing the service from \`witness up\` at ${ls2.url}`);
+        return;
+      }
+    }
+    if (svc.external) {
+      const ls2 = { name: alias, svc, url: svc.external.replace(/\/$/, ""), log, ownedByUs: false, probeFailures: 0, lastProbe: 0 };
+      await this.waitReady(ls2, cwd, true);
+      this.live.set(alias, ls2);
+      this.o.progress.line(`boot   ${svc.name} · external ${ls2.url} is ready`);
+      return;
+    }
+    const alloc = await allocatePort(svc.ports, this.taken);
+    if (!alloc.port)
+      this.fail("boot", "port_in_use", { service: svc.name, evidence: alloc.tried, port: svc.ports?.[0] });
+    this.taken.add(alloc.port);
+    this.o.run?.state && (this.o.run.state.ports[svc.name] = alloc.port);
+    const ls = { name: alias, svc, port: alloc.port, url: `http://127.0.0.1:${alloc.port}`, log, ownedByUs: true, probeFailures: 0, lastProbe: 0 };
+    const vars = this.vars(ls);
+    const env = childEnv(this.o.baseEnv, { PORT: String(alloc.port), ...this.serviceUrlEnv(), ...mapValues(svc.env, (v) => substitute(v, vars)) });
+    if (svc.setup)
+      await this.setup(svc, cwd, env, vars, log);
+    if (this.o.abort.aborted)
+      return;
+    const readyUrl = svc.ready?.http ? substitute(svc.ready.http, vars) : undefined;
+    const held = readyUrl ? await heldReadyPort(readyUrl, alloc.port) : undefined;
+    if (held)
+      this.fail("boot", "port_in_use", { service: svc.name, port: held, url: readyUrl, evidence: `port ${held} (in ready.http ${readyUrl}) already accepts connections before ${svc.name} started: another process holds it, so the readiness check would talk to that process` });
+    const cmd = substitute(svc.start, vars);
+    const proc = spawnGroup(cmd, { name: svc.name, cwd, env, log });
+    ls.proc = proc;
+    ls.pgid = proc.pgid;
+    this.live.set(alias, ls);
+    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path10.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop ? substitute(svc.stop, vars) : undefined, cwd });
+    this.o.run?.event("service_started", { service: svc.name, pid: proc.pid, port: alloc.port, cmd }, `starting ${svc.name}`);
+    this.o.progress.line(`boot   ${svc.name} · starting (PORT=${alloc.port}${readyUrl ? `, ready check ${readyUrl}` : ""})`);
+    try {
+      await this.waitReady(ls, cwd, false, cmd);
+    } catch (e) {
+      this.live.delete(alias);
+      await this.stopOne(ls);
+      throw e;
+    }
+    if (this.o.abort.aborted)
+      return;
+    this.o.run?.event("service_ready", { service: svc.name, url: ls.url, ms: Date.now() - t0 }, `${svc.name} ready`);
+    this.o.progress.line(`boot   ${svc.name} · ready at ${ls.url} (${fmtDuration(Date.now() - t0)})`);
+  }
+  async setup(svc, cwd, env, vars, log) {
+    const cmd = substitute(svc.setup, vars);
+    if (this.o.noSetup) {
+      this.o.progress.line(`setup  ${svc.name} · skipped (--no-setup)`);
+      return;
+    }
+    const hash = this.o.setupCacheDir ? setupInputsHash(cwd, cmd) : null;
+    const cacheFile = this.o.setupCacheDir ? path10.join(this.o.setupCacheDir, `${svc.name}.json`) : null;
+    if (hash && cacheFile && readJson(cacheFile, {}).hash === hash) {
+      this.o.progress.line(`setup  ${svc.name} · skipped (inputs unchanged since the last successful setup)`);
+      return;
+    }
+    const t0 = Date.now();
+    this.o.progress.line(`setup  ${svc.name} · ${cmd}`);
+    this.o.run?.event("setup_started", { service: svc.name, cmd }, `setup ${svc.name}`);
+    const proc = spawnGroup(cmd, { name: `setup-${svc.name}`, cwd, env, log });
+    this.o.run?.track({ kind: "setup", name: svc.name, pid: proc.pid, pgid: proc.pgid });
+    const timer = setTimeout(() => void killGroup(proc.pgid, this.o.cfg.run.graceMs), SETUP_TIMEOUT);
+    const abortPoll = setInterval(() => this.o.abort.aborted && void killGroup(proc.pgid, this.o.cfg.run.graceMs), 200);
+    const { code } = await proc.exit;
+    clearTimeout(timer);
+    clearInterval(abortPoll);
+    this.o.run?.untrack(proc.pgid);
+    if (this.o.abort.aborted)
+      return;
+    if (code !== 0)
+      this.fail("boot", "setup_failed", { service: svc.name, command: cmd, log, cwd: svc.cwd });
+    if (hash && cacheFile)
+      writeJson(cacheFile, { hash, at: new Date().toISOString() });
+    this.o.progress.line(`setup  ${svc.name} · done (${fmtDuration(Date.now() - t0)})`);
+  }
+  async waitReady(ls, cwd, external, cmd) {
+    const svc = ls.svc;
+    const timeoutMs = svc.ready?.timeoutMs ?? 120000;
+    const until = Date.now() + timeoutMs;
+    const pidfile = svc.pidfile ? path10.resolve(cwd, substitute(svc.pidfile, this.vars(ls))) : undefined;
+    let delay = 200;
+    let last = "";
+    let steady;
+    const steadyAfter = Math.min(30000, timeoutMs / 2);
+    const exitedFail = () => this.fail("boot", "exited_before_ready", { service: svc.name, command: cmd, log: ls.log, cwd: svc.cwd, port: ls.port, evidence: undefined });
+    for (;; ) {
+      if (this.o.abort.aborted)
+        return;
+      if (pidfile && !ls.pid && fs9.existsSync(pidfile)) {
+        const pid = Number(fs9.readFileSync(pidfile, "utf8").trim());
+        if (pid > 0)
+          ls.pid = pid;
+      }
+      if (!external) {
+        if (pidfile) {
+          if (ls.pid && !pidAlive(ls.pid))
+            exitedFail();
+          if (!ls.pid && ls.proc?.exited && ls.proc.code !== 0)
+            exitedFail();
+        } else if (ls.proc?.exited)
+          exitedFail();
+      }
+      const r = await this.probe(ls);
+      if (r.ok)
+        return;
+      last = r.detail;
+      const http4xx = /^HTTP (4\d\d)$/.exec(r.detail);
+      const now = Date.now();
+      if (!http4xx)
+        steady = undefined;
+      else if (steady?.status !== Number(http4xx[1]))
+        steady = { status: Number(http4xx[1]), since: now };
+      const stuck = steady && now - steady.since >= steadyAfter;
+      if (now > until || stuck) {
+        const url = svc.ready?.http ? substitute(svc.ready.http, this.vars(ls)) : external ? ls.url : undefined;
+        const evidence = stuck ? `${url ?? "the ready URL"} answered HTTP ${steady.status} for ${fmtDuration(now - steady.since)}: the app is up but this URL is not its health check` : `not ready after ${fmtDuration(timeoutMs)}: ${last}`;
+        this.fail("boot", "ready_timeout", { service: svc.name, command: svc.ready?.cmd ?? cmd, log: external ? undefined : ls.log, url, port: ls.port, evidence, cwd: svc.cwd, steadyStatus: stuck ? steady.status : undefined });
+      }
+      await sleep(delay);
+      delay = Math.min(delay * 1.5, 1000);
+    }
+  }
+  async probe(ls) {
+    const r = ls.svc.ready;
+    if (!r) {
+      if (!ls.svc.external)
+        return { ok: false, detail: "no readiness check configured" };
+      const h = await httpProbe(ls.url);
+      return /^HTTP [1-4]\d\d$/.test(h.detail) ? { ok: true, detail: h.detail } : h;
+    }
+    const vars = this.vars(ls);
+    if (r.http)
+      return httpProbe(substitute(r.http, vars), r.status);
+    const env = childEnv(this.o.baseEnv, { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv(), ...mapValues(ls.svc.env, (v) => substitute(v, vars)) });
+    const res = await runCapture(substitute(r.cmd, vars), { cwd: path10.resolve(this.o.root, ls.svc.cwd), env, timeoutMs: 1e4 });
+    return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split(`
+`).pop() || `exit code ${res.code}` };
+  }
+  async watch() {
+    const now = Date.now();
+    for (const ls of this.live.values()) {
+      let dead = "";
+      if (ls.ownedByUs && ls.proc && !ls.svc.pidfile && ls.proc.exited)
+        dead = `exited with code ${ls.proc.code}`;
+      else if (ls.pid && !pidAlive(ls.pid))
+        dead = `pid ${ls.pid} is gone`;
+      else if (!ls.ownedByUs && ls.pgid && !groupAlive(ls.pgid))
+        dead = "process group is gone";
+      if (!dead && (ls.svc.ready || ls.svc.external) && now - ls.lastProbe >= 5000) {
+        ls.lastProbe = now;
+        const r = await this.probe(ls);
+        ls.probeFailures = r.ok ? 0 : ls.probeFailures + 1;
+        if (ls.probeFailures >= 3)
+          dead = `readiness check failed 3 times in a row (${r.detail})`;
+      }
+      if (dead) {
+        const d = diagnose({ stage: "suite", cause: "service_died", service: ls.svc.name, log: fs9.existsSync(ls.log) ? ls.log : undefined, cwd: ls.svc.cwd });
+        if (!d.evidence || d.cause === "service_died")
+          d.evidence = d.evidence ? `${dead}; last log line: ${d.evidence}` : dead;
+        return d;
+      }
+    }
+    return null;
+  }
+  async stopOne(ls) {
+    if (!ls.ownedByUs)
+      return;
+    const grace = this.o.cfg.run.graceMs;
+    if (ls.svc.stop) {
+      const cwd = path10.resolve(this.o.root, ls.svc.cwd);
+      const r = await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? "") }), timeoutMs: 60000, log: ls.log });
+      if (r.code !== 0)
+        this.o.progress.line(`stop   ${ls.svc.name} · stop command failed (exit ${r.code ?? "timeout"}); killing its processes; see ${ls.log}`);
+    }
+    if (ls.pid && pidAlive(ls.pid)) {
+      try {
+        process.kill(ls.pid, "SIGTERM");
+      } catch {}
+      const until = Date.now() + grace;
+      while (pidAlive(ls.pid) && Date.now() < until)
+        await sleep(100);
+      if (pidAlive(ls.pid)) {
+        try {
+          process.kill(ls.pid, "SIGKILL");
+        } catch {}
+      }
+    }
+    if (ls.pgid) {
+      await killGroup(ls.pgid, grace);
+      this.o.run?.untrack(ls.pgid);
+    }
+  }
+  async teardown(opts = {}) {
+    for (const ls of [...this.live.values()].reverse())
+      await this.stopOne(ls);
+    this.live.clear();
+    if (opts.keepDeps)
+      return;
+    for (const d of this.depsStarted.reverse()) {
+      if (!d.stop)
+        continue;
+      this.o.progress.line(`deps   ${d.name} · stopping`);
+      const log = path10.join(this.o.logDir, `dep-${d.name}.log`);
+      const r = await runCapture(substitute(d.stop, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 120000, log });
+      if (r.code !== 0)
+        this.o.progress.line(`deps   ${d.name} · stop command failed (exit ${r.code ?? "timeout"}); it may still be running; see ${log}`);
+    }
+    this.depsStarted = [];
+  }
+}
+var LOCAL = new Set(["127.0.0.1", "localhost", "0.0.0.0", "[::1]", "::1"]);
+async function heldReadyPort(url, allocated) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return;
+  }
+  const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
+  if (port === allocated || !LOCAL.has(u.hostname))
+    return;
+  return await portAnswers(u.hostname === "localhost" || u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, ""), port) ? port : undefined;
+}
+function mapValues(o, f) {
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)]));
+}
+function setupInputsHash(cwd, cmd) {
+  const top = git(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!top.ok)
+    return null;
+  const head = git(cwd, ["rev-parse", "HEAD:./"]);
+  const diff = git(cwd, ["diff", "HEAD", "--", ".", ":(exclude).witness"]);
+  const untracked = git(cwd, ["ls-files", "--others", "--exclude-standard", "--", ".", ":(exclude).witness"]);
+  if (!head.ok || !diff.ok || !untracked.ok)
+    return null;
+  const stamps = untracked.out.split(`
+`).filter(Boolean).slice(0, 5000).map((f) => {
+    try {
+      const p = path10.join(cwd, f);
+      const st = fs9.statSync(p);
+      return st.size < 1024 * 1024 ? `${f}:${sha(fs9.readFileSync(p))}` : `${f}:${st.size}`;
+    } catch {
+      return f;
+    }
+  }).join(`
+`);
+  return sha([cmd, head.out, diff.out, stamps].join("\x00"));
+}
+
+// src/suite.ts
+import * as fs11 from "node:fs";
+import * as path11 from "node:path";
+
+// src/parsers/index.ts
+import * as fs10 from "node:fs";
+
+// src/parsers/types.ts
+class ReportError extends Error {
+}
+
+// src/parsers/gotest.ts
+function parseGoJson(text) {
+  const tests = new Map;
+  const pkgOut = new Map;
+  const pkgEnd = new Map;
+  let events = 0;
+  for (const line of text.split(/\r?\n/)) {
+    const l = line.trim();
+    if (!l.startsWith("{"))
+      continue;
+    let e;
+    try {
+      e = JSON.parse(l);
+    } catch {
+      continue;
+    }
+    if (!e.Action)
+      continue;
+    events++;
+    const pkg = e.Package ?? "";
+    if (!e.Test) {
+      if (e.Action === "output")
+        (pkgOut.get(pkg) ?? pkgOut.set(pkg, []).get(pkg)).push(e.Output ?? "");
+      else if (["pass", "fail", "skip"].includes(e.Action))
+        pkgEnd.set(pkg, e.Action);
+      continue;
+    }
+    const key = `${pkg}#${e.Test}`;
+    let t = tests.get(key);
+    if (!t) {
+      t = { name: e.Test, classname: pkg, status: "other", durationMs: 0, out: [], done: false };
+      tests.set(key, t);
+    }
+    if (e.Action === "output")
+      t.out.push(e.Output ?? "");
+    else if (e.Action === "pass" || e.Action === "fail" || e.Action === "skip") {
+      t.status = e.Action === "pass" ? "passed" : e.Action === "fail" ? "failed" : "skipped";
+      t.durationMs = Math.round((e.Elapsed ?? 0) * 1000);
+      t.done = true;
+    }
+  }
+  if (events === 0)
+    throw new ReportError("no go test -json events found");
+  const out = [];
+  for (const t of tests.values()) {
+    const { out: lines, done, ...c2 } = t;
+    if (!done) {
+      c2.status = "failed";
+      c2.statusDetail = /panic: test timed out/.test((pkgOut.get(c2.classname) ?? []).join("")) ? "timeout" : "error";
+      c2.message = "test started but never finished (binary crashed, timed out or was killed)";
+    }
+    if (c2.status === "failed") {
+      const body = lines.filter((x) => !/^(=== |--- |\s*$)/.test(x)).join("");
+      c2.message = c2.message ?? (body.trim().split(`
+`)[0]?.trim().slice(0, 2000) || undefined);
+      if (body.trim())
+        c2.trace = body.slice(0, 20000);
+    }
+    out.push(c2);
+  }
+  for (const [pkg, end] of pkgEnd) {
+    const has2 = out.some((c2) => c2.classname === pkg);
+    if (end === "fail" && !out.some((c2) => c2.classname === pkg && c2.status === "failed")) {
+      const body = (pkgOut.get(pkg) ?? []).join("");
+      out.push({ name: "(package)", classname: pkg, status: "failed", statusDetail: "error", durationMs: 0, message: has2 ? "package failed outside any test" : "package failed to build or run", trace: body.slice(0, 20000) || undefined });
+    }
+  }
+  return out;
+}
+
+// src/parsers/jest.ts
+var MAP = { passed: "passed", failed: "failed", pending: "skipped", skipped: "skipped", disabled: "skipped", todo: "pending", focused: "passed" };
+var stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
+function parseJestJson(json, cwd) {
+  const doc = json;
+  if (!doc || typeof doc !== "object" || !Array.isArray(doc.testResults))
+    throw new ReportError("not a Jest JSON report (no testResults)");
+  const out = [];
+  for (const f of doc.testResults) {
+    const file = f.name && cwd && f.name.startsWith(cwd + "/") ? f.name.slice(cwd.length + 1) : f.name;
+    const asserts = f.assertionResults ?? [];
+    if (!asserts.length && f.status === "failed") {
+      out.push({ name: "(test file failed to run)", file, titles: ["(test file failed to run)"], status: "failed", statusDetail: "error", durationMs: 0, message: stripAnsi(f.message ?? "").split(`
+`).map((l) => l.trim()).find((l) => l && !l.startsWith("●")), trace: stripAnsi(f.message ?? "").slice(0, 20000) });
+      continue;
+    }
+    for (const a of asserts) {
+      const fail = (a.failureMessages ?? []).map(stripAnsi).join(`
+`);
+      out.push({
+        name: a.title ?? "(unnamed)",
+        file,
+        titles: [...a.ancestorTitles ?? [], a.title ?? "(unnamed)"],
+        status: MAP[a.status ?? ""] ?? "other",
+        durationMs: a.duration ?? 0,
+        message: fail ? fail.trim().split(`
+`)[0].slice(0, 2000) : undefined,
+        trace: fail ? fail.slice(0, 20000) : undefined,
+        retries: a.invocations && a.invocations > 1 ? a.invocations - 1 : undefined,
+        flaky: a.invocations && a.invocations > 1 && a.status === "passed" ? true : undefined
+      });
+    }
+  }
+  return out;
+}
+
+// src/parsers/junit.ts
+var import_fast_xml_parser = __toESM(require_fxp(), 1);
+var ARRAYS = new Set(["testsuite", "testcase", "failure", "error", "skipped", "flakyFailure", "flakyError", "rerunFailure", "rerunError", "property", "system-out"]);
+var xmlParser = new import_fast_xml_parser.XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  textNodeName: "#text",
+  processEntities: true,
+  htmlEntities: true,
+  parseAttributeValue: false,
+  parseTagValue: false,
+  trimValues: false,
+  isArray: (name) => ARRAYS.has(name)
+});
+function parseXml(xml) {
+  const body = xml.replace(/^﻿/, "").trim();
+  if (!body)
+    throw new ReportError("empty report");
+  const v = import_fast_xml_parser.XMLValidator.validate(body);
+  if (v !== true) {
+    const open = /^Invalid '\[(.*)\]' found/s.exec(v.err.msg);
+    const what = open ? `truncated: unclosed ${open[1].replace(/\s+/g, "").replace(/"/g, "").split(",").map((t) => `<${t}>`).join(" ")}` : v.err.msg;
+    throw new ReportError(`invalid XML at line ${v.err.line}: ${what}`);
+  }
+  return xmlParser.parse(body);
+}
+function attr(n, k) {
+  if (!n || typeof n !== "object")
+    return;
+  const v = n[`@_${k}`];
+  return v == null ? undefined : String(v);
+}
+function textOf(n) {
+  if (n == null)
+    return "";
+  if (typeof n === "string" || typeof n === "number")
+    return String(n);
+  const t = n["#text"];
+  return t == null ? "" : String(t);
+}
+var secToMs = (v) => {
+  const n = Number(String(v ?? "0").replace(/,/g, ""));
+  return Number.isFinite(n) ? Math.round(n * 1000) : 0;
+};
+function attachmentsFrom(out) {
+  const res = [];
+  for (const m of out.matchAll(/\[\[ATTACHMENT\|([^\]]+)\]\]/g))
+    res.push({ name: m[1].split(/[\\/]/).pop(), path: m[1].trim(), contentType: "" });
+  return res;
+}
+function caseFrom(tc, suite) {
+  const failures = arr(tc.failure);
+  const errors2 = arr(tc.error);
+  const skipped = arr(tc.skipped);
+  const flaky = [...arr(tc.flakyFailure), ...arr(tc.flakyError)];
+  const reruns = [...arr(tc.rerunFailure), ...arr(tc.rerunError)];
+  const out = arr(tc["system-out"]).map(textOf).join(`
+`);
+  const c2 = {
+    name: attr(tc, "name") ?? "(unnamed)",
+    classname: attr(tc, "class") ?? attr(tc, "classname") ?? attr(suite, "name"),
+    file: attr(tc, "file") ?? attr(suite, "file"),
+    line: attr(tc, "line") ? Number(attr(tc, "line")) : undefined,
+    status: "passed",
+    durationMs: secToMs(attr(tc, "time"))
+  };
+  const bad = failures[0] ?? errors2[0];
+  if (bad !== undefined) {
+    c2.status = "failed";
+    if (failures.length === 0)
+      c2.statusDetail = "error";
+    c2.message = (attr(bad, "message") ?? textOf(bad).trim().split(`
+`)[0] ?? "").slice(0, 2000) || undefined;
+    const trace = textOf(bad).trim();
+    if (trace)
+      c2.trace = trace.slice(0, 20000);
+    if (/Timeout/.test(attr(bad, "type") ?? "") || /timed out|timeout of \d+|timeout \d+ ?ms exceeded/i.test(c2.message ?? ""))
+      c2.statusDetail = "timeout";
+    if (reruns.length)
+      c2.retries = reruns.length;
+  } else if (skipped.length) {
+    c2.status = "skipped";
+    c2.message = attr(skipped[0], "message") ?? (textOf(skipped[0]).trim() || undefined);
+  } else if (flaky.length) {
+    c2.flaky = true;
+    c2.retries = flaky.length;
+    c2.message = attr(flaky[0], "message");
+  }
+  const atts = attachmentsFrom(out);
+  if (atts.length)
+    c2.attachments = atts;
+  return c2;
+}
+function parseJUnit(xml) {
+  const doc = parseXml(xml);
+  if (!("testsuites" in doc) && !("testsuite" in doc) && !("testcase" in doc))
+    throw new ReportError("not a JUnit report (no <testsuites>, <testsuite> or <testcase>)");
+  const out = [];
+  const walk = (suite) => {
+    for (const tc of arr(suite.testcase))
+      out.push(caseFrom(typeof tc === "object" && tc ? tc : {}, suite));
+    for (const s of arr(suite.testsuite))
+      if (s && typeof s === "object")
+        walk(s);
+  };
+  const roots = doc.testsuites;
+  for (const r of arr(roots))
+    if (r && typeof r === "object")
+      walk(r);
+  walk(doc);
+  return out;
+}
+
+// src/parsers/playwright.ts
+var stripAnsi2 = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
+function parsePlaywright(json) {
+  const doc = json;
+  if (!doc || typeof doc !== "object" || !Array.isArray(doc.suites))
+    throw new ReportError("not a Playwright JSON report (no suites)");
+  const rows = [];
+  const walk = (s, titles, file) => {
+    const f = s.file ?? file;
+    const here = f && s.title === f && titles.length === 0 ? titles : s.title ? [...titles, s.title] : titles;
+    for (const spec of s.specs ?? []) {
+      for (const t of spec.tests ?? []) {
+        const results = t.results ?? [];
+        const last = results[results.length - 1];
+        const st = t.status ?? "";
+        const c2 = {
+          name: spec.title ?? "(unnamed)",
+          file: spec.file ?? f,
+          titles: [...here, spec.title ?? "(unnamed)"],
+          line: spec.line,
+          status: "other",
+          durationMs: results.reduce((a, r) => a + (r.duration ?? 0), 0),
+          _project: t.projectName ?? ""
+        };
+        if (st === "skipped" || t.expectedStatus === "skipped" || last?.status === "skipped")
+          c2.status = "skipped";
+        else if (st === "expected")
+          c2.status = "passed";
+        else if (st === "flaky") {
+          c2.status = "passed";
+          c2.flaky = true;
+        } else if (st === "unexpected") {
+          c2.status = "failed";
+          if (last?.status === "timedOut")
+            c2.statusDetail = "timeout";
+          else if (last?.status === "interrupted")
+            c2.statusDetail = "error";
+        } else if (last?.status === "passed")
+          c2.status = "passed";
+        else if (last?.status === "failed" || last?.status === "timedOut")
+          c2.status = "failed";
+        if (results.length > 1)
+          c2.retries = results.length - 1;
+        const err = [...results].reverse().find((r) => r.error || r.errors?.length);
+        const e = err?.error ?? err?.errors?.[0];
+        if (e && c2.status !== "passed") {
+          c2.message = stripAnsi2(e.message ?? "").split(`
+`)[0].slice(0, 2000) || undefined;
+          if (e.stack || e.message)
+            c2.trace = stripAnsi2(e.stack ?? e.message ?? "").slice(0, 20000);
+        }
+        const atts = [];
+        for (const r of results)
+          for (const a of r.attachments ?? [])
+            if (a.path)
+              atts.push({ name: a.name ?? "", path: a.path, contentType: a.contentType ?? "" });
+        if (atts.length)
+          c2.attachments = atts;
+        rows.push(c2);
+      }
+    }
+    for (const sub of s.suites ?? [])
+      walk(sub, here, f);
+  };
+  for (const s of doc.suites)
+    walk(s, [], undefined);
+  const multi = new Set(rows.map((r) => r._project)).size > 1;
+  return rows.map(({ _project, ...c2 }) => multi && _project ? { ...c2, project: _project } : c2);
+}
+
+// src/parsers/trx.ts
+function durMs(v) {
+  const m = /^(\d+):(\d+):(\d+(?:\.\d+)?)$/.exec(v ?? "");
+  return m ? Math.round((Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3])) * 1000) : 0;
+}
+var OUTCOME = {
+  passed: ["passed"],
+  passedbutrunaborted: ["passed"],
+  warning: ["passed"],
+  failed: ["failed"],
+  error: ["failed", "error"],
+  aborted: ["failed", "error"],
+  timeout: ["failed", "timeout"],
+  notexecuted: ["skipped"],
+  notrunnable: ["skipped"],
+  inconclusive: ["other"],
+  pending: ["pending"],
+  inprogress: ["other"],
+  disconnected: ["other", "error"],
+  completed: ["passed"]
+};
+function one(n) {
+  const a = arr(n);
+  return a[0] && typeof a[0] === "object" ? a[0] : undefined;
+}
+function parseTrx(xml) {
+  const doc = parseXml(xml);
+  const run = one(doc.TestRun);
+  if (!run)
+    throw new ReportError("not a TRX report (no <TestRun>)");
+  const classes = new Map;
+  for (const ut of arr(one(run.TestDefinitions)?.UnitTest)) {
+    const tm = one(ut.TestMethod);
+    const cls = attr(tm, "className");
+    if (cls)
+      classes.set(attr(ut, "id") ?? "", cls.split(",")[0].trim());
+  }
+  const out = [];
+  const add = (r) => {
+    const inner = arr(one(r.InnerResults)?.UnitTestResult);
+    if (inner.length) {
+      inner.forEach(add);
+      return;
+    }
+    const [status, detail] = OUTCOME[(attr(r, "outcome") ?? "").toLowerCase()] ?? ["other"];
+    const info = one(one(r.Output)?.ErrorInfo);
+    const message = textOf(one(info?.Message) ?? info?.Message).trim();
+    const trace = textOf(one(info?.StackTrace) ?? info?.StackTrace).trim();
+    out.push({
+      name: attr(r, "testName") ?? "(unnamed)",
+      classname: classes.get(attr(r, "testId") ?? ""),
+      status,
+      statusDetail: detail,
+      durationMs: durMs(attr(r, "duration")),
+      message: message ? message.slice(0, 2000) : undefined,
+      trace: trace ? trace.slice(0, 20000) : undefined
+    });
+  };
+  for (const r of arr(one(run.Results)?.UnitTestResult))
+    add(r);
+  return out;
+}
+
+// src/parsers/index.ts
+function parseReportText(text, hint, cwd) {
+  const body = text.replace(/^﻿/, "").trim();
+  if (!body)
+    throw new ReportError("empty report");
+  if (hint === "go-json")
+    return { format: "go-json", cases: parseGoJson(body) };
+  if (body.startsWith("<")) {
+    if (/<TestRun[\s>]/.test(body.slice(0, 4000)))
+      return { format: "trx", cases: parseTrx(body) };
+    return { format: "junit", cases: parseJUnit(body) };
+  }
+  if (body.startsWith("{") || body.startsWith("[")) {
+    let doc;
+    try {
+      doc = JSON.parse(body);
+    } catch (e) {
+      if (/^\{"(Time|Action)"/.test(body))
+        return { format: "go-json", cases: parseGoJson(body) };
+      throw new ReportError(`invalid JSON: ${e.message}`);
+    }
+    const o = doc;
+    if (o && typeof o === "object" && "testResults" in o)
+      return { format: "jest-json", cases: parseJestJson(o, cwd) };
+    if (o && typeof o === "object" && "suites" in o)
+      return { format: "playwright-json", cases: parsePlaywright(o) };
+    if (o && typeof o === "object" && "Action" in o)
+      return { format: "go-json", cases: parseGoJson(body) };
+    throw new ReportError("unrecognised JSON report");
+  }
+  throw new ReportError("unrecognised report format");
+}
+function parseReportFile(file, hint, cwd) {
+  try {
+    const { format, cases } = parseReportText(fs10.readFileSync(file, "utf8"), hint, cwd);
+    return { file, format, cases };
+  } catch (e) {
+    return { file, cases: [], error: e instanceof ReportError ? e.message : `unreadable: ${e.message}` };
+  }
+}
+
+// src/suite.ts
+var MAX_RERUNS = 200;
+var BUILD_FAILED = [
+  /\berror (CS|FS|BC|MSB|NU|NETSDK)\d{4}\b/,
+  /\bBuild FAILED\b/,
+  /\[ERROR\] (COMPILATION ERROR|Failed to execute goal \S+:(compile|testCompile|resources))/,
+  /^FAILURE: Build failed with an exception/,
+  /^e: .*\.kts?:\d+/,
+  /\berror TS\d{4}\b/,
+  /^(FAIL|ok)\s+\S+\s+\[(build|setup) failed\]/,
+  /^No test projects were found\.?$/,
+  /: command not found$|^bash: .*: No such file or directory$/
+];
+function buildFailure(text, exitCode) {
+  const lines = text.split(/\r?\n/);
+  for (const re of BUILD_FAILED) {
+    const hit = lines.find((l) => re.test(l.trim()));
+    if (hit)
+      return hit.trim().slice(0, 500);
+  }
+  return exitCode === 127 ? lines.filter((l) => l.trim()).at(-1)?.trim().slice(0, 500) : undefined;
+}
+function reportPathEvidence(text) {
+  const paths = [];
+  let listing = false;
+  for (const line of text.split(/\r?\n/)) {
+    const named = /Results File:\s*(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
+    if (named)
+      paths.push(named[1]);
+    if (/artifacts produced:?\s*$/i.test(line))
+      listing = true;
+    else if (listing) {
+      const m = /^\s*-\s+(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
+      if (m)
+        paths.push(m[1]);
+      else if (line.trim())
+        listing = false;
+    }
+  }
+  const p = paths.find((x) => path11.isAbsolute(x));
+  if (!p)
+    return;
+  return fs11.existsSync(p) ? `the test run wrote its report to ${p}, outside the folders witness reads; set report = "<glob>" for the suite` : `the test run says it wrote ${p}, but there is no such file here (written inside a container, or on another filesystem?)`;
+}
+function readFrom(file, offset) {
+  try {
+    const fd = fs11.openSync(file, "r");
+    try {
+      const size = fs11.fstatSync(fd).size;
+      const start = Math.max(offset, size - 512 * 1024);
+      const buf = Buffer.alloc(Math.max(0, size - start));
+      fs11.readSync(fd, buf, 0, buf.length, start);
+      return buf.toString("utf8");
+    } finally {
+      fs11.closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
+var safeId = (id) => id.replace(/[^\w.@-]+/g, "_").slice(0, 180);
+function dirSize(dir) {
+  let n = 0;
+  const walk = (d) => {
+    let es;
+    try {
+      es = fs11.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of es) {
+      const p = path11.join(d, e.name);
+      if (e.isDirectory())
+        walk(p);
+      else
+        n += fileSize(p) + 1;
+    }
+  };
+  walk(dir);
+  return n;
+}
+function suiteCommand(suite, adapter, vars, reportDir, select, cwd = ".") {
+  let cmd = substitute(suite.cmd, vars);
+  if (select?.length) {
+    const sel = selectCommand(adapter, cmd, select, suite.select ? substitute(suite.select, vars) : undefined);
+    if (!sel)
+      throw new Error(`suite ${suite.name}: adapter ${adapter.name} cannot select single tests; add select = "... {ids}" to the suite`);
+    cmd = sel;
+  }
+  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd)))
+    cmd = appendArgs(cmd, adapter.reportArgs(reportDir, cwd, cmd));
+  const ptt = suite.perTestTimeoutMs && adapter.perTestTimeout ? adapter.perTestTimeout(suite.perTestTimeoutMs, cwd, cmd) : null;
+  if (ptt)
+    cmd = appendArgs(cmd, ptt);
+  return cmd;
+}
+async function runSuite(ctx, suite, select, retries) {
+  const adapter = ADAPTERS[suite.adapter];
+  const cwd = path11.resolve(ctx.root, suite.cwd);
+  const p = ctx.prefix ?? "";
+  const reportDir = path11.join(ctx.outDir, "reports", suite.name);
+  const log = path11.join(ctx.outDir, "logs", `${suite.name}.log`);
+  fs11.rmSync(reportDir, { recursive: true, force: true });
+  fs11.mkdirSync(reportDir, { recursive: true });
+  const t0 = Date.now();
+  const vars = { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir };
+  const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
+  ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
+  ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
+  const logStart = fileSize(log);
+  const before = snapshotReports(ctx, suite, adapter, cwd, reportDir);
+  const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
+  const files = collect(ctx, suite, adapter, cwd, reportDir, log, before);
+  let expected = select;
+  const usable = files.some((f) => f.cases.length);
+  const hint = adapter.reportHint?.(cwd, cmd);
+  const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
+  const output = !usable && exec.end === "exit" && !exitCodeOnly ? readFrom(log, logStart) : "";
+  const broken = output && exec.code !== 0 ? buildFailure(output, exec.code) : undefined;
+  if (!expected && !usable && !hint && !broken && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
+    expected = await listTests(ctx, suite, adapter, cwd, log);
+  }
+  let res = broken ? { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it" } : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
+  if (res.rerun?.length && !ctx.abort.aborted) {
+    if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select) && !hint) {
+      ctx.progress.line(`${p}suite  ${suite.name} · ${res.cause === "report_unreadable" ? "report unreadable" : "no report"}; rerunning ${res.rerun.length} test(s) one at a time`);
+      const results = [];
+      for (const [i, id] of res.rerun.entries()) {
+        if (ctx.abort.aborted)
+          break;
+        const dir = path11.join(reportDir, "rerun", String(i + 1));
+        fs11.mkdirSync(dir, { recursive: true });
+        const c2 = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
+        const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
+        const e = await execWatched(ctx, suite, adapter, c2, cwd, dir, path11.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60000));
+        if (e.died) {
+          exec.died = e.died;
+          break;
+        }
+        const got = collect(ctx, suite, adapter, cwd, dir, path11.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), snap);
+        if (i === 0 && !got.some((f) => f.cases.length)) {
+          ctx.progress.line(`${p}suite  ${suite.name} · a single test run alone wrote no report either; not rerunning the rest`);
+          results.length = 0;
+          break;
+        }
+        results.push({ id, exitCode: e.code, files: got, timedOut: e.end !== "exit" });
+      }
+      const ids = res.rerun;
+      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause) : { ...res, rerun: undefined, tests: ids.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", `no report from the suite (exit code ${exec.code}), nor when one test ran alone`)) };
+    } else {
+      res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
+    }
+  }
+  if (retries > 0 && res.state === "failed" && exec.end === "exit" && !exec.died && (adapter.select || suite.select)) {
+    await retryFailed(ctx, suite, adapter, cwd, vars, reportDir, res.tests, retries);
+    if (!res.tests.some((t) => t.status === "failed"))
+      res = { ...res, state: "passed" };
+  }
+  const summary = summarize(suite.name, res.state, res.tests);
+  summary.exit_code = exec.code;
+  if (res.cause)
+    summary.cause = res.cause;
+  if (res.note)
+    summary.note = res.note;
+  let diagnosis;
+  if (exec.died)
+    diagnosis = exec.died;
+  else if (res.cause && res.state !== "failed" && res.state !== "passed") {
+    const h = res.cause === "report_missing" ? hint : undefined;
+    const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
+    const extraTry = [h, res.hint].filter((x) => !!x);
+    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeout && adapter.perTestTimeout(60000, cwd, cmd)), adapter: suite.adapter });
+  }
+  ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
+  const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");
+  ctx.progress.line(`${p}suite  ${suite.name} · ${summary.state} · ${counts} · exit ${exec.code ?? "-"} (${fmtDuration(Date.now() - t0)})${res.note ? ` · ${res.note}` : ""}`);
+  return { summary, tests: res.tests, diagnosis, serviceDied: exec.died };
+}
+async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeoutMs) {
+  const artifacts = path11.join(ctx.outDir, "artifacts");
+  fs11.mkdirSync(artifacts, { recursive: true });
+  const vars = ctx.stack.vars();
+  const env = childEnv(ctx.baseEnv, {
+    ...ctx.stack.serviceUrlEnv(),
+    WITNESS_REPORT_DIR: reportDir,
+    WITNESS_ARTIFACTS: artifacts,
+    WITNESS_RUN_DIR: ctx.run.dir,
+    ...adapter.reportEnv && !suite.report ? adapter.reportEnv(reportDir) : {},
+    ...Object.fromEntries(Object.entries(suite.env).map(([k, v]) => [k, substitute(v, { ...vars, WITNESS_REPORT_DIR: reportDir })]))
+  });
+  const t0 = Date.now();
+  const proc = spawnGroup(cmd, { name: suite.name, cwd, env, log });
+  ctx.run.track({ kind: "suite", name: suite.name, pid: proc.pid, pgid: proc.pgid });
+  let lastSize = -1;
+  let lastProgress = Date.now();
+  let lastWatch = 0;
+  let end = "exit";
+  let died;
+  const logStart = fileSize(log);
+  for (;; ) {
+    const exited = await Promise.race([proc.exit.then(() => true), sleep(500).then(() => false)]);
+    if (exited)
+      break;
+    const now = Date.now();
+    const size = fileSize(log) + dirSize(reportDir);
+    if (size !== lastSize) {
+      lastSize = size;
+      lastProgress = now;
+    }
+    ctx.activity.text = `suite ${suite.name} running ${fmtDuration(now - t0)} · log ${fmtBytes(fileSize(log) - logStart)} · last output ${fmtDuration(now - lastProgress)} ago`;
+    if (ctx.abort.aborted)
+      end = "interrupted";
+    else if (now - t0 > timeoutMs)
+      end = "timeout";
+    else if (now - lastProgress > ctx.cfg.run.stallMs)
+      end = "stalled";
+    else if (now - lastWatch >= 1000) {
+      lastWatch = now;
+      const d = await ctx.stack.watch();
+      if (d) {
+        died = d;
+        end = "service_died";
+      }
+    }
+    if (end !== "exit") {
+      const why = end === "timeout" ? `suite timeout (${fmtDuration(timeoutMs)})` : end === "stalled" ? `no output and no report growth for ${fmtDuration(ctx.cfg.run.stallMs)}` : end === "service_died" ? `service ${died?.service} died` : "interrupted";
+      ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · stopping: ${why}`);
+      fs11.appendFileSync(log, `
+witness: stopping suite: ${why}
+`);
+      await killGroup(proc.pgid, ctx.cfg.run.graceMs);
+      break;
+    }
+  }
+  await Promise.race([proc.exit, sleep(2000)]);
+  ctx.run.untrack(proc.pgid);
+  ctx.activity.text = "";
+  return { code: end === "exit" ? proc.code : null, end, ms: Date.now() - t0, died };
+}
+function outsideReports(ctx, suite, adapter, cwd, reportDir) {
+  const out = [];
+  const globs = suite.report ? [{ base: "cwd", glob: substitute(suite.report, { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
+  for (const g of globs) {
+    if (g.base === "report-dir")
+      continue;
+    let base = cwd;
+    let glob = g.glob;
+    if (path11.isAbsolute(glob)) {
+      const fixed = glob.split("/").findIndex((x) => /[*?{]/.test(x));
+      const parts = glob.split("/");
+      base = fixed < 0 ? path11.dirname(glob) : parts.slice(0, fixed).join("/") || "/";
+      glob = fixed < 0 ? path11.basename(glob) : parts.slice(fixed).join("/");
+    }
+    for (const rel of globFiles(base, [glob], { skipDirs: new Set([".git", "node_modules", ".witness"]) }))
+      out.push({ src: path11.join(base, rel), rel });
+  }
+  return out;
+}
+var stamp = (f) => {
+  try {
+    const st = fs11.statSync(f);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return "";
+  }
+};
+function snapshotReports(ctx, suite, adapter, cwd, reportDir) {
+  return new Map(outsideReports(ctx, suite, adapter, cwd, reportDir).filter((f) => !f.src.startsWith(reportDir + path11.sep)).map((f) => [f.src, stamp(f.src)]));
+}
+function collect(ctx, suite, adapter, cwd, reportDir, log, before) {
+  const files = [];
+  if (adapter.fromStdout && !suite.report) {
+    const out = path11.join(reportDir, "stdout.jsonl");
+    try {
+      fs11.copyFileSync(log, out);
+      files.push(out);
+    } catch {}
+  }
+  if (!suite.report) {
+    for (const g of adapter.reportGlobs)
+      if (g.base === "report-dir")
+        for (const f of globFiles(reportDir, [g.glob], { skipDirs: new Set(["rerun", "retry"]) }))
+          files.push(path11.join(reportDir, f));
+  }
+  for (const { src, rel } of outsideReports(ctx, suite, adapter, cwd, reportDir)) {
+    if (src.startsWith(reportDir + path11.sep)) {
+      files.push(src);
+      continue;
+    }
+    if (before.get(src) === stamp(src))
+      continue;
+    const dst = path11.join(reportDir, rel.replace(/[\\/]/g, "__"));
+    fs11.copyFileSync(src, dst);
+    files.push(dst);
+  }
+  const uniq = [...new Set(files)];
+  return uniq.map((f) => parseReportFile(f, adapter.format, cwd));
+}
+async function listTests(ctx, suite, adapter, cwd, log) {
+  const base = substitute(suite.cmd, ctx.stack.vars());
+  const cmd = adapter.list.cmd(base);
+  if (!cmd)
+    return;
+  ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · listing tests to see what the run left out`);
+  const r = await runCapture(cmd, { cwd, env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: log.replace(/\.log$/, ".list.log"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
+  if (r.code !== 0)
+    return;
+  const ids = adapter.list.parse(r.out);
+  return ids.length ? ids : undefined;
+}
+async function retryFailed(ctx, suite, adapter, cwd, vars, reportDir, tests, retries) {
+  for (let k = 1;k <= retries; k++) {
+    const failing = tests.filter((t) => t.status === "failed" && t.obtained !== "suite-level");
+    if (!failing.length || ctx.abort.aborted)
+      return;
+    const ids = failing.map((t) => t.id.slice(adapter.name.length + 1));
+    const dir = path11.join(reportDir, "retry", String(k));
+    fs11.mkdirSync(dir, { recursive: true });
+    const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids, cwd);
+    ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids.length} failed test(s)`);
+    const rlog = path11.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
+    const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
+    const e = await execWatched(ctx, suite, adapter, cmd, cwd, dir, rlog, suite.timeoutMs);
+    if (e.end !== "exit")
+      return;
+    const again = collect(ctx, suite, adapter, cwd, dir, rlog, snap).flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite.name, cwd)));
+    for (const t of failing) {
+      const r = again.find((a) => a.id === t.id);
+      t.retries = (t.retries ?? 0) + 1;
+      if (r?.status === "passed") {
+        t.status = "passed";
+        t.flaky = true;
+        delete t.statusDetail;
+      }
+    }
+  }
+}
+var MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".webm": "video/webm", ".mp4": "video/mp4", ".mov": "video/quicktime", ".zip": "application/zip", ".json": "application/json", ".xml": "application/xml", ".trx": "application/xml", ".html": "text/html", ".txt": "text/plain", ".log": "text/plain", ".md": "text/markdown" };
+function artifactType(file, ct) {
+  if (ct.startsWith("image/"))
+    return "screenshot";
+  if (ct.startsWith("video/"))
+    return "video";
+  if (/trace/i.test(path11.basename(file)) || ct === "application/zip")
+    return "trace";
+  if (ct === "text/plain")
+    return "log";
+  return "report";
+}
+function collectArtifacts(runDir, outDir, tests) {
+  const out = [];
+  const artDir = path11.join(outDir, "artifacts");
+  const bySafe = new Map;
+  for (const t of tests) {
+    bySafe.set(safeId(t.id), t);
+    bySafe.set(safeId(t.id.slice(t.adapter.length + 1)), t);
+    bySafe.set(safeId(t.name), t);
+  }
+  for (const t of tests) {
+    for (const a of t.attachments ?? []) {
+      if (!fs11.existsSync(a.path) || fs11.statSync(a.path).size > 200 * 1024 * 1024)
+        continue;
+      const dst = path11.join(artDir, safeId(t.id), path11.basename(a.path));
+      if (path11.resolve(a.path) !== dst) {
+        fs11.mkdirSync(path11.dirname(dst), { recursive: true });
+        fs11.copyFileSync(a.path, dst);
+      }
+      a.path = path11.relative(runDir, dst);
+    }
+  }
+  const walk = (d, test, dirName) => {
+    let es;
+    try {
+      es = fs11.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of es) {
+      const p = path11.join(d, e.name);
+      if (e.isDirectory())
+        walk(p, test, dirName);
+      else {
+        const ext = path11.extname(e.name).toLowerCase();
+        const ct = MIME[ext] ?? "application/octet-stream";
+        const fromAttachment = test?.attachments?.find((a) => path11.resolve(runDir, a.path) === p);
+        const step = /^(?:step[-_]?)?(\d+)[-_](.+)\.\w+$/.exec(e.name);
+        const entry = { file: path11.relative(runDir, p), artifact_type: artifactType(e.name, fromAttachment?.contentType || ct), test_name: test?.name ?? dirName, test_id: test?.id ?? null, content_type: fromAttachment?.contentType || ct, size_bytes: fileSize(p) };
+        if (step) {
+          entry.step_index = Number(step[1]);
+          entry.step_label = step[2].replace(/[-_]+/g, " ");
+        }
+        out.push(entry);
+      }
+    }
+  };
+  try {
+    for (const e of fs11.readdirSync(artDir, { withFileTypes: true })) {
+      if (e.isDirectory())
+        walk(path11.join(artDir, e.name), bySafe.get(e.name), e.name);
+    }
+  } catch {}
+  return out;
+}
+
+// src/run.ts
+class UsageError extends Error {
+}
+function pickSuites(cfg, names) {
+  if (!names?.length)
+    return cfg.suites;
+  const out = [];
+  for (const n of names) {
+    const s = cfg.suites.find((x) => x.name === n);
+    if (!s)
+      throw new UsageError(`unknown suite "${n}"; suites: ${cfg.suites.map((x) => x.name).join(", ") || "(none)"}`);
+    out.push(s);
+  }
+  return out;
+}
+function splitSelect(suites, select) {
+  if (!select?.length)
+    return;
+  const m = new Map;
+  for (const raw of select) {
+    let colon = raw.indexOf(":");
+    let pre = colon > 0 ? raw.slice(0, colon) : "";
+    let pool = suites;
+    if (pre && !(pre in ADAPTERS) && suites.some((s) => s.name === pre)) {
+      const rest = raw.slice(colon + 1);
+      const c2 = rest.indexOf(":");
+      if (c2 > 0 && rest.slice(0, c2) in ADAPTERS) {
+        pool = suites.filter((s) => s.name === pre);
+        colon += c2 + 1;
+        pre = rest.slice(0, c2);
+      }
+    }
+    const owners = pre in ADAPTERS ? pool.filter((s) => s.adapter === pre) : pool;
+    const id = pre in ADAPTERS ? raw.slice(colon + 1) : raw;
+    if (!owners.length)
+      throw new UsageError(`--select ${raw}: no selected suite uses adapter ${pre}`);
+    if (owners.length > 1)
+      throw new UsageError(`--select ${raw}: suites ${owners.map((s) => s.name).join(", ")} could all own it; add --suite or write it as <suite>:${raw}`);
+    m.set(owners[0].name, [...m.get(owners[0].name) ?? [], id]);
+  }
+  return m;
+}
+function suiteMeta(cfg, s) {
+  return { kind: s.kind, services: s.services ?? cfg.services.filter((x) => x.role === "target").map((x) => x.name) };
+}
+function neededServices(cfg, suites, role = "target") {
+  const all = cfg.services.filter((s) => s.role === role).map((s) => s.name);
+  return [...new Set(suites.flatMap((s) => s.services ?? all))];
+}
+function originMap(cfg) {
+  const m = new Map;
+  for (const o of cfg.services.filter((s) => s.role === "origin")) {
+    const target = o.originFor ?? o.name.replace(/[-_]origin$/, "");
+    if (cfg.services.some((s) => s.name === target && s.role === "target"))
+      m.set(target, o);
+  }
+  return m;
+}
+async function runCommand(cfg, opts) {
+  let suites = pickSuites(cfg, opts.suites);
+  const select = splitSelect(suites, opts.select);
+  if (select && !opts.suites?.length)
+    suites = suites.filter((s) => select.has(s.name));
+  if (opts.against && !originMap(cfg).size && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
+    throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`)`);
+  if (!suites.length)
+    throw new UsageError("no [[suite]] in the config");
+  for (const [name, ids] of select ?? []) {
+    const s = suites.find((x) => x.name === name);
+    if (!selectCommand(ADAPTERS[s.adapter], s.cmd, ids, s.select))
+      throw new UsageError(`suite ${name}: adapter ${s.adapter} cannot select tests${s.select ? ` with select = "${s.select}" (use {ids}, or {id} for one test)` : '; add select = "<cmd> {ids}" to the suite'}`);
+  }
+  const progress = new Progress(Date.now(), false);
+  let release;
+  try {
+    release = acquireLock(path12.join(cfg.root, ".witness", "run.lock"));
+  } catch (e) {
+    if (e instanceof LockError) {
+      progress.plain(color.red(e.message));
+      return EXIT.error;
+    }
+    throw e;
+  }
+  await reapStale(opts.runDirRoot, cfg.run.graceMs, (m) => progress.line(m));
+  const g = gitInfo(cfg.root);
+  const run = new RunDir(opts.runDirRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: opts.label });
+  run.linkLatest();
+  const abort = { aborted: false };
+  const activity = { text: "" };
+  const t0 = Date.now();
+  progress.line(`run ${run.runId} · ${g.branch || "(no branch)"} @ ${g.commit.slice(0, 10) || "(no commit)"}${g.dirty ? " (dirty)" : ""} · ${suites.length} suite(s)`);
+  let sigints = 0;
+  const onSignal = (sig) => {
+    sigints++;
+    abort.aborted = true;
+    run.event("signal", { signal: sig }, `interrupted by ${sig}`);
+    if (sigints === 1)
+      progress.line(`${sig}: stopping (press Ctrl-C again to kill everything now)`);
+    else {
+      for (const p of run.state.procs)
+        killTracked(p, 0, { runStop: false });
+      run.status.phase = "finished";
+      run.status.outcome = "interrupted";
+      run.status.finished_at = new Date().toISOString();
+      run.saveStatus();
+      release();
+      process.exit(EXIT.interrupted);
+    }
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  const hb = setInterval(() => {
+    if (Date.now() - progress.lastAt >= cfg.run.heartbeatMs)
+      progress.line(`… ${activity.text || run.status.last_event}`);
+  }, Math.min(cfg.run.heartbeatMs, 1000));
+  const { env: baseEnv, missing: missing2 } = loadEnv(cfg);
+  let target = { outcome: "passed", suites: [], tests: [], artifacts: [] };
+  let against;
+  let internalError;
+  try {
+    if (missing2.length) {
+      target = { ...target, outcome: "mistrial", diagnosis: diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 }) };
+    } else {
+      target = await runSide(cfg, {
+        root: cfg.root,
+        run,
+        outDir: run.dir,
+        progress,
+        abort,
+        activity,
+        baseEnv,
+        suites,
+        select,
+        retries: opts.retries,
+        noSetup: opts.noSetup,
+        setupCacheDir: path12.join(cfg.root, ".witness", "cache", "setup"),
+        reuseUp: true
+      });
+      if (opts.against && !abort.aborted && target.outcome !== "mistrial") {
+        run.setPhase("against", `running against ${opts.against}`);
+        const origin = await runAgainst(cfg, opts, { run, progress, abort, activity, baseEnv, suites, select });
+        const { tests, counts } = applyParity(target.tests, origin.tests);
+        target.tests = tests;
+        against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis };
+        target.artifacts.push(...origin.artifacts);
+        progress.line(`against ${opts.against} · origin ${origin.outcome} · parity: ${counts.same} same, ${counts.differs} differ, ${counts.target_only} only on target, ${counts.origin_only} only on origin`);
+        if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed")
+          for (const l of formatDiagnosis(origin.diagnosis))
+            progress.plain(`  origin ${l}`);
+      }
+    }
+  } catch (e) {
+    internalError = e.stack ?? String(e);
+    progress.plain(color.red(`witness internal error: ${internalError}`));
+    target = { ...target, outcome: "error" };
+  } finally {
+    clearInterval(hb);
+  }
+  if (abort.aborted)
+    target.outcome = "interrupted";
+  run.setPhase("report", "writing results");
+  const finishedAt = Date.now();
+  const status = run.status;
+  status.suites = target.suites;
+  status.outcome = target.outcome;
+  if (target.diagnosis)
+    status.diagnosis = target.diagnosis;
+  if (internalError)
+    status.internal_error = internalError.split(`
+`)[0];
+  if (against)
+    status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {} };
+  const ctrf = buildCtrf({
+    runId: run.runId,
+    outcome: target.outcome,
+    commit: g.commit,
+    branch: g.branch,
+    dirty: g.dirty,
+    label: opts.label,
+    startedAt: t0,
+    finishedAt,
+    diagnosis: target.diagnosis,
+    against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity } : undefined,
+    adapters: [...new Set(suites.map((s) => s.adapter))],
+    kinds: Object.fromEntries(suites.map((s) => [s.name, s.kind]))
+  }, target.tests);
+  writeJson(run.file("results.ctrf.json"), ctrf);
+  writeJson(run.file("artifacts.json"), target.artifacts);
+  status.summary = { tests: ctrf.results.summary.tests, passed: ctrf.results.summary.passed, failed: ctrf.results.summary.failed, skipped: ctrf.results.summary.skipped, pending: ctrf.results.summary.pending, other: ctrf.results.summary.other };
+  status.finished_at = new Date(finishedAt).toISOString();
+  status.phase = "finished";
+  status.last_event = `finished: ${target.outcome}`;
+  run.saveStatus();
+  run.event("run_finished", { outcome: target.outcome, summary: status.summary });
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
+  pruneRuns(opts.runDirRoot, cfg.run.keepRuns);
+  release();
+  printVerdict(progress, status, finishedAt - t0, run.dir);
+  if (opts.json)
+    process.stdout.write(JSON.stringify(status, null, 2) + `
+`);
+  return EXIT[target.outcome];
+}
+function verdictSummary(status, ms) {
+  const parts = [];
+  if (status.summary) {
+    const sum = (k) => status.suites.reduce((a, x) => a + (x[k] ?? 0), 0);
+    parts.push(`${sum("passed")} passed, ${sum("failed")} failed`);
+    if (sum("error"))
+      parts.push(`${sum("error")} error`);
+    if (sum("missing"))
+      parts.push(`${sum("missing")} missing`);
+    if (sum("skipped"))
+      parts.push(`${sum("skipped")} skipped`);
+    if (status.against?.parity?.origin_only)
+      parts.push(`${status.against.parity.origin_only} only on origin`);
+  }
+  parts.push(`${status.suites.length} suite(s)`);
+  if (status.against)
+    parts.push(`against ${status.against.ref}: origin ${status.against.outcome}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
+  if (ms != null)
+    parts.push(fmtDuration(ms));
+  return parts.join(" · ");
+}
+function printVerdict(progress, status, ms, dir) {
+  const o = status.outcome ?? "error";
+  progress.plain(`${color.bold(outcomeColor(o)(`VERDICT ${o}`))} · ${verdictSummary(status, ms)}`);
+  if (status.diagnosis && o !== "passed" && o !== "failed")
+    for (const l of formatDiagnosis(status.diagnosis))
+      progress.plain(`  ${l}`);
+  for (const s of status.suites)
+    if (s.state !== "passed")
+      progress.plain(`  suite ${s.name}: ${s.state}${s.cause ? ` (${s.cause})` : ""}${s.note ? ` · ${s.note}` : ""}`);
+  progress.plain(`  run dir: ${dir}`);
+}
+async function runSide(cfg, o) {
+  const side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
+  const logDir = path12.join(o.outDir, "logs");
+  fs12.mkdirSync(logDir, { recursive: true });
+  const stack = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp2(cfg.root) : null });
+  const isTarget = !o.prefix;
+  try {
+    if (isTarget)
+      o.run.setPhase("deps", "checking dependencies");
+    await stack.checkDeps();
+    if (isTarget)
+      o.run.setPhase("boot", "booting services");
+    const alias = new Map;
+    const bootName = (n) => {
+      const org = o.origin?.get(n);
+      if (org)
+        alias.set(org.name, n);
+      return org?.name ?? n;
+    };
+    const chain = (names) => topoOrder(cfg.services, names.map(bootName)).map((x) => x.name);
+    const bootFailed = new Map;
+    const blocker = (names) => chain(names).find((n) => bootFailed.has(n));
+    for (const n of neededServices(cfg, o.suites)) {
+      if (o.abort.aborted || blocker([n]))
+        continue;
+      try {
+        await stack.boot([bootName(n)], alias);
+      } catch (e) {
+        if (!(e instanceof Failure))
+          throw e;
+        bootFailed.set(e.diagnosis.service && chain([n]).includes(e.diagnosis.service) ? e.diagnosis.service : bootName(n), e.diagnosis);
+        o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
+        side.outcome = "mistrial";
+        side.diagnosis ??= e.diagnosis;
+      }
+    }
+    if (isTarget)
+      o.run.setPhase("suite", "running suites");
+    const ctx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
+    for (const s of o.suites) {
+      if (o.abort.aborted)
+        break;
+      const blocked = blocker(neededServices(cfg, [s]));
+      if (blocked) {
+        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, s), note: `not run: service ${blocked} ${bootFailed.get(blocked).cause}` });
+        continue;
+      }
+      const r = await runSuite(ctx, s, o.select?.get(s.name), o.retries);
+      side.suites.push({ ...r.summary, ...suiteMeta(cfg, s) });
+      side.tests.push(...r.tests);
+      const so = suiteOutcome(r.summary);
+      if (worst(side.outcome, so) !== side.outcome) {
+        side.outcome = worst(side.outcome, so);
+        if (r.diagnosis)
+          side.diagnosis = r.diagnosis;
+      }
+      if (isTarget) {
+        o.run.status.suites = side.suites;
+        o.run.saveStatus();
+      }
+      if (r.serviceDied) {
+        for (const rest of o.suites.slice(o.suites.indexOf(s) + 1))
+          side.suites.push({ name: rest.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, rest), note: "not run: a service died" });
+        break;
+      }
+    }
+  } catch (e) {
+    if (!(e instanceof Failure))
+      throw e;
+    side.outcome = "mistrial";
+    side.diagnosis = e.diagnosis;
+    o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
+    for (const s of o.suites)
+      if (!side.suites.some((x) => x.name === s.name))
+        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, s), note: `not run: ${e.diagnosis.cause}` });
+  } finally {
+    await stack.teardown();
+  }
+  side.artifacts = collectArtifacts(o.run.dir, o.outDir, side.tests);
+  return side;
+}
+async function runAgainst(cfg, opts, o) {
+  const outDir = path12.join(o.run.dir, "against");
+  const origin = originMap(cfg);
+  if (origin.size) {
+    o.progress.line(`against ${opts.against} · using role = "origin" services: ${[...origin.values()].map((s) => s.name).join(", ")}`);
+    return runSide(cfg, { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup, setupCacheDir: path12.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin });
+  }
+  const ref = opts.against;
+  const w = addWorktree(cfg, ref);
+  if ("diagnosis" in w)
+    return { outcome: "mistrial", suites: [], tests: [], diagnosis: w.diagnosis, artifacts: [] };
+  o.run.state.worktrees.push(w.wt);
+  o.run.saveState();
+  o.progress.line(`against ${ref} · checked out ${w.sha.slice(0, 10)} in ${w.wt}`);
+  if (w.copied)
+    o.progress.line(`against ${ref} · copied the target's .witness/ (config helpers) into the worktree`);
+  try {
+    return await runSide(cfg, { ...o, root: w.root, outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
+  } finally {
+    removeWorktree2(cfg, w.wt);
+    o.run.state.worktrees = o.run.state.worktrees.filter((x) => x !== w.wt);
+    o.run.saveState();
+  }
+}
+function addWorktree(cfg, ref) {
+  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  if (!resolved.ok)
+    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` }) };
+  const wt = fs12.mkdtempSync(path12.join(os.tmpdir(), "witness-against-"));
+  const add = git(cfg.root, ["worktree", "add", "--detach", wt, resolved.out]);
+  if (!add.ok) {
+    fs12.rmSync(wt, { recursive: true, force: true });
+    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` }) };
+  }
+  const root = path12.join(wt, path12.relative(gitTop(cfg.root), fs12.realpathSync(cfg.root)));
+  const copied = copyWitnessDir(path12.join(cfg.root, ".witness"), path12.join(root, ".witness"));
+  return { wt, root, sha: resolved.out, copied };
+}
+function removeWorktree2(cfg, wt) {
+  git(cfg.root, ["worktree", "remove", "--force", wt]);
+  fs12.rmSync(wt, { recursive: true, force: true });
+  git(cfg.root, ["worktree", "prune"]);
+}
+var NOT_COPIED = new Set(["runs", "check", "cache", "up", "up.json", "run.lock", "scratch"]);
+function copyWitnessDir(src, dst) {
+  if (!fs12.existsSync(src))
+    return false;
+  fs12.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path12.relative(src, p).split(path12.sep)[0]) });
+  return true;
+}
+function ensureScratch(root) {
+  const dir = path12.join(root, ".witness", "scratch");
+  try {
+    fs12.mkdirSync(dir, { recursive: true });
+    if (!fs12.existsSync(path12.join(dir, ".gitignore")))
+      fs12.writeFileSync(path12.join(dir, ".gitignore"), `*
+`);
+  } catch {}
+}
+function gitTop(dir) {
+  const r = git(dir, ["rev-parse", "--show-toplevel"]);
+  return r.ok ? fs12.realpathSync(r.out) : dir;
+}
+
+// src/commands.ts
+var STAGES = ["config", "deps", "boot", "suite"];
+function printDiag(p, d) {
+  for (const l of formatDiagnosis(d))
+    p.plain(`  ${l}`);
+}
+async function checkCommand(cfg, o) {
+  const p = new Progress;
+  const upTo = STAGES.indexOf(o.stage ?? "suite");
+  const report = [];
+  const warnings = functionalWarnings(cfg);
+  const done = (code2) => {
+    if (o.json)
+      process.stdout.write(JSON.stringify({ ok: code2 === 0, stages: report, warnings }, null, 2) + `
+`);
+    return code2;
+  };
+  report.push({ stage: "config", ok: true, detail: `${cfg.services.length} service(s), ${cfg.suites.length} suite(s), adapters: ${[...new Set(cfg.suites.map((s) => s.adapter))].join(", ") || "-"}` });
+  p.line(`check  config · ok · ${report[0].detail}`);
+  for (const w of warnings)
+    p.line(color.yellow(`check  warn · ${w.message}`));
+  if (upTo < 1) {
+    p.plain(color.green("CHECK ok · config"));
+    return done(0);
+  }
+  const { env, missing: missing2, fileUsed } = loadEnv(cfg);
+  if (missing2.length) {
+    const d = diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 });
+    report.push({ stage: "deps", ok: false, detail: "missing env", diagnosis: d });
+    p.line(color.red(`check  env · missing ${missing2.join(", ")}${fileUsed ? ` (env file ${fileUsed})` : ""}`));
+    printDiag(p, d);
+    return done(EXIT.mistrial);
+  }
+  let release;
+  try {
+    release = acquireLock(path13.join(cfg.root, ".witness", "run.lock"));
+  } catch (e) {
+    if (e instanceof LockError) {
+      p.plain(color.red(e.message));
+      return done(EXIT.error);
+    }
+    throw e;
+  }
+  const checkRoot = path13.join(cfg.root, ".witness", "check");
+  await reapStale(checkRoot, cfg.run.graceMs, (m) => p.line(m));
+  fs13.rmSync(checkRoot, { recursive: true, force: true });
+  const g = gitInfo(cfg.root);
+  const run = new RunDir(checkRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: "check" });
+  const abort = { aborted: false };
+  const onSig = () => abort.aborted = true;
+  process.on("SIGINT", onSig);
+  process.on("SIGTERM", onSig);
+  let root = cfg.root;
+  let wt;
+  if (o.against) {
+    const w = addWorktree(cfg, o.against);
+    if ("diagnosis" in w) {
+      release();
+      p.line(color.red(`check  --against ${o.against} · ${w.diagnosis.evidence}`));
+      return done(EXIT_USAGE);
+    }
+    ({ wt, root } = w);
+    run.state.worktrees.push(wt);
+    run.saveState();
+    p.line(`check  against ${o.against} · checked out ${w.sha.slice(0, 10)} in ${wt}${w.copied ? " (with this checkout's .witness/)" : ""}`);
+  }
+  const stack = new Stack({ cfg, root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !wt, setupCacheDir: wt ? null : path13.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: wt ? null : readUp2(cfg.root) });
+  let code = 0;
+  try {
+    await stack.checkDeps();
+    report.push({ stage: "deps", ok: true, detail: `${cfg.dependencies.length} dependency check(s) passed` });
+    if (upTo < 2) {
+      p.plain(color.green(`CHECK ok · up to deps${o.against ? ` · against ${o.against}` : ""}`));
+      return done(0);
+    }
+    const services = o.service ? [o.service] : cfg.services.filter((s) => s.role === "target").map((s) => s.name);
+    for (const s of services)
+      if (!cfg.services.some((x) => x.name === s))
+        throw new Error(`unknown service "${s}"`);
+    await stack.boot(services);
+    report.push({ stage: "boot", ok: true, detail: [...stack.live.values()].map((l) => `${l.svc.name} at ${l.url}`).join(", ") || "no services" });
+    if (upTo < 3) {
+      p.plain(color.green(`CHECK ok · up to boot${o.against ? ` · against ${o.against}` : ""}`));
+      return done(0);
+    }
+    const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
+    const ctx = { cfg, root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
+    for (const s of suites) {
+      const ad = ADAPTERS[s.adapter];
+      const hint = s.report ? undefined : ad.reportHint?.(path13.resolve(root, s.cwd), s.cmd);
+      if (hint) {
+        const d = diagnose({ stage: "report", cause: "report_missing", suite: s.name, command: s.cmd, evidence: hint, extraTry: [hint] });
+        report.push({ stage: "suite", ok: false, detail: `${s.name}: cannot write a per-test report`, diagnosis: d });
+        p.line(color.red(`check  suite ${s.name} · cannot write a per-test report`));
+        printDiag(p, d);
+        code = Math.max(code, EXIT.error);
+        continue;
+      }
+      const listCmd = ad.list?.cmd(s.cmd);
+      if (listCmd) {
+        const r2 = await runCapture(listCmd, { cwd: path13.resolve(root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: run.file("logs", `${s.name}.list.log`), abort, track: run.tracker("list", s.name) });
+        const ids = r2.code === 0 ? ad.list.parse(r2.out) : [];
+        if (ids.length) {
+          report.push({ stage: "suite", ok: true, detail: `${s.name}: ${ids.length} test(s) listed` });
+          p.line(`check  suite ${s.name} · ${ids.length} test(s) listed, e.g. ${s.adapter}:${ids[0]}`);
+          continue;
+        }
+        p.line(`check  suite ${s.name} · listing gave no tests (exit ${r2.code}); doing a smoke run`);
+      }
+      const r = await runSuite(ctx, s, undefined, 0);
+      const ok = r.summary.state === "passed" || r.summary.state === "failed";
+      report.push({ stage: "suite", ok, detail: `${s.name}: ${r.summary.state}`, diagnosis: r.diagnosis });
+      if (!ok) {
+        code = Math.max(code, r.serviceDied ? EXIT.mistrial : EXIT.error);
+        if (r.diagnosis)
+          printDiag(p, r.diagnosis);
+      }
+      if (r.serviceDied)
+        break;
+    }
+  } catch (e) {
+    if (!(e instanceof Failure))
+      throw e;
+    const stage = e.diagnosis.stage === "deps" ? "deps" : "boot";
+    report.push({ stage, ok: false, detail: e.diagnosis.cause, diagnosis: e.diagnosis });
+    p.line(color.red(`check  ${stage} · ${e.diagnosis.cause}`));
+    printDiag(p, e.diagnosis);
+    code = EXIT.mistrial;
+  } finally {
+    await stack.teardown();
+    if (wt) {
+      removeWorktree2(cfg, wt);
+      run.state.worktrees = [];
+      run.saveState();
+    }
+    run.status.phase = "finished";
+    run.saveStatus();
+    release();
+    process.off("SIGINT", onSig);
+    process.off("SIGTERM", onSig);
+  }
+  if (abort.aborted)
+    code = EXIT.interrupted;
+  const on = o.against ? ` · against ${o.against}` : "";
+  p.plain(code === 0 ? color.green(`CHECK ok${on}`) : color.yellow(`CHECK failed${on} · logs: ${run.file("logs")}`));
+  return done(code);
+}
+var EXIT_USAGE = 64;
+async function upCommand(cfg, o) {
+  const p = new Progress;
+  const existing = readUp2(cfg.root);
+  if (existing && Object.values(existing.services).some((s) => s.pgid && groupAlive(s.pgid) || s.pid && pidAlive(s.pid))) {
+    p.plain(`services are already up (${Object.keys(existing.services).join(", ")}); run \`witness down\` first`);
+    return EXIT.error;
+  }
+  const { env, missing: missing2 } = loadEnv(cfg);
+  if (missing2.length) {
+    printDiag(p, diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 }));
+    return EXIT.mistrial;
+  }
+  await reapStale(o.runDirRoot, cfg.run.graceMs, (m) => p.line(m));
+  const logDir = path13.join(cfg.root, ".witness", "up", "logs");
+  fs13.mkdirSync(logDir, { recursive: true });
+  const abort = { aborted: false };
+  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir, progress: p, noSetup: o.noSetup, setupCacheDir: path13.join(cfg.root, ".witness", "cache", "setup"), abort });
+  try {
+    await stack.checkDeps();
+    await stack.boot(o.service ? [o.service] : neededServices(cfg, cfg.suites));
+  } catch (e) {
+    if (!(e instanceof Failure))
+      throw e;
+    await stack.teardown();
+    p.plain(color.yellow(`UP failed · ${e.diagnosis.cause}`));
+    printDiag(p, e.diagnosis);
+    return EXIT.mistrial;
+  }
+  const state = { pid: process.pid, started_at: new Date().toISOString(), root: cfg.root, services: {}, deps_started: stack.depsStarted.map((d) => d.name) };
+  for (const [n, l] of stack.live)
+    state.services[n] = { pgid: l.pgid, pid: l.pid, port: l.port, url: l.url, log: l.log, external: !!l.svc.external };
+  writeJson(upFile(cfg.root), state);
+  for (const l of stack.live.values())
+    l.proc?.child.unref();
+  p.plain(color.green(`UP · ${[...stack.live.values()].map((l) => `${l.svc.name} ${l.url}`).join(" · ")}`));
+  if (o.json)
+    process.stdout.write(JSON.stringify(state, null, 2) + `
+`);
+  return 0;
+}
+async function downCommand(cfg, o) {
+  const p = new Progress;
+  const state = readUp2(cfg.root);
+  if (!state) {
+    p.plain("nothing is up");
+    return 0;
+  }
+  const { env } = loadEnv(cfg);
+  for (const [name, s] of Object.entries(state.services).reverse()) {
+    const svc = cfg.services.find((x) => x.name === name);
+    if (s.external)
+      continue;
+    if (svc?.stop)
+      await runCapture(svc.stop, { cwd: path13.resolve(cfg.root, svc.cwd), env: childEnv(env, { PORT: String(s.port ?? "") }), timeoutMs: 60000, log: s.log });
+    if (s.pid && pidAlive(s.pid)) {
+      try {
+        process.kill(s.pid, "SIGTERM");
+      } catch {}
+      for (let i = 0;i < 50 && pidAlive(s.pid); i++)
+        await sleep(100);
+    }
+    if (s.pgid)
+      await killGroup(s.pgid, cfg.run.graceMs);
+    p.line(`down   ${name} · stopped`);
+  }
+  for (const d of [...state.deps_started].reverse()) {
+    const dep = cfg.dependencies.find((x) => x.name === d);
+    if (dep?.stop) {
+      await runCapture(dep.stop, { cwd: cfg.root, env: childEnv(env), timeoutMs: 120000 });
+      p.line(`down   ${d} · stopped`);
+    }
+  }
+  fs13.rmSync(upFile(cfg.root), { force: true });
+  if (o.json)
+    process.stdout.write(JSON.stringify({ ok: true }) + `
+`);
+  return 0;
+}
+function statusCommand(runRoot, id, json) {
+  const dir = resolveRun(runRoot, id);
+  const st = dir ? readJson(path13.join(dir, "status.json"), null) : null;
+  if (!st) {
+    process.stderr.write(`witness  no run found${id ? ` for ${id}` : ""} under ${runRoot}
+`);
+    return EXIT.error;
+  }
+  if (json) {
+    process.stdout.write(JSON.stringify(st, null, 2) + `
+`);
+    return 0;
+  }
+  const o = st.outcome ?? "running";
+  const lines = [`${st.run_id} · ${st.phase}${st.outcome ? ` · ${outcomeColor(o)(o)}` : ""} · ${st.branch} @ ${st.commit.slice(0, 10)}${st.dirty ? " (dirty)" : ""}`];
+  lines.push(`last event: ${st.last_event}`);
+  if (st.phase !== "finished" && !pidAlive(st.pid))
+    lines.push(color.yellow(`witness (pid ${st.pid}) is gone; the next run will reap this one`));
+  for (const s of st.suites)
+    lines.push(`  ${s.name.padEnd(20)} ${(s.kind ?? "").padEnd(4)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}`);
+  if (st.summary)
+    lines.push(verdictSummary(st));
+  if (st.diagnosis)
+    lines.push(...formatDiagnosis(st.diagnosis).map((l) => `  ${l}`));
+  process.stdout.write(lines.join(`
+`) + `
+`);
+  return 0;
+}
+var appCell = (services) => !services ? "-" : services.length ? services.join(", ") : "in the tests";
+function reportCommand(runRoot, id, format) {
+  const dir = resolveRun(runRoot, id);
+  const st = dir ? readJson(path13.join(dir, "status.json"), null) : null;
+  if (!dir || !st) {
+    process.stderr.write(`witness  no run found${id ? ` for ${id}` : ""} under ${runRoot}
+`);
+    return EXIT.error;
+  }
+  const ctrf = readJson(path13.join(dir, "results.ctrf.json"), null);
+  const tests = ctrf?.results?.tests ?? [];
+  const bad = tests.filter((t) => t.status === "failed" || t.status === "other");
+  const differs = tests.filter((t) => t.extra?.witness?.parity === "differs");
+  if (format === "json") {
+    const out = { run_id: st.run_id, outcome: st.outcome, commit: st.commit, branch: st.branch, dirty: st.dirty, summary: st.summary, suites: st.suites, diagnosis: st.diagnosis, against: st.against, not_passing: bad.map((t) => ({ id: t.extra?.witness?.id, status: t.status, status_detail: t.extra?.witness?.status_detail, message: t.message })), parity_differs: differs.map((t) => ({ id: t.extra?.witness?.id, status: t.status, origin_status: t.extra?.witness?.origin_status })) };
+    process.stdout.write(JSON.stringify(out, null, 2) + `
+`);
+    return 0;
+  }
+  const md = [];
+  md.push(`# Witness run ${st.run_id}: ${st.outcome ?? st.phase}`);
+  md.push("");
+  md.push(`${st.branch} @ \`${st.commit.slice(0, 12)}\`${st.dirty ? " (uncommitted changes)" : ""}${st.label ? ` · ${st.label}` : ""} · ${verdictSummary(st)}`);
+  md.push("");
+  md.push("| Suite | Kind | App | State | Passed | Failed | Error | Missing | Skipped |");
+  md.push("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |");
+  for (const s of st.suites)
+    md.push(`| ${s.name} | ${s.kind ?? "-"} | ${appCell(s.services)} | ${s.state}${s.cause ? ` (${s.cause})` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
+  if (st.suites.some((s) => s.services && !s.services.length))
+    md.push("", "App: the services witness started for the suite, or \"in the tests\" when the tests start the app themselves (those suites don't exercise witness's services, and `--against` with origin services doesn't change what they test).");
+  if (st.diagnosis) {
+    md.push("", "## Diagnosis", "");
+    for (const l of formatDiagnosis(st.diagnosis))
+      md.push(`- ${l.replace(/^(\w+):/, "**$1**:")}`);
+  }
+  if (bad.length) {
+    md.push("", `## Not passing (${bad.length})`, "");
+    for (const t of bad.slice(0, 50))
+      md.push(`- \`${t.extra?.witness?.id ?? t.name}\` ${t.status}${t.extra?.witness?.status_detail ? ` (${t.extra.witness.status_detail})` : ""}${t.message ? `: ${t.message.split(`
+`)[0].slice(0, 200)}` : ""}`);
+    if (bad.length > 50)
+      md.push(`- … ${bad.length - 50} more in results.ctrf.json`);
+  }
+  if (st.against) {
+    md.push("", `## Against ${st.against.ref}`, "", `Origin outcome: ${st.against.outcome}.${st.against.parity ? ` Parity: ${Object.entries(st.against.parity).map(([k, v]) => `${v} ${k}`).join(", ")}.` : ""}`);
+    for (const t of differs.slice(0, 50))
+      md.push(`- \`${t.extra?.witness?.id}\`: ${t.extra?.witness?.origin_status} on origin, ${t.status} on target`);
+  }
+  md.push("", `Run dir: \`${dir}\``);
+  process.stdout.write(md.join(`
+`) + `
+`);
+  return 0;
+}
+
+// src/init.ts
 import * as fs14 from "node:fs";
 import * as path14 from "node:path";
+var read = (f) => {
+  try {
+    return fs14.readFileSync(f, "utf8");
+  } catch {
+    return "";
+  }
+};
+var SKIP = new Set([".git", "node_modules", ".witness", ".venv", "venv", "bin", "obj", "target", "build", "dist", "vendor", ".gradle", "__pycache__", ".next"]);
+var MAX_FILES = 4000;
+var PY_TEST = /(^|\/)(test_[^/]*|[^/]*_test)\.py$/;
+var JS_TEST = /[._-](test|spec)\.[cm]?[jt]sx?$|(^|\/)__tests__\/.*\.[cm]?[jt]sx?$/;
+var MOCHA_TEST = /(^|\/)tests?\/.*\.[cm]?[jt]s$/;
+function scanProject(root, p) {
+  const base = path14.join(root, p.dir);
+  const out = [];
+  for (const rel of globFiles(base, ["**/*"], { maxDepth: 12, skipDirs: SKIP })) {
+    if (out.length >= MAX_FILES)
+      break;
+    if (!langOf(rel))
+      continue;
+    const test = p.isTest?.(rel);
+    if (test === false && !isTestPath(path14.join(path14.basename(base), rel)) && path14.basename(rel) !== "conftest.py" && !p.helper?.(rel))
+      continue;
+    if (p.include && !p.include(rel))
+      continue;
+    const f = scanFile(base, rel, test);
+    if (f)
+      out.push(f);
+  }
+  return out;
+}
+function guess(root) {
+  const files = globFiles(root, ["**/*"], { maxDepth: 5, skipDirs: SKIP });
+  const has2 = (re) => files.filter((f) => re.test(f));
+  const g = { suites: [], services: [], excluded: [], needsFilter: [] };
+  const taken = new Set;
+  const name = (b) => {
+    let n = b.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase() || "tests";
+    if (!/^[a-z]/.test(n))
+      n = `t-${n}`;
+    let k = n;
+    for (let i = 2;taken.has(k); i++)
+      k = `${n}-${i}`;
+    taken.add(k);
+    return k;
+  };
+  const dirOf = (f) => path14.dirname(f) || ".";
+  const projects = [];
+  const py = has2(/(^|\/)(pytest\.ini|conftest\.py|pyproject\.toml|setup\.cfg|tox\.ini)$/).filter((f) => /pytest\.ini|conftest\.py/.test(f) || /\[tool\.pytest|\[tool:pytest\]|\[pytest\]|pytest/.test(read(path14.join(root, f))));
+  const pyDirs = [...new Set(py.map(dirOf))].filter((d, _i, a) => !a.some((o) => o !== d && (d.startsWith(`${o}/`) || o === ".")) || d === ".");
+  for (const d of pyDirs.slice(0, 3))
+    projects.push({ label: d, adapter: "pytest", cwd: d, dir: d, cmd: "python -m pytest", nameBase: d === "." ? "pytest" : `${path14.basename(d)}-pytest`, isTest: (r) => PY_TEST.test(r) });
+  const javaTest = (r) => /(^|\/)src\/test\/.*\.(java|kt)$/.test(r);
+  const pom = has2(/(^|\/)pom\.xml$/).sort((a, b) => a.length - b.length)[0];
+  if (pom) {
+    projects.push({ label: dirOf(pom), adapter: "junit-maven", cwd: dirOf(pom), dir: dirOf(pom), cmd: "mvn -B verify", nameBase: "maven-tests", include: javaTest });
+    if (/spring-boot/.test(read(path14.join(root, pom))))
+      g.services.push({ name: name("app"), cwd: dirOf(pom), setup: "mvn -B -DskipTests package", start: "mvn -B spring-boot:run -Dspring-boot.run.arguments=--server.port=${PORT}", ready: "${self.url}/actuator/health", why: "spring-boot in pom.xml" });
+  }
+  const gradle = has2(/(^|\/)build\.gradle(\.kts)?$/).sort((a, b) => a.length - b.length)[0];
+  if (gradle)
+    projects.push({ label: dirOf(gradle), adapter: "junit-gradle", cwd: dirOf(gradle), dir: dirOf(gradle), cmd: fs14.existsSync(path14.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", nameBase: "gradle-tests", include: javaTest });
+  const csproj = has2(/\.csproj$/);
+  for (const f of csproj.filter((f2) => /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i.test(read(path14.join(root, f2))))) {
+    const mode = dotnetMode(root, `dotnet test ${f}`);
+    const cmd = `dotnet test ${mode !== "vstest" ? "--project " : ""}${f}`;
+    projects.push({ label: dirOf(f), adapter: "dotnet", cwd: ".", dir: dirOf(f), cmd, nameBase: path14.basename(f, ".csproj"), xunitMtp: dotnetMode(root, cmd) === "mtp-xunit" });
+  }
+  for (const f of csproj.filter((f2) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(read(path14.join(root, f2)))).slice(0, 3)) {
+    g.services.push({ name: name(path14.basename(f, ".csproj")), cwd: ".", setup: `dotnet build ${f}`, start: `dotnet run --no-build --project ${f} --urls http://127.0.0.1:\${PORT}`, ready: "${self.url}/", why: `web project ${f}` });
+  }
+  const pkgs = has2(/(^|\/)package\.json$/).filter((f) => f.split("/").length <= 3);
+  const pkgDirs = pkgs.map(dirOf);
+  for (const pj of pkgs) {
+    let doc;
+    try {
+      doc = JSON.parse(read(path14.join(root, pj)));
+    } catch {
+      continue;
+    }
+    const deps = { ...doc.dependencies, ...doc.devDependencies };
+    const d = dirOf(pj);
+    const pre = d === "." ? "" : `${path14.basename(d)}-`;
+    const nested = pkgDirs.filter((o) => o !== d && (d === "." || o.startsWith(`${d}/`))).map((o) => d === "." ? o : o.slice(d.length + 1));
+    const own = (r) => !nested.some((n) => r.startsWith(`${n}/`));
+    const pwDirs = [];
+    if (deps["@playwright/test"] || deps["playwright-bdd"]) {
+      const configs = globFiles(path14.join(root, d), ["**/playwright*.config.{ts,js,mjs,cjs}"], { maxDepth: 3, skipDirs: SKIP }).filter(own);
+      for (const c2 of configs.length ? configs : ["playwright.config.ts"]) {
+        const text = read(path14.join(root, d, c2));
+        const td = /testDir\s*:\s*['"`]([^'"`]+)/.exec(text)?.[1];
+        const testDir = path14.posix.normalize(path14.posix.join(path14.posix.dirname(c2), td ?? "."));
+        pwDirs.push(testDir);
+        const isDefault = /^playwright\.config\.[cm]?[jt]s$/.test(c2);
+        const ignore = configRegex(text, "testIgnore");
+        const match = configRegex(text, "testMatch");
+        const under = (r) => (testDir === "." || r.startsWith(`${testDir}/`)) && !ignore?.test(`/${r}`) && (!match || match.test(`/${r}`));
+        projects.push({ label: `${d === "." ? "" : `${d}/`}${isDefault ? testDir : c2}`.replace(/^\.\//, ""), adapter: "playwright", cwd: d, dir: d, cmd: isDefault ? "npx playwright test" : `npx playwright test -c ${c2}`, nameBase: `${pre}${pwName(c2, isDefault)}`, isTest: (r) => JS_TEST.test(r) && under(r), include: (r) => own(r) && (r === c2 || under(r) && !configs.includes(r)), helper: (r) => r === c2, defaultKind: "ui" });
+      }
+    }
+    const notPw = (r) => own(r) && !pwDirs.some((t) => t !== "." && r.startsWith(`${t}/`)) && !/@playwright\/test|playwright-bdd/.test(read(path14.join(root, d, r)).slice(0, 4000));
+    if (deps.vitest)
+      projects.push({ label: d, adapter: "vitest", cwd: d, dir: d, cmd: "npx vitest run", nameBase: `${pre}vitest`, isTest: (r) => JS_TEST.test(r), include: notPw });
+    if (deps.jest)
+      projects.push({ label: d, adapter: "jest", cwd: d, dir: d, cmd: "npx jest", nameBase: `${pre}jest`, isTest: (r) => JS_TEST.test(r), include: notPw });
+    if (deps.mocha)
+      projects.push({ label: d, adapter: "mocha", cwd: d, dir: d, cmd: "npx mocha", nameBase: `${pre}mocha`, isTest: (r) => JS_TEST.test(r) || MOCHA_TEST.test(r), include: notPw });
+    if (deps.cypress)
+      projects.push({ label: `${d === "." ? "" : `${d}/`}cypress`, adapter: "generic", cwd: d, dir: d, cmd: 'npx cypress run --reporter junit --reporter-options "mochaFile=${WITNESS_REPORT_DIR}/cypress-[hash].xml"', nameBase: `${pre}cypress`, isTest: (r) => /\.cy\.[cm]?[jt]sx?$/.test(r), include: own, defaultKind: "ui", report: "${WITNESS_REPORT_DIR}/*.xml" });
+    if (doc.scripts?.start)
+      g.services.push({ name: name(`${pre}web`.replace(/-$/, "")), cwd: d, setup: fs14.existsSync(path14.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}` });
+  }
+  const gomod = has2(/(^|\/)go\.mod$/).sort((a, b) => a.length - b.length)[0];
+  if (gomod)
+    projects.push({ label: dirOf(gomod), adapter: "go", cwd: dirOf(gomod), dir: dirOf(gomod), cmd: "go test ./...", nameBase: "go-tests", isTest: (r) => /_test\.go$/.test(r) });
+  const gem = has2(/(^|\/)Gemfile$/).find((f) => /rspec/.test(read(path14.join(root, f))));
+  if (gem)
+    projects.push({ label: dirOf(gem), adapter: "rspec", cwd: dirOf(gem), dir: dirOf(gem), cmd: "bundle exec rspec", nameBase: "rspec", isTest: (r) => /_spec\.rb$/.test(r) });
+  const php = has2(/(^|\/)phpunit\.xml(\.dist)?$/)[0];
+  if (php)
+    projects.push({ label: dirOf(php), adapter: "phpunit", cwd: dirOf(php), dir: dirOf(php), cmd: "vendor/bin/phpunit", nameBase: "phpunit", isTest: (r) => /Test\.php$/.test(r) });
+  if (fs14.existsSync(path14.join(root, "manage.py")))
+    g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py" });
+  for (const p of projects) {
+    if (p.label === ".")
+      p.label = `. (${p.adapter})`;
+    decide(g, p, classify(scanProject(root, p), p.label), name);
+  }
+  return g;
+}
+var pwName = (c2, isDefault) => {
+  const b = path14.basename(c2).replace(/\.config\.\w+$/, "");
+  return isDefault ? "playwright" : b === "playwright" ? `playwright-${path14.basename(path14.dirname(c2))}` : b.replace(/^playwright\.?/, "playwright-");
+};
+var RE_LIT = String.raw`\/(?:\\.|\[(?:\\.|[^\]\n])*\]|[^/\\\n\[])+\/[a-z]*`;
+function configRegex(text, key) {
+  const top = text.slice(0, text.search(/\bprojects\s*:/) >>> 0);
+  const m = new RegExp(String.raw`\b${key}\s*:\s*(${RE_LIT}|[A-Za-z_]\w*)`).exec(top);
+  if (!m)
+    return;
+  const lit = m[1].startsWith("/") ? m[1] : new RegExp(String.raw`\bconst\s+${m[1]}\s*=\s*(${RE_LIT})`).exec(text)?.[1];
+  const r = lit && /^\/(.*)\/([a-z]*)$/.exec(lit);
+  try {
+    return r ? new RegExp(r[1], r[2]) : undefined;
+  } catch {
+    return;
+  }
+}
+function decide(g, p, v, name) {
+  const kind = v.kind ?? p.defaultKind;
+  const ev = v.evidence ? ` (${v.evidence})` : "";
+  const suite = (cmd, why) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report });
+  if (v.status === "functional")
+    return suite(p.cmd, `${p.label}: ${v.reason}${ev}`);
+  if (v.status === "excluded") {
+    return g.excluded.push({ path: p.label, adapter: p.adapter, reason: v.reason });
+  }
+  const filtered = filteredCmd(p.adapter, p.cmd, v, { xunitMtp: p.xunitMtp });
+  if (filtered) {
+    suite(filtered, `${p.label}: ${v.reason}; the command ${describeFilter(v)}${ev}`);
+    const why = "doesn't send a request to the app or drive a browser";
+    if (v.other.length <= 5)
+      for (const o of v.other)
+        g.excluded.push({ path: path14.posix.join(p.dir, o.rel), adapter: p.adapter, reason: why });
+    else
+      g.excluded.push({ path: `${p.label} (the other ${v.other.length} test files)`, adapter: p.adapter, reason: why });
+    return;
+  }
+  g.needsFilter.push({
+    path: p.label,
+    adapter: p.adapter,
+    name: name(p.nameBase),
+    kind,
+    cwd: p.cwd,
+    cmd: p.cmd,
+    reason: `${v.reason}, mixed with ${v.other.length} that don't, and no folder${p.adapter === "dotnet" || p.adapter === "pytest" || p.adapter === "rspec" || p.adapter === "phpunit" || p.adapter === "junit-maven" ? ", category or tag" : ""} separates them`,
+    functionalFiles: v.functional.map((f) => f.rel)
+  });
+}
+var q = (s) => JSON.stringify(s);
+var svcEnv = (n) => `WITNESS_${n.toUpperCase().replace(/-/g, "_")}_URL`;
+function renderExample(g) {
+  const out = [
+    "# Witness config (version 1). Generated by `witness init` from the files in this repo: review it,",
+    "# then save it as .witness/witness.toml. Run `witness check` to try it.",
+    '# Witness runs functional tests only: tests that drive the app over HTTP (kind = "api") or in a',
+    `# browser (kind = "ui"). Unit and integration tests stay with the project's own build and test scripts.`,
+    "version = 1",
+    "",
+    "[env]",
+    'file = ".witness/.env"        # KEY=VALUE lines, gitignored',
+    'required = []                 # names that must be set, e.g. ["DATABASE_URL"]',
+    "",
+    "# [[dependency]]",
+    '# name = "postgres"',
+    '# check = "pg_isready -h localhost"',
+    '# start = "docker compose up -d db"',
+    '# timeout = "60s"',
+    ""
+  ];
+  for (const s of g.services) {
+    out.push(`# ${s.why}`, "[[service]]", `name = ${q(s.name)}`, `cwd = ${q(s.cwd)}`);
+    if (s.setup)
+      out.push(`setup = ${q(s.setup)}`);
+    out.push(`start = ${q(s.start)}`, `ready = { http = ${q(s.ready)}, timeout = "180s" }`, "");
+  }
+  if (!g.services.length)
+    out.push("# [[service]]", '# name = "api"', '# start = "npm start -- --port ${PORT}"', '# ready = { http = "${self.url}/health", timeout = "120s" }', "");
+  for (const s of g.suites) {
+    out.push(`# ${s.why}`, "[[suite]]", `name = ${q(s.name)}`, `kind = ${q(s.kind)}`, `adapter = ${q(s.adapter)}`, `cwd = ${q(s.cwd)}`, `cmd = ${q(s.cmd)}`);
+    if (s.report)
+      out.push(`report = ${q(s.report)}`);
+    if (s.hostsApp)
+      out.push("service = []                 # the tests start the app themselves");
+    else if (g.services.length)
+      out.push(`# no service key: every service is started; the tests get ${g.services.map((x) => svcEnv(x.name)).join(", ")}`);
+    out.push('timeout = "20m"', "");
+  }
+  if (!g.suites.length && !g.needsFilter.length)
+    out.push("# No functional tests detected.", "# [[suite]]", '# name = "api"', '# kind = "api"', '# adapter = "generic"', '# cmd = "./run-api-tests.sh"', '# report = "reports/*.xml"', "");
+  for (const n of g.needsFilter) {
+    out.push(`# Needs a filter: ${n.path}: ${n.reason}.`, "# Narrow cmd to the functional tests (a folder, marker, category or tag), then uncomment. Functional files:");
+    for (const f of n.functionalFiles.slice(0, 8))
+      out.push(`#   ${f}`);
+    if (n.functionalFiles.length > 8)
+      out.push(`#   ... ${n.functionalFiles.length - 8} more`);
+    out.push("# [[suite]]", `# name = ${q(n.name)}`, `# kind = ${q(n.kind)}`, `# adapter = ${q(n.adapter)}`, `# cwd = ${q(n.cwd)}`, `# cmd = ${q(n.cmd)}`, "");
+  }
+  if (g.excluded.length) {
+    out.push("# Not proposed: these test projects don't drive the app through its HTTP API or UI.");
+    for (const e of g.excluded)
+      out.push(`#   ${e.path}: ${e.reason}`);
+    out.push("");
+  }
+  out.push("[run]", 'stall_timeout = "5m"', 'heartbeat = "60s"', "keep_runs = 10", "");
+  return out.join(`
+`);
+}
+function initCommand(root, json) {
+  const g = guess(root);
+  const dir = path14.join(root, ".witness");
+  fs14.mkdirSync(dir, { recursive: true });
+  const example = path14.join(dir, "witness.example.toml");
+  fs14.writeFileSync(example, renderExample(g));
+  const gi = path14.join(dir, ".gitignore");
+  if (!fs14.existsSync(gi))
+    fs14.writeFileSync(gi, `runs/
+check/
+cache/
+up/
+up.json
+run.lock
+scratch/
+.env
+`);
+  else if (!/^scratch\/$/m.test(fs14.readFileSync(gi, "utf8")))
+    fs14.appendFileSync(gi, `scratch/
+`);
+  if (json)
+    process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + `
+`);
+  else {
+    const w = (s) => process.stderr.write(`witness  ${s}
+`);
+    w(`wrote ${example}`);
+    for (const s of g.suites)
+      w(`  suite ${s.name} (${s.adapter}, ${s.kind}${s.hostsApp ? ", starts the app itself" : ""}): ${s.why}`);
+    for (const s of g.services)
+      w(`  service ${s.name}: ${s.why}`);
+    if (g.needsFilter.length)
+      w("needs a filter (not proposed until you narrow the command):");
+    for (const n of g.needsFilter)
+      w(`  ${n.path}: ${n.reason}`);
+    if (g.excluded.length)
+      w("excluded (Witness runs functional tests only; unit and integration tests stay with the project's own build):");
+    for (const e of g.excluded)
+      w(`  ${e.path}: ${e.reason}`);
+    if (!fs14.existsSync(path14.join(dir, "witness.toml")))
+      w(`review it, then: mv ${example} ${path14.join(dir, "witness.toml")}`);
+  }
+  return 0;
+}
+
+// src/skills.ts
+import * as fs15 from "node:fs";
+import * as path15 from "node:path";
 import { fileURLToPath } from "node:url";
 var MARKER = ".installed-by-witness";
 function skillsDir() {
-  const here = path14.dirname(fileURLToPath(import.meta.url));
-  const candidates = [process.env.WITNESS_SKILLS_DIR, path14.resolve(here, "..", "skills"), path14.resolve(here, "skills")].filter(Boolean);
-  return candidates.find((d) => fs14.existsSync(path14.join(d, "test-change", "SKILL.md"))) ?? null;
+  const here = path15.dirname(fileURLToPath(import.meta.url));
+  const candidates = [process.env.WITNESS_SKILLS_DIR, path15.resolve(here, "..", "skills"), path15.resolve(here, "skills")].filter(Boolean);
+  return candidates.find((d) => fs15.existsSync(path15.join(d, "test-change", "SKILL.md"))) ?? null;
 }
 function frontmatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
@@ -14737,46 +15274,46 @@ function frontmatter(text) {
   return out;
 }
 function listSkills(dir) {
-  return fs14.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && fs14.existsSync(path14.join(dir, e.name, "SKILL.md"))).map((e) => {
-    const fm = frontmatter(fs14.readFileSync(path14.join(dir, e.name, "SKILL.md"), "utf8"));
-    return { name: fm.name ?? e.name, description: fm.description ?? "", dir: path14.join(dir, e.name) };
+  return fs15.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && fs15.existsSync(path15.join(dir, e.name, "SKILL.md"))).map((e) => {
+    const fm = frontmatter(fs15.readFileSync(path15.join(dir, e.name, "SKILL.md"), "utf8"));
+    return { name: fm.name ?? e.name, description: fm.description ?? "", dir: path15.join(dir, e.name) };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 function copyDir(src, dst) {
-  fs14.mkdirSync(dst, { recursive: true });
-  for (const e of fs14.readdirSync(src, { withFileTypes: true })) {
-    const s = path14.join(src, e.name);
-    const d = path14.join(dst, e.name);
+  fs15.mkdirSync(dst, { recursive: true });
+  for (const e of fs15.readdirSync(src, { withFileTypes: true })) {
+    const s = path15.join(src, e.name);
+    const d = path15.join(dst, e.name);
     if (e.isDirectory())
       copyDir(s, d);
     else
-      fs14.copyFileSync(s, d);
+      fs15.copyFileSync(s, d);
   }
 }
 function installSkills(src, dest, o) {
-  fs14.mkdirSync(dest, { recursive: true });
+  fs15.mkdirSync(dest, { recursive: true });
   const skills = listSkills(src);
   for (const s of skills) {
-    const target = path14.join(dest, `${o.prefix}${path14.basename(s.dir)}`);
-    const st = fs14.lstatSync(target, { throwIfNoEntry: false });
-    if (st && !st.isSymbolicLink() && !fs14.existsSync(path14.join(target, MARKER)))
+    const target = path15.join(dest, `${o.prefix}${path15.basename(s.dir)}`);
+    const st = fs15.lstatSync(target, { throwIfNoEntry: false });
+    if (st && !st.isSymbolicLink() && !fs15.existsSync(path15.join(target, MARKER)))
       throw new Error(`${target} exists and was not installed by witness; move it away or pick another --prefix`);
   }
   const out = [];
   for (const s of skills) {
-    const base = path14.basename(s.dir);
-    const target = path14.join(dest, `${o.prefix}${base}`);
-    fs14.rmSync(target, { recursive: true, force: true });
+    const base = path15.basename(s.dir);
+    const target = path15.join(dest, `${o.prefix}${base}`);
+    fs15.rmSync(target, { recursive: true, force: true });
     if (o.link) {
-      fs14.symlinkSync(s.dir, target, "dir");
+      fs15.symlinkSync(s.dir, target, "dir");
       out.push({ name: s.name, path: target });
       continue;
     }
     copyDir(s.dir, target);
-    const file = path14.join(target, "SKILL.md");
+    const file = path15.join(target, "SKILL.md");
     const name = `${o.prefix}${s.name}`;
-    fs14.writeFileSync(file, fs14.readFileSync(file, "utf8").replace(/^(---\r?\n[\s\S]*?^name:\s*).*$/m, `$1${name}`));
-    fs14.writeFileSync(path14.join(target, MARKER), "");
+    fs15.writeFileSync(file, fs15.readFileSync(file, "utf8").replace(/^(---\r?\n[\s\S]*?^name:\s*).*$/m, `$1${name}`));
+    fs15.writeFileSync(path15.join(target, MARKER), "");
     out.push({ name, path: target });
   }
   return out;
@@ -14810,7 +15347,7 @@ function skillsCommand(sub, o) {
       return 64;
     }
     const prefix = o.prefix ?? "witness-";
-    const done = installSkills(src, path14.resolve(o.dir), { link: o.link, prefix });
+    const done = installSkills(src, path15.resolve(o.dir), { link: o.link, prefix });
     for (const d of done)
       o.log(`skills  ${o.link ? "linked" : "installed"} ${d.name} -> ${d.path}`);
     if (o.link && prefix)
@@ -14913,14 +15450,14 @@ function parseArgs(argv) {
 }
 function configPath(flags) {
   if (typeof flags.config === "string")
-    return path15.resolve(flags.config);
+    return path16.resolve(flags.config);
   const found = findConfig(process.cwd());
   if (!found)
     throw new ConfigError("", "no .witness/witness.toml here or in a parent folder; run `witness init`");
   return found;
 }
 function runRoot(flags, root) {
-  return typeof flags["run-dir-root"] === "string" ? path15.resolve(flags["run-dir-root"]) : path15.join(root, ".witness", "runs");
+  return typeof flags["run-dir-root"] === "string" ? path16.resolve(flags["run-dir-root"]) : path16.join(root, ".witness", "runs");
 }
 async function main(argv) {
   let args;
@@ -14954,14 +15491,14 @@ ${HELP}
       return skillsCommand(pos[0], { dir: flags.dir, link: !!flags.link, prefix: flags.prefix, json, log: (s) => process.stderr.write(`witness  ${s}
 `) });
     if (cmd === "lint") {
-      const cp = typeof flags.config === "string" ? path15.resolve(flags.config) : findConfig(process.cwd());
+      const cp = typeof flags.config === "string" ? path16.resolve(flags.config) : findConfig(process.cwd());
       const lintCfg = cp ? loadConfig(cp) : undefined;
       const root = lintCfg?.root ?? process.cwd();
-      const dflt = path15.join(root, ".witness", "plan.yaml");
-      const planFile = typeof flags.plan === "string" ? path15.resolve(flags.plan) : fs15.existsSync(dflt) ? dflt : undefined;
+      const dflt = path16.join(root, ".witness", "plan.yaml");
+      const planFile = typeof flags.plan === "string" ? path16.resolve(flags.plan) : fs16.existsSync(dflt) ? dflt : undefined;
       let plan;
       if (planFile) {
-        const r = parsePlan(fs15.readFileSync(planFile, "utf8"), { draft: true });
+        const r = parsePlan(fs16.readFileSync(planFile, "utf8"), { draft: true });
         if (!r.plan)
           throw new UsageError(`${planFile} is not a valid plan; run \`witness plan check\``);
         plan = r.plan;
@@ -14972,14 +15509,14 @@ ${HELP}
     if (cmd === "plan") {
       if (pos[0] !== "check")
         throw new UsageError(`usage: witness plan check [file]`);
-      const cp = typeof flags.config === "string" ? path15.resolve(flags.config) : findConfig(process.cwd());
+      const cp = typeof flags.config === "string" ? path16.resolve(flags.config) : findConfig(process.cwd());
       const planCfg = cp ? loadConfig(cp) : undefined;
-      const file = path15.resolve(pos[1] ?? path15.join(planCfg?.root ?? process.cwd(), ".witness", "plan.yaml"));
+      const file = path16.resolve(pos[1] ?? path16.join(planCfg?.root ?? process.cwd(), ".witness", "plan.yaml"));
       return await planCheckCommand(file, planCfg, { draft: !!flags.draft, list: !flags["no-list"], json, log: (s) => process.stderr.write(`witness  ${s}
 `) });
     }
     if (cmd === "status" || cmd === "report") {
-      const cp = typeof flags.config === "string" ? path15.resolve(flags.config) : findConfig(process.cwd());
+      const cp = typeof flags.config === "string" ? path16.resolve(flags.config) : findConfig(process.cwd());
       const root = cp ? rootFor(cp) : process.cwd();
       const rr2 = runRoot(flags, root);
       if (cmd === "status")
@@ -15039,7 +15576,7 @@ ${HELP}
   return EXIT_USAGE2;
 }
 var EXIT_USAGE2 = 64;
-var self = process.argv[1] ? fs15.realpathSync(process.argv[1]) : "";
+var self = process.argv[1] ? fs16.realpathSync(process.argv[1]) : "";
 if (self.endsWith("cli.ts") || self.endsWith("witness.mjs")) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
     process.stderr.write(`witness  internal error: ${e.stack ?? e}
