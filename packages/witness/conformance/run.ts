@@ -75,6 +75,7 @@ function toml(fw: Framework, t: Tool, o: { cmd: string; env?: Record<string, str
     "",
     "[[suite]]",
     'name = "kit"',
+    `kind = ${tq(fw.adapter === "playwright" ? "ui" : "api")}`,
     `adapter = ${tq(fw.adapter)}`,
     'service = "app"',
     `cmd = ${tq(o.cmd)}`,

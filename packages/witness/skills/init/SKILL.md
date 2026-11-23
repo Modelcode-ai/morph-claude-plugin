@@ -5,7 +5,7 @@ description: Set up witness in a repo that has no .witness/witness.toml - detect
 
 # Set up witness in a repo
 
-Output: `.witness/witness.toml` that passes `witness check`, and one run per suite.
+Output: a `.witness/witness.toml` that passes `witness check`, plus one run per suite.
 
 ## 1. Detect
 
@@ -22,11 +22,10 @@ file as comments:
 - needs a filter: a project mixing functional and other tests with no folder or tag between them.
   Narrow its commented-out `cmd` to the functional files listed, then uncomment it.
 
-If a guess looks wrong, read that project's tests, decide, and say so in your report.
+If a guess looks wrong, read the project's tests and say so in your report.
 
-Copy the file to `.witness/witness.toml` and complete it. Read the repo's README, CI workflow files,
-Makefile, package scripts, Dockerfile and compose files: they show how the app is built, started
-and tested. Prefer the commands CI uses.
+Copy the file to `.witness/witness.toml` and complete it. Read the README, CI workflows, Makefile,
+package scripts and compose files for how the app is built, started and tested; prefer CI's commands.
 
 ## 2. Complete the config
 
@@ -34,11 +33,10 @@ For each service the tests need (an API, a web front end, a worker):
 
 - `setup`: install and build (for example `npm ci && npm run build`). Witness skips it when
   nothing changed.
-- `start`: runs the app in the foreground on `${PORT}`. Witness picks a free port; pass it the way
-  the app accepts it (a flag or an environment variable in `env`).
+- `start`: runs the app in the foreground on the free port `${PORT}` (pass it as a flag or in `env`).
 - `ready`: `{ http = "${self.url}/health", timeout = "120s" }` with a URL that answers only when
   the app is ready to serve, or `{ cmd = "..." }`.
-- `env`: what the app needs, and the URLs of services it calls (`"${api.url}"`).
+- `env`: what the app needs, including URLs of services it calls (`"${api.url}"`).
 - `depends_on`: services that must be up first.
 
 For databases and other infrastructure, add a `[[dependency]]` with a `check` command and, when it
@@ -55,32 +53,31 @@ For each suite:
 - `service`: which services must be up; `[]` when the tests start the app themselves.
 - `timeout` and, when the framework supports it, `per_test_timeout`.
 
-Keep API and browser tests in separate suites, one per test project where the framework works per
-project. `witness check` warns when a suite's tests don't drive the app; fix that with a filter or
+Keep API and browser tests in separate suites, one per test project. `witness check` warns when a suite's tests don't drive the app; fix that with a filter or
 remove the suite.
 
 ## 3. Check until it passes
 
-Run `witness check`. It goes stage by stage: config, dependencies, booting each service, then
-listing each suite's tests (or a smoke run when the framework cannot list). It can take minutes
+Run `witness check`. It checks the config and dependencies, boots each service, then lists each
+suite's tests (or smoke-runs it). It can take minutes
 on the first build; follow the "Long commands" rules of the `test-change` skill.
 
-It also prints a line per suite: where `report`, `list`, `select` and the per-test timeout come
-from, and what each missing one costs. Fix what you can: when `select` is `none` because the
+It also prints each suite's capabilities (`report`, `list`, `select`, per-test timeout) and what a
+missing one costs. Fix what you can: when `select` is `none` because the
 command is compound (`cd x && ...`), put `${WITNESS_SELECT}` where the runner's arguments go; when
 `list` is `none`, add `list = "<command printing one test id per line>"` or let one full run fill it.
 
-When a stage fails, follow the diagnosis it prints (cause, evidence line, `try` commands). The
-`triage` skill explains each cause. Use `witness check --stage boot --service <name>` to work on
-one service at a time. Up to five rounds; then stop and report what blocks you.
+When a stage fails, follow its diagnosis (cause, evidence, `try` commands; the `triage` skill
+explains each cause). Use `witness check --stage boot --service <name>` to work on
+one service at a time. After five rounds, stop and report what blocks you.
 
 ## 4. One run per suite
 
 Run each suite once on the unchanged code: `witness run --suite <name> --label init-<name>`.
 
 - `passed`: done with that suite.
-- `failed`: the tests themselves fail on the unchanged code. Do not fix or skip them; note which
-  tests fail, so later runs can tell old failures from new ones.
+- `failed`: the tests themselves fail on the unchanged code. Don't fix or skip them; note them
+  so later runs can tell old failures from new.
 - `mistrial`, `error`, `stalled`: fix the setup (the `triage` skill), then run again.
 
 ## 5. Finish

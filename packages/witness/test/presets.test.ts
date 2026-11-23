@@ -15,7 +15,7 @@ import { fromReruns, reconcile } from "../src/reconcile.ts";
 import { canSelect, missingPlugin, suiteCommand } from "../src/suite.ts";
 import { APPS, ctrf, latest, readJson, tmpRepo, witness } from "./helpers.ts";
 
-const suite = (adapter: Suite["adapter"], cmd: string, extra: Partial<Suite> = {}): Suite => ({ name: "s", adapter, cmd, cwd: ".", timeoutMs: 60_000, env: {}, ...extra });
+const suite = (adapter: Suite["adapter"], cmd: string, extra: Partial<Suite> = {}): Suite => ({ name: "s", kind: "api", adapter, cmd, cwd: ".", timeoutMs: 60_000, env: {}, ...extra });
 const cfg = (toml: string) => parseConfig(parse(toml) as Record<string, unknown>, "/repo/.witness/witness.toml");
 
 describe("${WITNESS_SELECT}: runner args go where the placeholder is", () => {
@@ -48,7 +48,7 @@ describe("${WITNESS_SELECT}: runner args go where the placeholder is", () => {
 });
 
 describe("config: list and per_test_timeout_arg", () => {
-  const base = (extra: string) => `version = 1\n[[suite]]\nname = "s"\nadapter = "junit-maven"\ncmd = "mvn test"\n${extra}`;
+  const base = (extra: string) => `version = 1\n[[suite]]\nname = "s"\nkind = "api"\nadapter = "junit-maven"\ncmd = "mvn test"\n${extra}`;
   test("list as a command (lines) or a table; format checked against the adapter", () => {
     assert.deepEqual(cfg(base('list = "./list-tests.sh"')).suites[0].list, { cmd: "./list-tests.sh", format: "lines" });
     assert.deepEqual(cfg(base('list = { cmd = "mvn surefire:test -DdryRun", format = "junit", report = "target/*.xml" }')).suites[0].list, { cmd: "mvn surefire:test -DdryRun", format: "report", report: "target/*.xml" });
@@ -194,6 +194,7 @@ env = { HOST = "::1" }
 ready = { http = "\${self.url}/health", timeout = "10s" }
 [[suite]]
 name = "s"
+kind = "api"
 service = "api"
 cmd = "node -e \\"fetch(process.env.WITNESS_API_URL + '/hello').then(r => process.exit(r.ok ? 0 : 1))\\""
 `);
