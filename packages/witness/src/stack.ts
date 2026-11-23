@@ -225,7 +225,7 @@ export class Stack {
     let delay = 200;
     let last = "";
     let steady: { status: number; since: number } | undefined;
-    const steadyAfter = Math.min(30_000, timeoutMs);
+    const steadyAfter = Math.min(30_000, timeoutMs / 2);
     const exitedFail = () => this.fail("boot", "exited_before_ready", { service: svc.name, command: cmd, log: ls.log, cwd: svc.cwd, port: ls.port, evidence: undefined });
     for (;;) {
       if (this.o.abort.aborted) return;
@@ -259,7 +259,11 @@ export class Stack {
 
   async probe(ls: LiveService): Promise<{ ok: boolean; detail: string }> {
     const r = ls.svc.ready;
-    if (!r) return ls.svc.external ? httpProbe(ls.url) : { ok: false, detail: "no readiness check configured" };
+    if (!r) {
+      if (!ls.svc.external) return { ok: false, detail: "no readiness check configured" };
+      const h = await httpProbe(ls.url);
+      return /^HTTP [1-4]\d\d$/.test(h.detail) ? { ok: true, detail: h.detail } : h;
+    }
     const vars = this.vars(ls);
     if (r.http) return httpProbe(substitute(r.http, vars), r.status);
     const env = childEnv(this.o.baseEnv, { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv(), ...mapValues(ls.svc.env, (v) => substitute(v, vars)) });

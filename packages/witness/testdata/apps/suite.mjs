@@ -16,9 +16,13 @@ const cases = [
 if (process.env.EXTRA_TEST) cases.push({ cls: "Api", name: process.env.EXTRA_TEST, ok: true });
 if (process.env.FLIP) for (const c of cases) if (`${c.cls}#${c.name}` === process.env.FLIP) c.ok = false;
 
+const FIXTURE = "Class fixture type 'BrowserFixture' threw in InitializeAsync";
+if (process.env.FIXTURE_ERROR) for (const c of cases) c.ok = false;
+
 function junit(list) {
+  const fail = process.env.FIXTURE_ERROR ? `<failure message="${FIXTURE}">${FIXTURE}</failure>` : `<failure message="expected 1 got 2">AssertionError: expected 1 got 2</failure>`;
   const body = list
-    .map((c) => `<testcase classname="${c.cls}" name="${c.name}" time="0.01">${c.ok ? "" : `<failure message="expected 1 got 2">AssertionError: expected 1 got 2</failure>`}</testcase>`)
+    .map((c) => `<testcase classname="${c.cls}" name="${c.name}" time="0.01">${process.env.SKIP_ALL ? "<skipped/>" : c.ok ? "" : fail}</testcase>`)
     .join("\n    ");
   return `<?xml version="1.0"?>\n<testsuites>\n  <testsuite name="fake">\n    ${body}\n  </testsuite>\n</testsuites>\n`;
 }

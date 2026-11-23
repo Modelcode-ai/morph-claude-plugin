@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { ADAPTERS, appendArgs, dotnetFqnToId, pytestId, selectCommand } from "../src/adapters.ts";
-import { suiteCommand } from "../src/suite.ts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { ADAPTERS, appendArgs, dotnetFqnToId, pytestId, selectCommand, trxHint } from "../src/adapters.ts";
+import { buildFailure, reportPathEvidence, suiteCommand } from "../src/suite.ts";
 import type { Suite } from "../src/config.ts";
 
 const suite = (adapter: Suite["adapter"], cmd: string, extra: Partial<Suite> = {}): Suite => ({ name: "s", adapter, cmd, cwd: ".", timeoutMs: 60_000, env: {}, ...extra });
@@ -58,5 +61,32 @@ describe("adapter table", () => {
     assert.equal(dotnetFqnToId("Ns.Sub.Class.Method(a: \"x.y\")"), 'Ns.Sub.Class#Method(a: "x.y")');
     assert.equal(appendArgs("npm run test:e2e", "--x"), "npm run test:e2e -- --x");
     assert.equal(appendArgs("npm test -- --ci", "--x"), "npm test -- --ci --x");
+  });
+});
+
+describe("eShopOnWeb eval fixes: build failures, report paths, TRX hint", () => {
+  test("buildFailure finds compile errors and missing commands, nothing in plain test output", () => {
+    assert.match(buildFailure("Restore complete\nsrc/Basket.cs(13,59): error CS1525: Invalid expression term\nBuild FAILED.", 1)!, /error CS1525/);
+    assert.match(buildFailure("[ERROR] COMPILATION ERROR :\n[ERROR] Foo.java:[3,1] ';' expected", 1)!, /COMPILATION ERROR/);
+    assert.match(buildFailure("FAIL\texample.com/x [build failed]", 1)!, /build failed/);
+    assert.match(buildFailure("bash: .witness/dotnet: No such file or directory", 127)!, /No such file/);
+    assert.equal(buildFailure("Tests run: 3, Failures: 1\nAssertionError: expected 1 got 2", 1), undefined);
+  });
+
+  test("reportPathEvidence names a report the framework wrote somewhere witness can't see", () => {
+    const out = "Test run summary: Passed!\n  duration: 788ms\nIn process file artifacts produced:\n  - /nonexistent/witness/run/reports/unit/root_x.trx\n";
+    assert.match(reportPathEvidence(out)!, /says it wrote \/nonexistent\/witness\/run\/reports\/unit\/root_x\.trx, but there is no such file here/);
+    assert.match(reportPathEvidence("Results File: /nonexistent/a.trx")!, /no such file/);
+    assert.equal(reportPathEvidence("duration: 788ms"), undefined);
+  });
+
+  test("TRX hint without central package management asks for a versioned PackageReference", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "witness-trx-"));
+    fs.mkdirSync(path.join(dir, ".git"));
+    fs.mkdirSync(path.join(dir, "t"));
+    fs.writeFileSync(path.join(dir, "t", "T.csproj"), "<Project />");
+    const h = trxHint(dir, "dotnet test --project t/T.csproj");
+    assert.match(h, /<PackageReference Include="Microsoft\.Testing\.Extensions\.TrxReport" Version="<version>" \/> to t\/T\.csproj/);
+    assert.doesNotMatch(h, /PackageVersion/);
   });
 });

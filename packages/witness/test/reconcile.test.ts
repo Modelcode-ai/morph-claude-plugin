@@ -4,6 +4,7 @@ import { ADAPTERS } from "../src/adapters.ts";
 import { buildCtrf } from "../src/ctrf.ts";
 import type { ParsedFile, RawCase } from "../src/parsers/types.ts";
 import { applyParity, dedupe, fromReruns, reconcile, type TestRecord, toRecord, worst } from "../src/reconcile.ts";
+import { verdictSummary } from "../src/run.ts";
 
 const A = ADAPTERS["junit-maven"];
 const c = (name: string, status: RawCase["status"] = "passed", extra: Partial<RawCase> = {}): RawCase => ({ name, classname: "com.a.T", status, durationMs: 5, ...extra });
@@ -124,4 +125,44 @@ describe("parity and CTRF", () => {
     const b = doc.results.tests[1] as { extra: { witness: Record<string, unknown> } };
     assert.deepEqual(b.extra.witness, { id: "pytest:b", suite: "s", adapter: "pytest", obtained: "report", status_detail: "missing", parity: "differs", origin_status: "passed" });
   });
+});
+
+describe("eShopOnWeb eval fixes: reconciliation", () => {
+  test("a rerun that exits 0 without the test in its report is missing, never passed", () => {
+    const res = fromReruns([{ id: "com.a.T#a", exitCode: 0, files: [file()] }], A, "s", "/repo", 0, "report_unreadable");
+    assert.equal(res.tests[0].status, "other");
+    assert.equal(res.tests[0].statusDetail, "missing");
+    assert.equal(res.state, "error");
+  });
+
+  test("a rerun of a parametrized test takes its cases' worst status", () => {
+    const res = fromReruns([{ id: "com.a.T#p", exitCode: 1, files: [file(c("p(x: 1)"), c("p(x: 2)", "failed"), c("other"))] }], A, "s", "/repo", 1, "report_unreadable");
+    assert.equal(res.tests[0].id, "junit-maven:com.a.T#p");
+    assert.equal(res.tests[0].status, "failed");
+  });
+
+  test("all skipped is an error; only fixture errors are setup_failed; real failures stay failed", () => {
+    const skipped = run([file(c("a", "skipped"), c("b", "skipped"))], 0);
+    assert.equal(skipped.state, "error");
+    assert.equal(skipped.cause, "report_incomplete");
+    const fx = { message: "Class fixture type 'X' threw in InitializeAsync" };
+    const setup = run([file(c("a", "failed", fx), c("b", "failed", fx))], 1);
+    assert.equal(setup.state, "error");
+    assert.equal(setup.cause, "setup_failed");
+    assert.match(setup.evidence!, /threw in InitializeAsync/);
+    assert.equal(run([file(c("a", "failed", fx), c("b", "failed"))], 1).state, "failed");
+  });
+
+  test("origin suite-level rows are dropped from parity", () => {
+    const rec = (id: string, status: TestRecord["status"], obtained: TestRecord["obtained"] = "report"): TestRecord => ({ id, name: id, suite: "s", adapter: "dotnet", status, durationMs: 1, obtained });
+    const { tests, counts } = applyParity([rec("dotnet:A#a", "passed")], [rec("dotnet:(suite unit)", "failed", "suite-level")]);
+    assert.equal(tests.length, 1);
+    assert.equal(counts.origin_only, 0);
+    assert.equal(counts.target_only, 1);
+  });
+});
+
+test("verdict counts errors, missing and origin-only tests apart from failures", () => {
+  const st = { suites: [{ name: "e2e", state: "error", passed: 1, failed: 0, skipped: 1, error: 2, missing: 1 }], summary: { tests: 5, passed: 1, failed: 2, skipped: 1, pending: 0, other: 1 }, against: { ref: "main", outcome: "passed", parity: { same: 1, differs: 0, origin_only: 1, target_only: 0 } } } as never;
+  assert.equal(verdictSummary(st), "1 passed, 0 failed · 2 error · 1 missing · 1 skipped · 1 only on origin · 1 suite(s) · against main: origin passed, 0 differ");
 });

@@ -72,3 +72,20 @@ describe("diagnosis heuristics", () => {
     assert.match(d.try[0], /DATABASE_URL=\.\.\.' >> \.witness\/\.env/);
   });
 });
+
+describe("eShopOnWeb eval fixes: diagnosis", () => {
+  test("stalled dotnet MTP suite: no per_test_timeout advice, hang dump and --select instead", () => {
+    const d = diagnose({ stage: "suite", cause: "stalled", suite: "unit", perTestTimeout: false, adapter: "dotnet" });
+    assert.ok(!d.try.some((t) => /set per_test_timeout/.test(t)));
+    assert.ok(d.try.some((t) => /--hangdump/.test(t)));
+    assert.ok(d.try.some((t) => /witness run --suite unit --select/.test(t)));
+    assert.ok(diagnose({ stage: "suite", cause: "stalled", suite: "unit", perTestTimeout: true }).try.some((t) => /set per_test_timeout/.test(t)));
+  });
+
+  test("ready_timeout on a steady 4xx is not retryable", () => {
+    const d = diagnose({ stage: "boot", cause: "ready_timeout", service: "web", url: "http://x/health", steadyStatus: 404 });
+    assert.equal(d.retryable, false);
+    assert.ok(d.try.some((t) => /does not exist: fix ready\.http/.test(t)));
+    assert.equal(diagnose({ stage: "boot", cause: "ready_timeout", service: "web" }).retryable, true);
+  });
+});

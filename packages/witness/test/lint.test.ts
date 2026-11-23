@@ -384,3 +384,26 @@ test("lint CLI: changed test files by default, explicit files and folders, plan 
   const badPlan = await witness(dir, ["lint"]);
   assert.equal(badPlan.code, 64);
 });
+
+test("lint: success-status-only flags a status check for an item that expects content; plan ids match their class", () => {
+  const cs = `public class IndexTest {
+    [Fact]
+    public async Task OnPostUpdateShowsMessage() {
+        var r = await client.PostAsync("/basket/update", form);
+        r.EnsureSuccessStatusCode();
+    }
+}
+public class WeakDraftTest {
+    [Fact]
+    public async Task OnPostUpdateShowsMessage() {
+        var r = await client.PostAsync("/basket/update", form);
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+    }
+}`;
+  const plan = (expect: string) => `version: 1\nsource: s\nitems:\n  - {id: P1, behavior: b, expect: "${expect}", kind: changed, tests: ["dotnet:Web.Basket.IndexTest#OnPostUpdateShowsMessage"]}\n`;
+  assert.deepEqual(rules("tests/IndexTest.cs", cs, plan("the basket page shows the validation message")), ["success-status-only@2"]);
+  assert.deepEqual(rules("tests/IndexTest.cs", cs, plan("200")), []);
+  const py = `def test_list(client):\n    r = client.get("/items")\n    assert r.status_code == 200\n`;
+  const pyPlan = `version: 1\nsource: s\nitems:\n  - {id: P1, behavior: b, expect: "200 with the three seeded items", kind: new, tests: ["pytest:tests/test_items.py::test_list"]}\n`;
+  assert.deepEqual(rules("tests/test_items.py", py, pyPlan), ["success-status-only@1"]);
+});
