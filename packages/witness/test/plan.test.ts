@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { parseConfig } from "../src/config.ts";
 import { idMatches, type Listing, matchTests, parsePlan } from "../src/plan.ts";
+import { splitSelect, UsageError } from "../src/run.ts";
 import { tmpRepo, witness } from "./helpers.ts";
 
 const CONTRACT_EXAMPLE = `version: 1
@@ -165,4 +166,11 @@ test("plan check CLI: invalid plan exits 1, absent file 2, no config only checks
   assert.match(noCfg.stderr, /no .witness\/witness.toml found/);
   const usage = await witness(dir, ["plan", "lint"]);
   assert.equal(usage.code, 64);
+});
+
+test("--select: suite-qualified ids pick the suite when several share an adapter", () => {
+  const c = cfg(`[{"name":"unit","adapter":"dotnet","cmd":"dotnet test a"},{"name":"api","adapter":"dotnet","cmd":"dotnet test b"},{"name":"py","adapter":"pytest","cmd":"pytest"}]`);
+  assert.throws(() => splitSelect(c.suites, ["dotnet:A#b"]), (e: Error) => e instanceof UsageError && /write it as <suite>:dotnet:A#b/.test(e.message));
+  const m = splitSelect(c.suites, ["unit:dotnet:A#b", "api:dotnet:C#d", "pytest:t.py::x", "api:dotnet:C#e"])!;
+  assert.deepEqual([...m.entries()], [["unit", ["A#b"]], ["api", ["C#d", "C#e"]], ["py", ["t.py::x"]]]);
 });

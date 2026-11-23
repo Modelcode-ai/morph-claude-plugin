@@ -119,6 +119,13 @@ export function suiteLevel(adapter: Adapter, suite: string, exitCode: number | n
   return r;
 }
 
+/** A selected id is present when the report has it, or has parametrized cases of it (Theory, DataRow, pytest params). */
+export function presentIn(ids: Set<string>, id: string): boolean {
+  if (ids.has(id)) return true;
+  for (const x of ids) if (x.startsWith(`${id}(`) || x.startsWith(`${id} (`) || x.startsWith(`${id}[`)) return true;
+  return false;
+}
+
 /** Apply the reconciliation rules: what the report says vs. how the process ended. */
 export function reconcile(inp: ReconcileInput): ReconcileResult {
   const { adapter, suite, exitCode, end, cwd } = inp;
@@ -128,7 +135,7 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
 
   if (end === "interrupted" || end === "service_died" || end === "timeout" || end === "stalled") {
     const have = new Set(tests.map((t) => t.id));
-    for (const id of expected) if (!have.has(id)) tests.push(missing(id, adapter, suite, end === "timeout" || end === "stalled" ? "timeout" : "missing"));
+    for (const id of expected) if (!presentIn(have, id)) tests.push(missing(id, adapter, suite, end === "timeout" || end === "stalled" ? "timeout" : "missing"));
     const state: SuiteState = end === "interrupted" ? "interrupted" : end === "service_died" ? "error" : end === "timeout" ? "timeout" : "stalled";
     const cause: Cause | undefined = end === "service_died" ? "service_died" : end === "timeout" ? "suite_timeout" : end === "stalled" ? "stalled" : undefined;
     if (!tests.length && end !== "interrupted") tests = [{ ...suiteLevel(adapter, suite, 1, `suite ${end === "service_died" ? "aborted: a service died" : end}`), statusDetail: end === "service_died" ? "error" : "timeout" }];
@@ -137,7 +144,7 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
 
   if (tests.length) {
     const have = new Set(tests.map((t) => t.id));
-    const absent = expected.filter((id) => !have.has(id));
+    const absent = expected.filter((id) => !presentIn(have, id));
     for (const id of absent) tests.push(missing(id, adapter, suite, "missing"));
     const failed = tests.some((t) => t.status === "failed");
     if (failed) return { tests, state: "failed", note: unreadable.length ? `${unreadable.length} report file(s) unreadable` : undefined };

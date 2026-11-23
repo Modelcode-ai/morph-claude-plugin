@@ -4,6 +4,7 @@ import { LineCounter, parseDocument } from "yaml";
 import { ADAPTERS, type AdapterName } from "./adapters.ts";
 import { closest, type Config, loadEnv, substitute, type Suite } from "./config.ts";
 import { childEnv, runCapture } from "./proc.ts";
+import { shq } from "./util.ts";
 
 export type PlanKind = "new" | "changed" | "parity";
 
@@ -250,6 +251,8 @@ export async function planCheckCommand(file: string, cfg: Config | undefined, o:
     for (const c of checks.filter((c) => c.state === "found")) o.log(`plan  ok    ${c.item} ${c.test} (suite ${c.suites.join(", ")}${c.detail ? `; ${c.detail}` : ""})`);
     for (const i of plan.items.filter((i) => !i.tests.length)) o.log(`plan  todo  ${i.id} ${i.behavior}`);
   }
+  const found = checks.filter((c) => c.state === "found");
+  if (found.length) o.log(`plan  run the plan's tests: witness run --select ${shq([...new Set(found.map((c) => `${c.suites[0]}:${c.test}`))].join(","))}`);
   const count = (s: TestState) => checks.filter((c) => c.state === s).length;
   const summary = plan ? `${plan.items.length} item(s), ${checks.length} test ref(s): ${count("found")} found, ${count("missing")} missing, ${count("unverified")} unverified` : `${errors.length} error(s)`;
   o.log(`PLAN ${errors.length ? "invalid" : "ok"} · ${summary}`);

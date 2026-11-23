@@ -459,7 +459,7 @@ export function planFiles(plan: Plan, root: string, roots: string[] = []): strin
     const cls = id.split("#")[0].split(".").pop();
     if (!cls || !id.includes("#")) continue;
     all ??= globFiles(root, ["**/*.{cs,java,kt,php,go}"], { maxDepth: 8, skipDirs: new Set([".git", "node_modules", "bin", "obj", "target", "build", "dist", "vendor", ".witness"]) });
-    for (const f of all) if (path.basename(f).replace(/\.\w+$/, "") === cls) out.add(path.isAbsolute(f) ? f : path.join(root, f));
+    for (const f of all) if (path.basename(f).replace(/\.\w+$/, "") === cls && isTestPath(f)) out.add(path.join(root, f));
   }
   return [...out];
 }

@@ -28,6 +28,13 @@ describe("reconciliation rules", () => {
     assert.equal(run([file(c("a"))], 0).state, "passed");
   });
 
+  test("a selected parametrized test is present through its cases", () => {
+    const r = run([file(c("p(x: 1)"), c("p(x: 2)"), c('q ("a")'), c("r[1]"))], 0, { expected: ["com.a.T#p", "com.a.T#q", "com.a.T#r"] });
+    assert.equal(r.state, "passed");
+    assert.ok(!r.tests.some((t) => t.statusDetail === "missing"));
+    assert.equal(run([file(c("pp(x: 1)"))], 0, { expected: ["com.a.T#p"] }).state, "error");
+  });
+
   test("expected test absent: other/missing and suite error", () => {
     const r = run([file(c("a"))], 0, { expected: ["com.a.T#a", "junit-maven:com.a.T#gone"] });
     const gone = r.tests.find((t) => t.id === "junit-maven:com.a.T#gone")!;

@@ -37,17 +37,27 @@ export function pickSuites(cfg: Config, names?: string[]): Suite[] {
   return out;
 }
 
-/** --select ids per suite: an id `adapter:x` belongs to the suites with that adapter. */
+/** --select ids per suite: `adapter:x` belongs to the suites with that adapter; `suite:adapter:x` names its suite. */
 export function splitSelect(suites: Suite[], select?: string[]): Map<string, string[]> | undefined {
   if (!select?.length) return undefined;
   const m = new Map<string, string[]>();
   for (const raw of select) {
-    const colon = raw.indexOf(":");
-    const pre = colon > 0 ? raw.slice(0, colon) : "";
-    const owners = pre in ADAPTERS ? suites.filter((s) => s.adapter === pre) : suites;
+    let colon = raw.indexOf(":");
+    let pre = colon > 0 ? raw.slice(0, colon) : "";
+    let pool = suites;
+    if (pre && !(pre in ADAPTERS) && suites.some((s) => s.name === pre)) {
+      const rest = raw.slice(colon + 1);
+      const c2 = rest.indexOf(":");
+      if (c2 > 0 && rest.slice(0, c2) in ADAPTERS) {
+        pool = suites.filter((s) => s.name === pre);
+        colon += c2 + 1;
+        pre = rest.slice(0, c2);
+      }
+    }
+    const owners = pre in ADAPTERS ? pool.filter((s) => s.adapter === pre) : pool;
     const id = pre in ADAPTERS ? raw.slice(colon + 1) : raw;
     if (!owners.length) throw new UsageError(`--select ${raw}: no selected suite uses adapter ${pre}`);
-    if (owners.length > 1) throw new UsageError(`--select ${raw}: suites ${owners.map((s) => s.name).join(", ")} could all own it; add --suite`);
+    if (owners.length > 1) throw new UsageError(`--select ${raw}: suites ${owners.map((s) => s.name).join(", ")} could all own it; add --suite or write it as <suite>:${raw}`);
     m.set(owners[0].name, [...(m.get(owners[0].name) ?? []), id]);
   }
   return m;
@@ -76,8 +86,9 @@ interface Side {
 }
 
 export async function runCommand(cfg: Config, opts: RunOptions): Promise<number> {
-  const suites = pickSuites(cfg, opts.suites);
+  let suites = pickSuites(cfg, opts.suites);
   const select = splitSelect(suites, opts.select);
+  if (select && !opts.suites?.length) suites = suites.filter((s) => select.has(s.name));
   if (!suites.length) throw new UsageError("no [[suite]] in the config");
   for (const [name, ids] of select ?? []) {
     const s = suites.find((x) => x.name === name)!;
