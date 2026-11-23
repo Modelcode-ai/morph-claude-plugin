@@ -2080,14 +2080,15 @@ var require_fxp = __commonJS((exports, module) => {
 });
 
 // src/cli.ts
-import * as fs11 from "node:fs";
+import * as fs12 from "node:fs";
 import * as path12 from "node:path";
 
 // src/commands.ts
-import * as fs9 from "node:fs";
+import * as fs10 from "node:fs";
 import * as path10 from "node:path";
 
 // src/adapters.ts
+import * as fs2 from "node:fs";
 import * as path2 from "node:path";
 
 // src/util.ts
@@ -2436,6 +2437,46 @@ function playwrightListParse(out) {
   const multi = new Set(rows.map((r) => r.project)).size > 1;
   return [...new Set(rows.map((r) => multi && r.project ? `${r.rest} [${r.project}]` : r.rest))];
 }
+function readUp(start, name) {
+  const dirs = [];
+  let text = "";
+  for (let d = path2.resolve(start);; d = path2.dirname(d)) {
+    dirs.push(d);
+    const f = path2.join(d, name);
+    if (fs2.existsSync(f)) {
+      text = fs2.readFileSync(f, "utf8");
+      break;
+    }
+    if (path2.dirname(d) === d || fs2.existsSync(path2.join(d, ".git")))
+      break;
+  }
+  return { text, dirs };
+}
+function dotnetProject(cwd, cmd) {
+  const m = /--project[ =]+["']?([^\s"']+)/.exec(cmd) ?? /(?:^|\s)["']?([^\s"']+\.(?:cs|fs|vb)proj)\b/.exec(cmd);
+  return m ? path2.resolve(cwd, m[1]) : undefined;
+}
+function dotnetMode(cwd, cmd = "") {
+  const gj = readUp(cwd, "global.json").text;
+  let mtp = false;
+  try {
+    mtp = /Microsoft\.Testing\.Platform/.test(JSON.parse(gj || "{}")?.test?.runner ?? "");
+  } catch {
+    mtp = false;
+  }
+  if (!mtp)
+    return "vstest";
+  const proj = dotnetProject(cwd, cmd);
+  if (proj && fs2.existsSync(proj)) {
+    const text = fs2.readFileSync(proj, "utf8") + readUp(path2.dirname(proj), "Directory.Build.props").text;
+    if (/"xunit\.v3(\.mtp-v\d)?"/.test(text))
+      return "mtp-xunit";
+    if (/Microsoft\.Testing\.Extensions\.TrxReport|Sdk="MSTest\.Sdk|Include="MSTest"|Include="TUnit"/.test(text))
+      return "mtp";
+    return "mtp-none";
+  }
+  return /"xunit\.v3"/.test(readUp(cwd, "Directory.Packages.props").text) ? "mtp-xunit" : "mtp";
+}
 var ADAPTERS = {
   pytest: {
     name: "pytest",
@@ -2478,8 +2519,14 @@ var ADAPTERS = {
   dotnet: {
     name: "dotnet",
     format: "trx",
-    reportArgs: (d) => `--logger trx --results-directory ${shq(d)}`,
-    reportMarker: /--logger[ =:]+["']?trx|--report-trx/,
+    reportArgs: (d, cwd, cmd) => {
+      const mode = dotnetMode(cwd, cmd);
+      if (mode === "mtp-none")
+        return "";
+      return `${mode === "vstest" ? "--logger trx" : mode === "mtp-xunit" ? "--report-xunit-trx" : "--report-trx"} --results-directory ${shq(d)}`;
+    },
+    reportHint: (cwd, cmd) => dotnetMode(cwd, cmd) === "mtp-none" ? `this Microsoft.Testing.Platform project has no TRX reporter: add <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" /> to ${path2.relative(cwd, dotnetProject(cwd, cmd) ?? "the test project") || "the test project"}` : undefined,
+    reportMarker: /--logger[ =:]+["']?trx|--report-(xunit-)?trx/,
     reportGlobs: [
       { base: "report-dir", glob: "**/*.trx" },
       { base: "cwd", glob: "**/TestResults/**/*.trx" }
@@ -2494,7 +2541,7 @@ var ADAPTERS = {
         const ids = [];
         let on = false;
         for (const line of out.split(/\r?\n/)) {
-          if (/The following Tests are available/.test(line))
+          if (/The following Tests are available|^Discovered \d+ tests? in/.test(line))
             on = true;
           else if (on && /^\s{2,}\S/.test(line))
             ids.push(dotnetFqnToId(line.trim()));
@@ -2504,7 +2551,7 @@ var ADAPTERS = {
         return [...new Set(ids)];
       }
     },
-    perTestTimeout: (ms) => `--blame-hang-timeout ${Math.ceil(ms / 1000)}s`,
+    perTestTimeout: (ms, cwd, cmd) => dotnetMode(cwd, cmd) === "vstest" ? `--blame-hang-timeout ${Math.ceil(ms / 1000)}s` : null,
     id: classHash
   },
   jest: {
@@ -2619,7 +2666,7 @@ function selectCommand(adapter, cmd, ids, template) {
 }
 
 // src/config.ts
-import * as fs2 from "node:fs";
+import * as fs3 from "node:fs";
 import * as path3 from "node:path";
 
 // node_modules/smol-toml/dist/error.js
@@ -3716,7 +3763,7 @@ function findConfig(start) {
   let dir = path3.resolve(start);
   for (;; ) {
     const f = path3.join(dir, ".witness", "witness.toml");
-    if (fs2.existsSync(f))
+    if (fs3.existsSync(f))
       return f;
     const up = path3.dirname(dir);
     if (up === dir)
@@ -3729,11 +3776,11 @@ function rootFor(configFile) {
   return path3.basename(d) === ".witness" ? path3.dirname(d) : d;
 }
 function loadConfig(file) {
-  if (!fs2.existsSync(file))
+  if (!fs3.existsSync(file))
     throw new ConfigError("", `config not found: ${file} (run \`witness init\`)`);
   let doc;
   try {
-    doc = parse(fs2.readFileSync(file, "utf8"));
+    doc = parse(fs3.readFileSync(file, "utf8"));
   } catch (e) {
     const err = e;
     throw new ConfigError("", `${path3.basename(file)} is not valid TOML${err.line ? ` (line ${err.line}, column ${err.column})` : ""}: ${err.message.split(`
@@ -3958,8 +4005,8 @@ function loadEnv(cfg) {
   let fileUsed;
   if (cfg.envFile) {
     const f = path3.resolve(cfg.root, cfg.envFile);
-    if (fs2.existsSync(f)) {
-      Object.assign(env, parseEnvFile(fs2.readFileSync(f, "utf8")));
+    if (fs3.existsSync(f)) {
+      Object.assign(env, parseEnvFile(fs3.readFileSync(f, "utf8")));
       fileUsed = f;
     }
   }
@@ -4169,7 +4216,7 @@ function outcomeColor(outcome) {
 
 // src/proc.ts
 import { spawn } from "node:child_process";
-import * as fs3 from "node:fs";
+import * as fs4 from "node:fs";
 import * as net from "node:net";
 import * as path4 from "node:path";
 var SCRUB = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"];
@@ -4181,12 +4228,12 @@ function childEnv(base, extra = {}) {
   return env;
 }
 function spawnGroup(cmd, opts) {
-  fs3.mkdirSync(path4.dirname(opts.log), { recursive: true });
-  const fd = fs3.openSync(opts.log, "a");
-  fs3.writeSync(fd, `$ ${cmd}
+  fs4.mkdirSync(path4.dirname(opts.log), { recursive: true });
+  const fd = fs4.openSync(opts.log, "a");
+  fs4.writeSync(fd, `$ ${cmd}
 `);
   const child = spawn("bash", ["-c", cmd], { cwd: opts.cwd, env: opts.env, stdio: ["ignore", fd, fd], detached: true });
-  fs3.closeSync(fd);
+  fs4.closeSync(fd);
   const p = {
     name: opts.name,
     pid: child.pid ?? -1,
@@ -4195,18 +4242,18 @@ function spawnGroup(cmd, opts) {
     log: opts.log,
     exited: false,
     code: null,
-    exit: new Promise((resolve2) => {
+    exit: new Promise((resolve3) => {
       child.on("error", (e) => {
-        fs3.appendFileSync(opts.log, `witness: failed to start: ${e.message}
+        fs4.appendFileSync(opts.log, `witness: failed to start: ${e.message}
 `);
         p.exited = true;
         p.code = 127;
-        resolve2({ code: 127, signal: null });
+        resolve3({ code: 127, signal: null });
       });
       child.on("exit", (code, signal) => {
         p.exited = true;
         p.code = code ?? (signal ? 128 : 1);
-        resolve2({ code: p.code, signal });
+        resolve3({ code: p.code, signal });
       });
     })
   };
@@ -4254,15 +4301,15 @@ async function runCapture(cmd, opts) {
     if (child.pid)
       killGroup(child.pid, 2000);
   }, opts.timeoutMs);
-  const code = await new Promise((resolve2) => {
-    child.on("error", () => resolve2(127));
-    child.on("close", (c2) => resolve2(c2));
+  const code = await new Promise((resolve3) => {
+    child.on("error", () => resolve3(127));
+    child.on("close", (c2) => resolve3(c2));
   });
   clearTimeout(timer);
   const out = Buffer.concat(chunks).toString("utf8");
   if (opts.log) {
-    fs3.mkdirSync(path4.dirname(opts.log), { recursive: true });
-    fs3.appendFileSync(opts.log, `$ ${cmd}
+    fs4.mkdirSync(path4.dirname(opts.log), { recursive: true });
+    fs4.appendFileSync(opts.log, `$ ${cmd}
 ${out}${out.endsWith(`
 `) || !out ? "" : `
 `}`);
@@ -4281,28 +4328,28 @@ async function httpProbe(url, status, timeoutMs = 3000) {
   }
 }
 function portFree(port) {
-  return new Promise((resolve2) => {
+  return new Promise((resolve3) => {
     const srv = net.createServer();
     srv.unref();
-    srv.once("error", () => resolve2(false));
+    srv.once("error", () => resolve3(false));
     srv.listen({ port, host: "0.0.0.0", exclusive: true }, () => {
       srv.close(() => {
         const s2 = net.createServer();
         s2.unref();
-        s2.once("error", () => resolve2(false));
-        s2.listen({ port, host: "127.0.0.1", exclusive: true }, () => s2.close(() => resolve2(true)));
+        s2.once("error", () => resolve3(false));
+        s2.listen({ port, host: "127.0.0.1", exclusive: true }, () => s2.close(() => resolve3(true)));
       });
     });
   });
 }
 function anyFreePort() {
-  return new Promise((resolve2, reject) => {
+  return new Promise((resolve3, reject) => {
     const srv = net.createServer();
     srv.unref();
     srv.once("error", reject);
     srv.listen(0, "127.0.0.1", () => {
       const { port } = srv.address();
-      srv.close(() => resolve2(port));
+      srv.close(() => resolve3(port));
     });
   });
 }
@@ -4323,6 +4370,7 @@ async function allocatePort(pool, taken) {
 
 // src/reconcile.ts
 import * as path5 from "node:path";
+var SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
 var cleanId = (adapter, id) => id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id;
 function toRecord(c2, adapter, suite, cwd, obtained = "report") {
   const file = normFile(c2.file, cwd);
@@ -4331,6 +4379,8 @@ function toRecord(c2, adapter, suite, cwd, obtained = "report") {
   const r = { id: stableId(adapter.name, local), name: local, suite, adapter: adapter.name, status: c2.status, durationMs: c2.durationMs, obtained };
   if (c2.statusDetail)
     r.statusDetail = c2.statusDetail;
+  else if (c2.status === "failed" && SETUP_FAILURE.test(c2.message ?? ""))
+    r.statusDetail = "error";
   if (c2.message)
     r.message = c2.message;
   if (c2.trace)
@@ -4379,10 +4429,10 @@ function summarize(name, state, tests) {
   }
   return s;
 }
-function suiteLevel(adapter, suite, exitCode, message) {
+function suiteLevel(adapter, suite, exitCode, message, exitCodeOnly = false) {
   const ok = exitCode === 0;
   const r = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? "passed" : "failed", durationMs: 0, obtained: "suite-level", message };
-  if (!ok)
+  if (!ok && !exitCodeOnly)
     r.statusDetail = "error";
   return r;
 }
@@ -4419,7 +4469,7 @@ function reconcile(inp) {
     return { tests, state: "passed" };
   }
   if (inp.exitCodeOnly) {
-    return { tests: [suiteLevel(adapter, suite, exitCode, `exit code ${exitCode}`)], state: exitCode === 0 ? "passed" : "failed" };
+    return { tests: [suiteLevel(adapter, suite, exitCode, `exit code ${exitCode}`, true)], state: exitCode === 0 ? "passed" : "failed" };
   }
   const cause = unreadable.length ? "report_unreadable" : "report_missing";
   const note = unreadable.length ? `report unreadable: ${unreadable[0].error}` : inp.files.length ? "report lists no tests" : "no report written";
@@ -4497,7 +4547,8 @@ function applyParity(target, origin) {
 }
 
 // src/rundir.ts
-import * as fs4 from "node:fs";
+import { spawnSync as spawnSync2 } from "node:child_process";
+import * as fs5 from "node:fs";
 import * as path6 from "node:path";
 function newRunId(now = new Date) {
   const p = (n, w = 2) => String(n).padStart(w, "0");
@@ -4512,8 +4563,8 @@ class RunDir {
   constructor(root, runId, init) {
     this.root = root;
     this.dir = path6.join(root, runId);
-    fs4.mkdirSync(path6.join(this.dir, "logs"), { recursive: true });
-    fs4.mkdirSync(path6.join(this.dir, "reports"), { recursive: true });
+    fs5.mkdirSync(path6.join(this.dir, "logs"), { recursive: true });
+    fs5.mkdirSync(path6.join(this.dir, "reports"), { recursive: true });
     const now = new Date().toISOString();
     this.status = { run_id: runId, phase: "starting", started_at: now, suites: [], last_event: "run started", pid: process.pid, ...init };
     this.state = { pid: process.pid, started_at: now, procs: [], ports: {}, worktrees: [] };
@@ -4534,7 +4585,7 @@ class RunDir {
     writeJson(this.file("state.json"), this.state);
   }
   event(type, data = {}, lastEvent) {
-    fs4.appendFileSync(this.file("events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type, ...data }) + `
+    fs5.appendFileSync(this.file("events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type, ...data }) + `
 `);
     if (lastEvent) {
       this.status.last_event = lastEvent;
@@ -4558,10 +4609,10 @@ class RunDir {
   linkLatest() {
     const link = path6.join(this.root, "latest");
     try {
-      fs4.rmSync(link, { force: true });
-      fs4.symlinkSync(this.status.run_id, link);
+      fs5.rmSync(link, { force: true });
+      fs5.symlinkSync(this.status.run_id, link);
     } catch {
-      fs4.writeFileSync(link, this.status.run_id);
+      fs5.writeFileSync(link, this.status.run_id);
     }
   }
 }
@@ -4569,11 +4620,11 @@ function resolveRun(root, id) {
   const which = !id || id === "latest" ? "latest" : id;
   const p = path6.join(root, which);
   try {
-    const st = fs4.lstatSync(p);
+    const st = fs5.lstatSync(p);
     if (st.isSymbolicLink())
-      return path6.join(root, fs4.readlinkSync(p));
+      return path6.join(root, fs5.readlinkSync(p));
     if (st.isFile())
-      return path6.join(root, fs4.readFileSync(p, "utf8").trim());
+      return path6.join(root, fs5.readFileSync(p, "utf8").trim());
     if (st.isDirectory())
       return p;
   } catch {
@@ -4586,7 +4637,7 @@ function resolveRun(root, id) {
 }
 function listRuns(root) {
   try {
-    return fs4.readdirSync(root).filter((d) => /^r-\d{8}-\d{6}-[0-9a-f]{4}$/.test(d) && fs4.existsSync(path6.join(root, d, "status.json"))).sort();
+    return fs5.readdirSync(root).filter((d) => /^r-\d{8}-\d{6}-[0-9a-f]{4}$/.test(d) && fs5.existsSync(path6.join(root, d, "status.json"))).sort();
   } catch {
     return [];
   }
@@ -4609,12 +4660,14 @@ async function reapStale(root, graceMs, log) {
         }
       }
     }
+    for (const wt of state.worktrees ?? [])
+      removeWorktree(wt);
     status.phase = "finished";
     status.outcome = "interrupted";
     status.finished_at = new Date().toISOString();
     status.last_event = `reaped: witness (pid ${state.pid}) exited without finishing${killed ? `; killed ${killed} leftover process group(s)` : ""}`;
     writeJson(path6.join(dir, "status.json"), status);
-    fs4.appendFileSync(path6.join(dir, "events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type: "reaped", by: process.pid, killed }) + `
+    fs5.appendFileSync(path6.join(dir, "events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type: "reaped", by: process.pid, killed }) + `
 `);
     state.procs = [];
     writeJson(path6.join(dir, "state.json"), state);
@@ -4623,45 +4676,53 @@ async function reapStale(root, graceMs, log) {
   }
   return reaped;
 }
+function removeWorktree(wt) {
+  const common = git(wt, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (common.ok)
+    spawnSync2("git", ["--git-dir", common.out, "worktree", "remove", "--force", wt]);
+  fs5.rmSync(wt, { recursive: true, force: true });
+  if (common.ok)
+    spawnSync2("git", ["--git-dir", common.out, "worktree", "prune"]);
+}
 function pruneRuns(root, keep) {
   const runs = listRuns(root);
   for (const id of runs.slice(0, Math.max(0, runs.length - keep))) {
     const st = readJson(path6.join(root, id, "status.json"), null);
     if (st && st.phase !== "finished")
       continue;
-    fs4.rmSync(path6.join(root, id), { recursive: true, force: true });
+    fs5.rmSync(path6.join(root, id), { recursive: true, force: true });
   }
 }
 
 class LockError extends Error {
 }
 function acquireLock(file) {
-  fs4.mkdirSync(path6.dirname(file), { recursive: true });
+  fs5.mkdirSync(path6.dirname(file), { recursive: true });
   for (let attempt = 0;attempt < 2; attempt++) {
     try {
-      const fd = fs4.openSync(file, "wx");
-      fs4.writeSync(fd, String(process.pid));
-      fs4.closeSync(fd);
+      const fd = fs5.openSync(file, "wx");
+      fs5.writeSync(fd, String(process.pid));
+      fs5.closeSync(fd);
       return () => {
         try {
-          if (fs4.readFileSync(file, "utf8").trim() === String(process.pid))
-            fs4.rmSync(file, { force: true });
+          if (fs5.readFileSync(file, "utf8").trim() === String(process.pid))
+            fs5.rmSync(file, { force: true });
         } catch {}
       };
     } catch (e) {
       if (e.code !== "EEXIST")
         throw e;
-      const pid = Number(fs4.readFileSync(file, "utf8").trim());
+      const pid = Number(fs5.readFileSync(file, "utf8").trim());
       if (pidAlive(pid) && pid !== process.pid)
         throw new LockError(`another witness run (pid ${pid}) is using this checkout; wait for it or stop it (lock: ${file})`);
-      fs4.rmSync(file, { force: true });
+      fs5.rmSync(file, { force: true });
     }
   }
   throw new LockError(`could not take the lock ${file}`);
 }
 
 // src/run.ts
-import * as fs8 from "node:fs";
+import * as fs9 from "node:fs";
 import * as os from "node:os";
 import * as path9 from "node:path";
 
@@ -4731,7 +4792,7 @@ function buildCtrf(meta, tests) {
 }
 
 // src/stack.ts
-import * as fs5 from "node:fs";
+import * as fs6 from "node:fs";
 import * as path7 from "node:path";
 class Failure extends Error {
   diagnosis;
@@ -4742,7 +4803,7 @@ class Failure extends Error {
 }
 var SETUP_TIMEOUT = 30 * 60000;
 var upFile = (root) => path7.join(root, ".witness", "up.json");
-function readUp(root) {
+function readUp2(root) {
   return readJson(upFile(root), null);
 }
 
@@ -4809,7 +4870,7 @@ class Stack {
         }
       }
       if (!r.ok)
-        this.fail("deps", "dependency_unreachable", { command: d.check ?? `curl ${d.checkHttp}`, evidence: `${d.name}: ${r.detail}`, log: fs5.existsSync(log) ? log : undefined });
+        this.fail("deps", "dependency_unreachable", { command: d.check ?? `curl ${d.checkHttp}`, evidence: `${d.name}: ${r.detail}`, log: fs6.existsSync(log) ? log : undefined });
       this.o.progress.line(`deps   ${d.name} · ok (${fmtDuration(Date.now() - t0)})`);
     }
   }
@@ -4917,8 +4978,8 @@ class Stack {
     for (;; ) {
       if (this.o.abort.aborted)
         return;
-      if (pidfile && !ls.pid && fs5.existsSync(pidfile)) {
-        const pid = Number(fs5.readFileSync(pidfile, "utf8").trim());
+      if (pidfile && !ls.pid && fs6.existsSync(pidfile)) {
+        const pid = Number(fs6.readFileSync(pidfile, "utf8").trim());
         if (pid > 0)
           ls.pid = pid;
       }
@@ -4978,7 +5039,7 @@ class Stack {
           dead = `readiness check failed 3 times in a row (${r.detail})`;
       }
       if (dead) {
-        const d = diagnose({ stage: "suite", cause: "service_died", service: ls.svc.name, log: fs5.existsSync(ls.log) ? ls.log : undefined, cwd: ls.svc.cwd });
+        const d = diagnose({ stage: "suite", cause: "service_died", service: ls.svc.name, log: fs6.existsSync(ls.log) ? ls.log : undefined, cwd: ls.svc.cwd });
         if (!d.evidence || d.cause === "service_died")
           d.evidence = d.evidence ? `${dead}; last log line: ${d.evidence}` : dead;
         return d;
@@ -5043,8 +5104,8 @@ function setupInputsHash(cwd, cmd) {
 `).filter(Boolean).slice(0, 5000).map((f) => {
     try {
       const p = path7.join(cwd, f);
-      const st = fs5.statSync(p);
-      return st.size < 1024 * 1024 ? `${f}:${sha(fs5.readFileSync(p))}` : `${f}:${st.size}`;
+      const st = fs6.statSync(p);
+      return st.size < 1024 * 1024 ? `${f}:${sha(fs6.readFileSync(p))}` : `${f}:${st.size}`;
     } catch {
       return f;
     }
@@ -5054,11 +5115,11 @@ function setupInputsHash(cwd, cmd) {
 }
 
 // src/suite.ts
-import * as fs7 from "node:fs";
+import * as fs8 from "node:fs";
 import * as path8 from "node:path";
 
 // src/parsers/index.ts
-import * as fs6 from "node:fs";
+import * as fs7 from "node:fs";
 
 // src/parsers/types.ts
 class ReportError extends Error {
@@ -5450,7 +5511,7 @@ function parseReportText(text, hint, cwd) {
 }
 function parseReportFile(file, hint, cwd) {
   try {
-    const { format, cases } = parseReportText(fs6.readFileSync(file, "utf8"), hint, cwd);
+    const { format, cases } = parseReportText(fs7.readFileSync(file, "utf8"), hint, cwd);
     return { file, format, cases };
   } catch (e) {
     return { file, cases: [], error: e instanceof ReportError ? e.message : `unreadable: ${e.message}` };
@@ -5465,7 +5526,7 @@ function dirSize(dir) {
   const walk = (d) => {
     let es;
     try {
-      es = fs7.readdirSync(d, { withFileTypes: true });
+      es = fs8.readdirSync(d, { withFileTypes: true });
     } catch {
       return;
     }
@@ -5480,7 +5541,7 @@ function dirSize(dir) {
   walk(dir);
   return n;
 }
-function suiteCommand(suite, adapter, vars, reportDir, select) {
+function suiteCommand(suite, adapter, vars, reportDir, select, cwd = ".") {
   let cmd = substitute(suite.cmd, vars);
   if (select?.length) {
     const sel = selectCommand(adapter, cmd, select, suite.select ? substitute(suite.select, vars) : undefined);
@@ -5489,9 +5550,10 @@ function suiteCommand(suite, adapter, vars, reportDir, select) {
     cmd = sel;
   }
   if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd)))
-    cmd = appendArgs(cmd, adapter.reportArgs(reportDir));
-  if (suite.perTestTimeoutMs && adapter.perTestTimeout)
-    cmd = appendArgs(cmd, adapter.perTestTimeout(suite.perTestTimeoutMs));
+    cmd = appendArgs(cmd, adapter.reportArgs(reportDir, cwd, cmd));
+  const ptt = suite.perTestTimeoutMs && adapter.perTestTimeout ? adapter.perTestTimeout(suite.perTestTimeoutMs, cwd, cmd) : null;
+  if (ptt)
+    cmd = appendArgs(cmd, ptt);
   return cmd;
 }
 async function runSuite(ctx, suite, select, retries) {
@@ -5500,40 +5562,47 @@ async function runSuite(ctx, suite, select, retries) {
   const p = ctx.prefix ?? "";
   const reportDir = path8.join(ctx.outDir, "reports", suite.name);
   const log = path8.join(ctx.outDir, "logs", `${suite.name}.log`);
-  fs7.rmSync(reportDir, { recursive: true, force: true });
-  fs7.mkdirSync(reportDir, { recursive: true });
+  fs8.rmSync(reportDir, { recursive: true, force: true });
+  fs8.mkdirSync(reportDir, { recursive: true });
   const t0 = Date.now();
   const vars = { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir };
-  const cmd = suiteCommand(suite, adapter, vars, reportDir, select);
+  const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
   ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
   ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
   const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
   const files = collect(ctx, suite, adapter, cwd, reportDir, log, t0);
   let expected = select;
   const usable = files.some((f) => f.cases.length);
-  if (!expected && !usable && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
+  const hint = adapter.reportHint?.(cwd, cmd);
+  if (!expected && !usable && !hint && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
     expected = await listTests(ctx, suite, adapter, cwd, log);
   }
   const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
   let res = reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
   if (res.rerun?.length && !ctx.abort.aborted) {
-    if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select)) {
+    if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select) && !hint) {
       ctx.progress.line(`${p}suite  ${suite.name} · ${res.cause === "report_unreadable" ? "report unreadable" : "no report"}; rerunning ${res.rerun.length} test(s) one at a time`);
       const results = [];
       for (const [i, id] of res.rerun.entries()) {
         if (ctx.abort.aborted)
           break;
         const dir = path8.join(reportDir, "rerun", String(i + 1));
-        fs7.mkdirSync(dir, { recursive: true });
-        const c2 = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id]);
+        fs8.mkdirSync(dir, { recursive: true });
+        const c2 = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
         const e = await execWatched(ctx, suite, adapter, c2, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60000));
         if (e.died) {
           exec.died = e.died;
           break;
         }
-        results.push({ id, exitCode: e.code, files: collect(ctx, suite, adapter, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), Date.now() - e.ms), timedOut: e.end !== "exit" });
+        const got = collect(ctx, suite, adapter, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), Date.now() - e.ms);
+        if (i === 0 && !got.some((f) => f.cases.length)) {
+          ctx.progress.line(`${p}suite  ${suite.name} · a single test run alone wrote no report either; not rerunning the rest`);
+          results.length = 0;
+          break;
+        }
+        results.push({ id, exitCode: e.code, files: got, timedOut: e.end !== "exit" });
       }
-      res = fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause);
+      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause) : { ...res, rerun: undefined, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
     } else {
       res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
     }
@@ -5553,7 +5622,8 @@ async function runSuite(ctx, suite, select, retries) {
   if (exec.died)
     diagnosis = exec.died;
   else if (res.cause && res.state !== "failed" && res.state !== "passed") {
-    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence: res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : undefined });
+    const h = res.cause === "report_missing" ? hint : undefined;
+    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence: h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : undefined), extraTry: h ? [h] : undefined });
   }
   ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
   const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");
@@ -5562,7 +5632,7 @@ async function runSuite(ctx, suite, select, retries) {
 }
 async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeoutMs) {
   const artifacts = path8.join(ctx.outDir, "artifacts");
-  fs7.mkdirSync(artifacts, { recursive: true });
+  fs8.mkdirSync(artifacts, { recursive: true });
   const vars = ctx.stack.vars();
   const env = childEnv(ctx.baseEnv, {
     ...ctx.stack.serviceUrlEnv(),
@@ -5609,7 +5679,7 @@ async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeou
     if (end !== "exit") {
       const why = end === "timeout" ? `suite timeout (${fmtDuration(timeoutMs)})` : end === "stalled" ? `no output and no report growth for ${fmtDuration(ctx.cfg.run.stallMs)}` : end === "service_died" ? `service ${died?.service} died` : "interrupted";
       ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · stopping: ${why}`);
-      fs7.appendFileSync(log, `
+      fs8.appendFileSync(log, `
 witness: stopping suite: ${why}
 `);
       await killGroup(proc.pgid, ctx.cfg.run.graceMs);
@@ -5626,7 +5696,7 @@ function collect(ctx, suite, adapter, cwd, reportDir, log, startedAt) {
   if (adapter.fromStdout && !suite.report) {
     const out = path8.join(reportDir, "stdout.jsonl");
     try {
-      fs7.copyFileSync(log, out);
+      fs8.copyFileSync(log, out);
       files.push(out);
     } catch {}
   }
@@ -5652,13 +5722,13 @@ function collect(ctx, suite, adapter, cwd, reportDir, log, startedAt) {
         continue;
       }
       try {
-        if (fs7.statSync(src).mtimeMs < startedAt - 2000)
+        if (fs8.statSync(src).mtimeMs < startedAt - 2000)
           continue;
       } catch {
         continue;
       }
       const dst = path8.join(reportDir, rel.replace(/[\\/]/g, "__"));
-      fs7.copyFileSync(src, dst);
+      fs8.copyFileSync(src, dst);
       files.push(dst);
     }
   }
@@ -5684,8 +5754,8 @@ async function retryFailed(ctx, suite, adapter, cwd, vars, reportDir, tests, ret
       return;
     const ids = failing.map((t) => t.id.slice(adapter.name.length + 1));
     const dir = path8.join(reportDir, "retry", String(k));
-    fs7.mkdirSync(dir, { recursive: true });
-    const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids);
+    fs8.mkdirSync(dir, { recursive: true });
+    const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids, cwd);
     ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids.length} failed test(s)`);
     const rlog = path8.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
     const t0 = Date.now();
@@ -5727,12 +5797,12 @@ function collectArtifacts(runDir, outDir, tests) {
   }
   for (const t of tests) {
     for (const a of t.attachments ?? []) {
-      if (!fs7.existsSync(a.path) || fs7.statSync(a.path).size > 200 * 1024 * 1024)
+      if (!fs8.existsSync(a.path) || fs8.statSync(a.path).size > 200 * 1024 * 1024)
         continue;
       const dst = path8.join(artDir, safeId(t.id), path8.basename(a.path));
       if (path8.resolve(a.path) !== dst) {
-        fs7.mkdirSync(path8.dirname(dst), { recursive: true });
-        fs7.copyFileSync(a.path, dst);
+        fs8.mkdirSync(path8.dirname(dst), { recursive: true });
+        fs8.copyFileSync(a.path, dst);
       }
       a.path = path8.relative(runDir, dst);
     }
@@ -5740,7 +5810,7 @@ function collectArtifacts(runDir, outDir, tests) {
   const walk = (d, test, dirName) => {
     let es;
     try {
-      es = fs7.readdirSync(d, { withFileTypes: true });
+      es = fs8.readdirSync(d, { withFileTypes: true });
     } catch {
       return;
     }
@@ -5763,7 +5833,7 @@ function collectArtifacts(runDir, outDir, tests) {
     }
   };
   try {
-    for (const e of fs7.readdirSync(artDir, { withFileTypes: true })) {
+    for (const e of fs8.readdirSync(artDir, { withFileTypes: true })) {
       if (e.isDirectory())
         walk(path8.join(artDir, e.name), bySafe.get(e.name), e.name);
     }
@@ -5977,8 +6047,8 @@ function printVerdict(progress, status, ms, dir) {
 async function runSide(cfg, o) {
   const side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
   const logDir = path9.join(o.outDir, "logs");
-  fs8.mkdirSync(logDir, { recursive: true });
-  const stack = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp(cfg.root) : null });
+  fs9.mkdirSync(logDir, { recursive: true });
+  const stack = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp2(cfg.root) : null });
   const isTarget = !o.prefix;
   try {
     if (isTarget)
@@ -6051,10 +6121,10 @@ async function runAgainst(cfg, opts, o) {
     const d = diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` });
     return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
   }
-  const wt = fs8.mkdtempSync(path9.join(os.tmpdir(), "witness-against-"));
+  const wt = fs9.mkdtempSync(path9.join(os.tmpdir(), "witness-against-"));
   const add = git(cfg.root, ["worktree", "add", "--detach", wt, resolved.out]);
   if (!add.ok) {
-    fs8.rmSync(wt, { recursive: true, force: true });
+    fs9.rmSync(wt, { recursive: true, force: true });
     const d = diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` });
     return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
   }
@@ -6062,11 +6132,11 @@ async function runAgainst(cfg, opts, o) {
   o.run.saveState();
   o.progress.line(`against ${ref} · checked out ${resolved.out.slice(0, 10)} in ${wt}`);
   try {
-    const sub = path9.relative(gitTop(cfg.root), fs8.realpathSync(cfg.root));
+    const sub = path9.relative(gitTop(cfg.root), fs9.realpathSync(cfg.root));
     return await runSide(cfg, { ...o, root: path9.join(wt, sub), outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
   } finally {
     git(cfg.root, ["worktree", "remove", "--force", wt]);
-    fs8.rmSync(wt, { recursive: true, force: true });
+    fs9.rmSync(wt, { recursive: true, force: true });
     git(cfg.root, ["worktree", "prune"]);
     o.run.state.worktrees = o.run.state.worktrees.filter((w) => w !== wt);
     o.run.saveState();
@@ -6074,7 +6144,7 @@ async function runAgainst(cfg, opts, o) {
 }
 function gitTop(dir) {
   const r = git(dir, ["rev-parse", "--show-toplevel"]);
-  return r.ok ? fs8.realpathSync(r.out) : dir;
+  return r.ok ? fs9.realpathSync(r.out) : dir;
 }
 
 // src/commands.ts
@@ -6116,14 +6186,14 @@ async function checkCommand(cfg, o) {
     throw e;
   }
   const checkRoot = path10.join(cfg.root, ".witness", "check");
-  fs9.rmSync(checkRoot, { recursive: true, force: true });
+  fs10.rmSync(checkRoot, { recursive: true, force: true });
   const g = gitInfo(cfg.root);
   const run = new RunDir(checkRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: "check" });
   const abort = { aborted: false };
   const onSig = () => abort.aborted = true;
   process.on("SIGINT", onSig);
   process.on("SIGTERM", onSig);
-  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup, setupCacheDir: path10.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: readUp(cfg.root) });
+  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup, setupCacheDir: path10.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: readUp2(cfg.root) });
   let code = 0;
   try {
     await stack.checkDeps();
@@ -6187,7 +6257,7 @@ async function checkCommand(cfg, o) {
 }
 async function upCommand(cfg, o) {
   const p = new Progress;
-  const existing = readUp(cfg.root);
+  const existing = readUp2(cfg.root);
   if (existing && Object.values(existing.services).some((s) => s.pgid && groupAlive(s.pgid) || s.pid && pidAlive(s.pid))) {
     p.plain(`services are already up (${Object.keys(existing.services).join(", ")}); run \`witness down\` first`);
     return EXIT.error;
@@ -6199,7 +6269,7 @@ async function upCommand(cfg, o) {
   }
   await reapStale(o.runDirRoot, cfg.run.graceMs, (m) => p.line(m));
   const logDir = path10.join(cfg.root, ".witness", "up", "logs");
-  fs9.mkdirSync(logDir, { recursive: true });
+  fs10.mkdirSync(logDir, { recursive: true });
   const abort = { aborted: false };
   const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir, progress: p, noSetup: o.noSetup, setupCacheDir: path10.join(cfg.root, ".witness", "cache", "setup"), abort });
   try {
@@ -6227,7 +6297,7 @@ async function upCommand(cfg, o) {
 }
 async function downCommand(cfg, o) {
   const p = new Progress;
-  const state = readUp(cfg.root);
+  const state = readUp2(cfg.root);
   if (!state) {
     p.plain("nothing is up");
     return 0;
@@ -6257,7 +6327,7 @@ async function downCommand(cfg, o) {
       p.line(`down   ${d} · stopped`);
     }
   }
-  fs9.rmSync(upFile(cfg.root), { force: true });
+  fs10.rmSync(upFile(cfg.root), { force: true });
   if (o.json)
     process.stdout.write(JSON.stringify({ ok: true }) + `
 `);
@@ -6345,11 +6415,11 @@ function reportCommand(runRoot, id, format) {
 }
 
 // src/init.ts
-import * as fs10 from "node:fs";
+import * as fs11 from "node:fs";
 import * as path11 from "node:path";
 var read = (f) => {
   try {
-    return fs10.readFileSync(f, "utf8");
+    return fs11.readFileSync(f, "utf8");
   } catch {
     return "";
   }
@@ -6381,15 +6451,16 @@ function guess(root) {
   }
   const gradle = has(/(^|\/)build\.gradle(\.kts)?$/).sort((a, b) => a.length - b.length)[0];
   if (gradle)
-    g.suites.push({ name: name("gradle-tests"), adapter: "junit-gradle", cwd: dirOf(gradle), cmd: fs10.existsSync(path11.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", why: `found ${gradle}` });
+    g.suites.push({ name: name("gradle-tests"), adapter: "junit-gradle", cwd: dirOf(gradle), cmd: fs11.existsSync(path11.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", why: `found ${gradle}` });
   const csproj = has(/\.csproj$/);
   const testProjects = csproj.filter((f) => /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i.test(read(path11.join(root, f))));
   const sln = has(/\.(sln|slnx)$/).sort((a, b) => a.length - b.length)[0];
+  const mtp = dotnetMode(root) !== "vstest";
   if (testProjects.length && testProjects.length <= 6) {
     for (const f of testProjects)
-      g.suites.push({ name: name(path11.basename(f, ".csproj")), adapter: "dotnet", cwd: ".", cmd: `dotnet test ${f}`, why: `test project ${f}` });
+      g.suites.push({ name: name(path11.basename(f, ".csproj")), adapter: "dotnet", cwd: ".", cmd: `dotnet test ${mtp ? "--project " : ""}${f}`, why: `test project ${f}${mtp ? " (Microsoft.Testing.Platform)" : ""}` });
   } else if (testProjects.length || sln)
-    g.suites.push({ name: name("dotnet-tests"), adapter: "dotnet", cwd: sln ? dirOf(sln) : ".", cmd: sln ? `dotnet test ${path11.basename(sln)}` : "dotnet test", why: sln ? `found ${sln}` : "test projects found" });
+    g.suites.push({ name: name("dotnet-tests"), adapter: "dotnet", cwd: sln ? dirOf(sln) : ".", cmd: sln ? `dotnet test ${mtp ? "--solution " : ""}${path11.basename(sln)}` : "dotnet test", why: sln ? `found ${sln}` : "test projects found" });
   for (const f of csproj.filter((f2) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(read(path11.join(root, f2)))).slice(0, 3)) {
     g.services.push({ name: name(path11.basename(f, ".csproj")), cwd: ".", setup: `dotnet build ${f}`, start: `dotnet run --no-build --project ${f} --urls http://127.0.0.1:\${PORT}`, ready: "${self.url}/", why: `web project ${f}` });
   }
@@ -6412,7 +6483,7 @@ function guess(root) {
     if (deps.mocha)
       g.suites.push({ name: name(`${base}mocha`), adapter: "mocha", cwd: d, cmd: "npx mocha", why: `mocha in ${pj}` });
     if (doc.scripts?.start)
-      g.services.push({ name: name(`${base}web`.replace(/-$/, "")), cwd: d, setup: fs10.existsSync(path11.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}` });
+      g.services.push({ name: name(`${base}web`.replace(/-$/, "")), cwd: d, setup: fs11.existsSync(path11.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}` });
   }
   const gomod = has(/(^|\/)go\.mod$/).sort((a, b) => a.length - b.length)[0];
   if (gomod)
@@ -6423,7 +6494,7 @@ function guess(root) {
   const php = has(/(^|\/)phpunit\.xml(\.dist)?$/)[0];
   if (php)
     g.suites.push({ name: name("phpunit"), adapter: "phpunit", cwd: dirOf(php), cmd: "vendor/bin/phpunit", why: `found ${php}` });
-  if (fs10.existsSync(path11.join(root, "manage.py")))
+  if (fs11.existsSync(path11.join(root, "manage.py")))
     g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py" });
   return g;
 }
@@ -6468,12 +6539,12 @@ function renderExample(g) {
 function initCommand(root, json) {
   const g = guess(root);
   const dir = path11.join(root, ".witness");
-  fs10.mkdirSync(dir, { recursive: true });
+  fs11.mkdirSync(dir, { recursive: true });
   const example = path11.join(dir, "witness.example.toml");
-  fs10.writeFileSync(example, renderExample(g));
+  fs11.writeFileSync(example, renderExample(g));
   const gi = path11.join(dir, ".gitignore");
-  if (!fs10.existsSync(gi))
-    fs10.writeFileSync(gi, `runs/
+  if (!fs11.existsSync(gi))
+    fs11.writeFileSync(gi, `runs/
 check/
 cache/
 up/
@@ -6493,7 +6564,7 @@ run.lock
     for (const s of g.services)
       process.stderr.write(`witness    service ${s.name}: ${s.why}
 `);
-    if (!fs10.existsSync(path11.join(dir, "witness.toml")))
+    if (!fs11.existsSync(path11.join(dir, "witness.toml")))
       process.stderr.write(`witness  review it, then: mv ${example} ${path11.join(dir, "witness.toml")}
 `);
   }
@@ -6649,7 +6720,7 @@ ${HELP}
   return EXIT_USAGE;
 }
 var EXIT_USAGE = 64;
-var self = process.argv[1] ? fs11.realpathSync(process.argv[1]) : "";
+var self = process.argv[1] ? fs12.realpathSync(process.argv[1]) : "";
 if (self.endsWith("cli.ts") || self.endsWith("witness.mjs")) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
     process.stderr.write(`witness  internal error: ${e.stack ?? e}

@@ -376,6 +376,42 @@ ${suite("pass")}${RUN}`);
     assert.equal(js.json?.not_passing[0].id, "generic:Calc#sub");
   });
 
+  test("external service is attached, not started or stopped", async () => {
+    const ext = spawn(process.execPath, [path.join(import.meta.dirname, "..", "testdata", "apps", "server.mjs"), "ok"], { env: { ...process.env, PORT: "0" }, stdio: ["ignore", "pipe", "ignore"] });
+    const port = await new Promise<number>((res) => ext.stdout!.once("data", (d) => res(Number(/listening on (\d+)/.exec(String(d))![1]))));
+    try {
+      const dir = tmpRepo(`version = 1\n[[service]]\nname = "api"\nexternal = "http://127.0.0.1:${port}"\nready = { http = "\${self.url}/health", timeout = "3s" }\n${suite("pass")}${RUN}`);
+      const r = await witness(dir, ["run"]);
+      assert.equal(r.code, 0, r.stderr);
+      assert.match(r.stderr, /external http:\/\/127\.0\.0\.1:\d+ is ready/);
+      assert.ok(alive(ext.pid!), "external service left running");
+    } finally {
+      ext.kill();
+    }
+  });
+
+  test("daemonizing start with pidfile and stop command", async () => {
+    const dir = tmpRepo(`version = 1
+[[service]]
+name = "api"
+start = "node $APPS/server.mjs ok > svc.out 2>&1 & echo $! > svc.pid"
+pidfile = "svc.pid"
+stop = "kill $(cat svc.pid) && echo stopped >> stop.log"
+ready = { http = "\${self.url}/health", timeout = "3s" }
+${suite("pass")}${RUN}`);
+    const r = await witness(dir, ["run"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(fs.readFileSync(path.join(dir, "stop.log"), "utf8").trim(), "stopped");
+    assert.equal(alive(Number(fs.readFileSync(path.join(dir, "svc.pid"), "utf8"))), false);
+  });
+
+  test("keep_runs prunes old run dirs", async () => {
+    const dir = tmpRepo(`version = 1\n${service("ok")}${suite("pass")}\n[run]\nkeep_runs = 2\n`);
+    for (let i = 0; i < 3; i++) await witness(dir, ["run"]);
+    const runs = fs.readdirSync(path.join(dir, ".witness", "runs")).filter((d) => d.startsWith("r-"));
+    assert.equal(runs.length, 2);
+  });
+
   test("usage errors exit 64", async () => {
     const dir = tmpRepo(`version = 1\n${service("ok")}${suite("pass")}`);
     assert.equal((await witness(dir, ["run", "--bogus"])).code, 64);

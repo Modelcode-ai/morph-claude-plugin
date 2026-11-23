@@ -1,9 +1,10 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Diagnosis } from "./diagnosis.ts";
 import { groupAlive, killGroup } from "./proc.ts";
 import type { Outcome, SuiteSummary } from "./reconcile.ts";
-import { pidAlive, randHex, readJson, writeJson } from "./util.ts";
+import { git, pidAlive, randHex, readJson, writeJson } from "./util.ts";
 
 export type Phase = "starting" | "deps" | "boot" | "suite" | "against" | "report" | "finished";
 
@@ -152,6 +153,7 @@ export async function reapStale(root: string, graceMs: number, log: (msg: string
         }
       }
     }
+    for (const wt of state.worktrees ?? []) removeWorktree(wt);
     status.phase = "finished";
     status.outcome = "interrupted";
     status.finished_at = new Date().toISOString();
@@ -164,6 +166,13 @@ export async function reapStale(root: string, graceMs: number, log: (msg: string
     reaped.push(id);
   }
   return reaped;
+}
+
+function removeWorktree(wt: string) {
+  const common = git(wt, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (common.ok) spawnSync("git", ["--git-dir", common.out, "worktree", "remove", "--force", wt]);
+  fs.rmSync(wt, { recursive: true, force: true });
+  if (common.ok) spawnSync("git", ["--git-dir", common.out, "worktree", "prune"]);
 }
 
 export function pruneRuns(root: string, keep: number) {
