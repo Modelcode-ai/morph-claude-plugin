@@ -14599,7 +14599,7 @@ function collectArtifacts(runDir, outDir, tests) {
   try {
     for (const e of fs12.readdirSync(artDir, { withFileTypes: true })) {
       if (e.isDirectory())
-        walk(path12.join(artDir, e.name), bySafe.get(e.name), e.name);
+        walk(path12.join(artDir, e.name), bySafe.get(safeId(e.name)), e.name);
     }
   } catch {}
   return out;

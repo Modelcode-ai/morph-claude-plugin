@@ -17,6 +17,7 @@ ready = { http = "${self.url}/home_page_health_check", status = 200, timeout = "
 
 [[suite]]
 name = "functional"
+kind = "api"
 adapter = "dotnet"
 cwd = "."
 cmd = ".witness/dotnet test --project tests/FunctionalTests/FunctionalTests.csproj"
@@ -25,6 +26,7 @@ timeout = "20m"
 
 [[suite]]
 name = "publicapi"
+kind = "api"
 adapter = "dotnet"
 cwd = "."
 cmd = ".witness/dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj"
@@ -33,6 +35,7 @@ timeout = "20m"
 
 [[suite]]
 name = "e2e"
+kind = "ui"
 adapter = "dotnet"
 cwd = "."
 cmd = ".witness/dotnet-host test --project tests/EndToEndTests/EndToEndTests.csproj"
