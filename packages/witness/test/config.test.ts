@@ -41,6 +41,7 @@ name = "api-origin"
 role = "origin"
 external = "http://legacy.internal:8080"
 [[suite]]
+kind = "api"
 name = "api-e2e"
 service = "api"
 adapter = "pytest"
@@ -48,6 +49,7 @@ cmd = "pytest tests/e2e"
 timeout = "20m"
 per_test_timeout = "120s"
 [[suite]]
+kind = "ui"
 name = "ui"
 service = ["web", "api"]
 adapter = "playwright"
@@ -69,8 +71,15 @@ describe("config v1", () => {
     assert.deepEqual(c.suites[0].services, ["api"]);
     assert.deepEqual(c.suites[1].services, ["web", "api"]);
     assert.equal(c.suites[0].perTestTimeoutMs, 120_000);
+    assert.deepEqual(c.suites.map((s) => s.kind), ["api", "ui"]);
     assert.equal(c.run.stallMs, 300_000);
     assert.equal(c.run.keepRuns, 10);
+  });
+
+  test("a suite must say whether it drives the API or the UI", () => {
+    const missing = err(`version = 1\n[[suite]]\nname = "unit"\ncmd = "x"`);
+    assert.match(missing, /^suite\.unit\.kind: is required: set kind = "api" .* or kind = "ui" .*Unit and integration tests don't belong in Witness/);
+    assert.match(err(`version = 1\n[[suite]]\nname = "s"\nkind = "unit"\ncmd = "x"`), /^suite\.s\.kind: expected "api" or "ui", got "unit"/);
   });
 
   test("errors name the offending key", () => {
@@ -79,9 +88,9 @@ describe("config v1", () => {
     assert.match(err(`version = 1\n[[service]]\nname = "api"\nstrat = "x"`), /^service\[0\]\.strat: unknown key \(did you mean "start"\?\)/);
     assert.match(err(`version = 1\n[[service]]\nname = "api"`), /^service\.api: needs start/);
     assert.match(err(`version = 1\n[[service]]\nname = "api"\nstart = "x"\nports = "9-1"`), /^service\.api\.ports: invalid port range/);
-    assert.match(err(`version = 1\n[[suite]]\nname = "s"\ncmd = "x"\nadapter = "nose"`), /^suite\.s\.adapter: unknown adapter "nose"/);
-    assert.match(err(`version = 1\n[[suite]]\nname = "s"\ncmd = "x"\ntimeout = "forever"`), /^suite\.s\.timeout: expected a duration/);
-    assert.match(err(`version = 1\n[[suite]]\nname = "s"\ncmd = "x"\nservice = "nope"`), /^suite\.s\.service: unknown service "nope"/);
+    assert.match(err(`version = 1\n[[suite]]\nkind = "api"\nname = "s"\ncmd = "x"\nadapter = "nose"`), /^suite\.s\.adapter: unknown adapter "nose"/);
+    assert.match(err(`version = 1\n[[suite]]\nkind = "api"\nname = "s"\ncmd = "x"\ntimeout = "forever"`), /^suite\.s\.timeout: expected a duration/);
+    assert.match(err(`version = 1\n[[suite]]\nkind = "api"\nname = "s"\ncmd = "x"\nservice = "nope"`), /^suite\.s\.service: unknown service "nope"/);
     assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "x"\nready = { cmd = "true" }\ndepends_on = ["b"]\n[[service]]\nname = "b"\nstart = "x"\nready = { cmd = "true" }\ndepends_on = ["a"]`), /dependency cycle: a -> b -> a/);
     assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "\${b.url}"\nready = { cmd = "true" }`), /^service\.a\.start: \$\{b\.url\} refers to an unknown service/);
     assert.match(err(`version = 1\n[[service]]\nname = "a"\nstart = "x"\nready = { http = "/", cmd = "true" }`), /^service\.a\.ready: set exactly one of http or cmd/);

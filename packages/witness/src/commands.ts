@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { ADAPTERS } from "./adapters.ts";
 import { type Config, loadEnv } from "./config.ts";
 import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
+import { functionalWarnings } from "./functional.ts";
 import { color, outcomeColor, Progress } from "./output.ts";
 import { childEnv, groupAlive, killGroup, runCapture } from "./proc.ts";
 import { EXIT } from "./reconcile.ts";
@@ -24,12 +25,14 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   const p = new Progress();
   const upTo = STAGES.indexOf(o.stage ?? "suite");
   const report: { stage: Stage; ok: boolean; detail: string; diagnosis?: Diagnosis }[] = [];
+  const warnings = functionalWarnings(cfg);
   const done = (code: number) => {
-    if (o.json) process.stdout.write(JSON.stringify({ ok: code === 0, stages: report }, null, 2) + "\n");
+    if (o.json) process.stdout.write(JSON.stringify({ ok: code === 0, stages: report, warnings }, null, 2) + "\n");
     return code;
   };
   report.push({ stage: "config", ok: true, detail: `${cfg.services.length} service(s), ${cfg.suites.length} suite(s), adapters: ${[...new Set(cfg.suites.map((s) => s.adapter))].join(", ") || "-"}` });
   p.line(`check  config · ok · ${report[0].detail}`);
+  for (const w of warnings) p.line(color.yellow(`check  warn · ${w.message}`));
   if (upTo < 1) {
     p.plain(color.green("CHECK ok · config"));
     return done(0);
@@ -241,7 +244,7 @@ export function statusCommand(runRoot: string, id: string | undefined, json: boo
   const lines = [`${st.run_id} · ${st.phase}${st.outcome ? ` · ${outcomeColor(o)(o)}` : ""} · ${st.branch} @ ${st.commit.slice(0, 10)}${st.dirty ? " (dirty)" : ""}`];
   lines.push(`last event: ${st.last_event}`);
   if (st.phase !== "finished" && !pidAlive(st.pid)) lines.push(color.yellow(`witness (pid ${st.pid}) is gone; the next run will reap this one`));
-  for (const s of st.suites) lines.push(`  ${s.name.padEnd(20)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}`);
+  for (const s of st.suites) lines.push(`  ${s.name.padEnd(20)} ${(s.kind ?? "").padEnd(4)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}`);
   if (st.summary) lines.push(verdictSummary(st));
   if (st.diagnosis) lines.push(...formatDiagnosis(st.diagnosis).map((l) => `  ${l}`));
   process.stdout.write(lines.join("\n") + "\n");
@@ -255,6 +258,8 @@ interface CtrfTest {
   suite?: string;
   extra?: { witness?: { id: string; status_detail?: string; parity?: string; origin_status?: string; obtained?: string } };
 }
+
+const appCell = (services?: string[]) => (!services ? "-" : services.length ? services.join(", ") : "in the tests");
 
 export function reportCommand(runRoot: string, id: string | undefined, format: string): number {
   const dir = resolveRun(runRoot, id);
@@ -277,9 +282,10 @@ export function reportCommand(runRoot: string, id: string | undefined, format: s
   md.push("");
   md.push(`${st.branch} @ \`${st.commit.slice(0, 12)}\`${st.dirty ? " (uncommitted changes)" : ""}${st.label ? ` · ${st.label}` : ""} · ${verdictSummary(st)}`);
   md.push("");
-  md.push("| Suite | State | Passed | Failed | Error | Missing | Skipped |");
-  md.push("| --- | --- | ---: | ---: | ---: | ---: | ---: |");
-  for (const s of st.suites) md.push(`| ${s.name} | ${s.state}${s.cause ? ` (${s.cause})` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
+  md.push("| Suite | Kind | App | State | Passed | Failed | Error | Missing | Skipped |");
+  md.push("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |");
+  for (const s of st.suites) md.push(`| ${s.name} | ${s.kind ?? "-"} | ${appCell(s.services)} | ${s.state}${s.cause ? ` (${s.cause})` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
+  if (st.suites.some((s) => s.services && !s.services.length)) md.push("", "App: the services witness started for the suite, or \"in the tests\" when the tests start the app themselves (those suites don't exercise witness's services, and `--against` with origin services doesn't change what they test).");
   if (st.diagnosis) {
     md.push("", "## Diagnosis", "");
     for (const l of formatDiagnosis(st.diagnosis)) md.push(`- ${l.replace(/^(\w+):/, "**$1**:")}`);

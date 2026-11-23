@@ -62,6 +62,11 @@ export function splitSelect(suites: Suite[], select?: string[]): Map<string, str
   return m;
 }
 
+/** What status.json says about a suite besides its counts. */
+export function suiteMeta(cfg: Config, s: Suite): { kind: Suite["kind"]; services: string[] } {
+  return { kind: s.kind, services: s.services ?? cfg.services.filter((x) => x.role === "target").map((x) => x.name) };
+}
+
 export function neededServices(cfg: Config, suites: Suite[], role: Service["role"] = "target"): string[] {
   const all = cfg.services.filter((s) => s.role === role).map((s) => s.name);
   return [...new Set(suites.flatMap((s) => s.services ?? all))];
@@ -202,6 +207,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
       diagnosis: target.diagnosis,
       against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity } : undefined,
       adapters: [...new Set(suites.map((s) => s.adapter))],
+      kinds: Object.fromEntries(suites.map((s) => [s.name, s.kind])),
     },
     target.tests,
   );
@@ -303,11 +309,11 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
       if (o.abort.aborted) break;
       const blocked = blocker(neededServices(cfg, [s]));
       if (blocked) {
-        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: `not run: service ${blocked} ${bootFailed.get(blocked)!.cause}` });
+        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, s), note: `not run: service ${blocked} ${bootFailed.get(blocked)!.cause}` });
         continue;
       }
       const r = await runSuite(ctx, s, o.select?.get(s.name), o.retries);
-      side.suites.push(r.summary);
+      side.suites.push({ ...r.summary, ...suiteMeta(cfg, s) });
       side.tests.push(...r.tests);
       const so = suiteOutcome(r.summary);
       if (worst(side.outcome, so) !== side.outcome) {
@@ -319,7 +325,7 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
         o.run.saveStatus();
       }
       if (r.serviceDied) {
-        for (const rest of o.suites.slice(o.suites.indexOf(s) + 1)) side.suites.push({ name: rest.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: "not run: a service died" });
+        for (const rest of o.suites.slice(o.suites.indexOf(s) + 1)) side.suites.push({ name: rest.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, rest), note: "not run: a service died" });
         break;
       }
     }
@@ -328,7 +334,7 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
     side.outcome = "mistrial";
     side.diagnosis = e.diagnosis;
     o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
-    for (const s of o.suites) if (!side.suites.some((x) => x.name === s.name)) side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: `not run: ${e.diagnosis.cause}` });
+    for (const s of o.suites) if (!side.suites.some((x) => x.name === s.name)) side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, s), note: `not run: ${e.diagnosis.cause}` });
   } finally {
     await stack.teardown();
   }

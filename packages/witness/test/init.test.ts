@@ -16,7 +16,7 @@ function repo(files: Record<string, string>): string {
   return dir;
 }
 
-test("init guesses adapters from files and renders a valid config", () => {
+test("init finds services and skips test projects without tests", () => {
   const dir = repo({
     "pyproject.toml": "[tool.pytest.ini_options]\naddopts = '-q'\n",
     "pom.xml": "<project><parent><artifactId>spring-boot-starter-parent</artifactId></parent></project>",
@@ -30,9 +30,8 @@ test("init guesses adapters from files and renders a valid config", () => {
     "build.gradle.kts": "",
   });
   const g = guess(dir);
-  const adapters = g.suites.map((s) => s.adapter).sort();
-  assert.deepEqual(adapters, ["dotnet", "go", "junit-gradle", "junit-maven", "phpunit", "playwright", "pytest", "rspec", "vitest"]);
-  assert.equal(g.suites.find((s) => s.adapter === "dotnet")?.cmd, "dotnet test tests/UnitTests/UnitTests.csproj");
+  assert.deepEqual(g.suites.map((s) => [s.adapter, s.kind, s.cmd]), [["playwright", "ui", "npx playwright test"]]);
+  assert.deepEqual(g.excluded.map((e) => `${e.adapter} ${e.reason}`).sort(), ["dotnet no tests found", "go no tests found", "junit-gradle no tests found", "junit-maven no tests found", "phpunit no tests found", "pytest no tests found", "rspec no tests found", "vitest no tests found"]);
   assert.ok(g.services.some((s) => s.start.includes("dotnet run --no-build --project src/Web/Web.csproj")));
   assert.ok(g.services.some((s) => s.cwd === "web" && s.start === "npm start"));
   const cfg = parseConfig(parse(renderExample(g)) as Record<string, unknown>, path.join(dir, ".witness", "witness.toml"));

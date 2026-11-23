@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import { type Adapter, normFile, stableId } from "./adapters.ts";
+import type { Kind } from "./config.ts";
 import type { Cause } from "./diagnosis.ts";
 import type { Attachment, ParsedFile, RawCase, StatusDetail, TestStatus } from "./parsers/types.ts";
 
@@ -39,6 +40,9 @@ export interface SuiteSummary {
   exit_code?: number | null;
   cause?: Cause;
   note?: string;
+  kind?: Kind;
+  /** Services witness started for the suite; empty when the tests host the app themselves. */
+  services?: string[];
 }
 
 export interface ReconcileInput {

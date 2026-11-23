@@ -36,8 +36,13 @@ export interface Service {
   originFor?: string;
 }
 
+export type Kind = "api" | "ui";
+
+export const KIND_HELP = 'set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), or kind = "ui" for tests that drive it in a browser. Unit and integration tests don\'t belong in Witness: the project\'s own build and test scripts run them';
+
 export interface Suite {
   name: string;
+  kind: Kind;
   /** undefined: every target service must be up. */
   services?: string[];
   adapter: AdapterName;
@@ -78,7 +83,7 @@ const KEYS = {
   dependency: ["name", "check", "check_http", "start", "stop", "timeout"],
   service: ["name", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for"],
   ready: ["http", "cmd", "status", "timeout"],
-  suite: ["name", "service", "adapter", "cwd", "cmd", "timeout", "per_test_timeout", "report", "select", "env"],
+  suite: ["name", "kind", "service", "adapter", "cwd", "cmd", "timeout", "per_test_timeout", "report", "select", "env"],
   run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace"],
 };
 
@@ -282,8 +287,11 @@ export function parseConfig(doc: Obj, file: string): Config {
     where = `suite.${name}`;
     const adapter = str(s, "adapter", where) ?? "generic";
     if (!(adapter in ADAPTERS)) throw new ConfigError(`${where}.adapter`, `unknown adapter "${adapter}"; one of ${Object.keys(ADAPTERS).join(", ")}`);
+    const kind = str(s, "kind", where);
+    if (kind !== "api" && kind !== "ui") throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected "api" or "ui", got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
     return {
       name,
+      kind,
       services: s.service === undefined ? undefined : strList(s, "service", where),
       adapter: adapter as AdapterName,
       cwd: str(s, "cwd", where) ?? ".",

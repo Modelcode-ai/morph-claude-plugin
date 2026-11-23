@@ -18,7 +18,7 @@ items:
     tests: ["pytest:tests/e2e/test_invoices.py::test_update_due_date"]
 `;
 
-const cfg = (suites: string) => parseConfig({ version: 1, suite: JSON.parse(suites) }, path.join(os.tmpdir(), "x", ".witness", "witness.toml"));
+const cfg = (suites: string) => parseConfig({ version: 1, suite: JSON.parse(suites).map((s: object) => ({ kind: "api", ...s })) }, path.join(os.tmpdir(), "x", ".witness", "witness.toml"));
 
 test("plan: the contract example is valid", () => {
   const { plan, problems } = parsePlan(CONTRACT_EXAMPLE);
@@ -111,6 +111,7 @@ items:
 
 const TOML = `version = 1
 [[suite]]
+kind = "api"
 name = "api"
 adapter = "pytest"
 cmd = "node $APPS/lister.mjs"

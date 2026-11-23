@@ -8,7 +8,7 @@ import { splitIds } from "../src/cli.ts";
 import { buildFailure, reportPathEvidence, suiteCommand } from "../src/suite.ts";
 import type { Suite } from "../src/config.ts";
 
-const suite = (adapter: Suite["adapter"], cmd: string, extra: Partial<Suite> = {}): Suite => ({ name: "s", adapter, cmd, cwd: ".", timeoutMs: 60_000, env: {}, ...extra });
+const suite = (adapter: Suite["adapter"], cmd: string, extra: Partial<Suite> = {}): Suite => ({ name: "s", kind: "api", adapter, cmd, cwd: ".", timeoutMs: 60_000, env: {}, ...extra });
 
 describe("adapter table", () => {
   test("every adapter has a report source and an id normalizer", () => {

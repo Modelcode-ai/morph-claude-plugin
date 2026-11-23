@@ -20,9 +20,10 @@ describe("witness run: outcomes and causes", { concurrency: 4 }, () => {
     assert.equal(c.results.extra.witness.schema, "witness.run/v1");
     assert.equal(c.results.extra.witness.label, "smoke");
     assert.deepEqual(c.results.tests.map((t: any) => t.extra.witness.id).sort(), ["generic:Api#hello", "generic:Calc#add", "generic:Calc#sub"]);
-    assert.ok(c.results.tests.every((t: any) => t.extra.witness.obtained === "report"));
+    assert.ok(c.results.tests.every((t: any) => t.extra.witness.obtained === "report" && t.extra.witness.kind === "api"));
     const st = readJson(path.join(latest(dir), "status.json"));
     assert.equal(st.phase, "finished");
+    assert.deepEqual([st.suites[0].kind, st.suites[0].services], ["api", ["api"]]);
     assert.match(st.run_id, /^r-\d{8}-\d{6}-[0-9a-f]{4}$/);
     const events = fs.readFileSync(path.join(latest(dir), "events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l).type);
     assert.ok(events.includes("service_ready") && events.includes("suite_finished") && events.at(-1) === "run_finished");
@@ -309,6 +310,7 @@ env = { BACKEND = "\${api.url}" }
 depends_on = ["api"]
 ${service("ok")}
 [[suite]]
+kind = "api"
 name = "fake"
 service = "web"
 cmd = "node $APPS/suite.mjs pass"
@@ -320,7 +322,7 @@ ${RUN}`);
   });
 
   test("--against <ref>: per-test parity in CTRF; outcome from the target", async () => {
-    const toml = `version = 1\n${service("ok")}\n[[suite]]\nname = "fake"\nservice = "api"\ncmd = "bash run.sh"\n${RUN}`;
+    const toml = `version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "bash run.sh"\n${RUN}`;
     const dir = tmpRepo(toml, { git: true, files: { "run.sh": `node ${path.join(import.meta.dirname, "..", "testdata", "apps", "suite.mjs")} pass\n` } });
     const { spawnSync } = await import("node:child_process");
     fs.writeFileSync(path.join(dir, "run.sh"), `EXTRA_TEST=newtest FLIP=Calc#add node ${path.join(import.meta.dirname, "..", "testdata", "apps", "suite.mjs")} pass\n`);
@@ -375,8 +377,11 @@ ${suite("pass")}${RUN}`);
     const md = await witness(dir, ["report"]);
     assert.match(md.stdout, /# Witness run r-.*: failed/);
     assert.match(md.stdout, /`generic:Calc#sub` failed: expected 1 got 2/);
+    assert.match(md.stdout, /\| Suite \| Kind \| App \| State \|/);
+    assert.match(md.stdout, /\| fake \| api \| api \| failed \|/);
     const js = await witness(dir, ["report", "--format", "json"]);
     assert.equal(js.json?.not_passing[0].id, "generic:Calc#sub");
+    assert.equal(js.json?.suites[0].kind, "api");
   });
 
   test("external service is attached, not started or stopped", async () => {

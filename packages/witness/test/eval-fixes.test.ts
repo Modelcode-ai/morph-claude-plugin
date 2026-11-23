@@ -61,6 +61,7 @@ ${suite("pass")}${RUN}`);
   test("a service that fails to boot skips only the suites that need it", async () => {
     const dir = tmpRepo(`version = 1\n${service("never-ready")}${suite("pass")}
 [[suite]]
+kind = "api"
 name = "unit"
 service = []
 cmd = "node $APPS/suite.mjs pass"
@@ -89,6 +90,7 @@ ready = { cmd = "test \\"$PROBE_TOKEN\\" = \\"secret-$PORT\\" && curl -fsS \${se
 name = "legacy"
 external = "http://127.0.0.1:${h.port}"
 [[suite]]
+kind = "api"
 name = "fake"
 cmd = "node $APPS/suite.mjs pass"
 ${RUN}`);
@@ -102,7 +104,7 @@ ${RUN}`);
 });
 
 describe("eShopOnWeb eval fixes: suites", { concurrency: 4 }, () => {
-  const gsuite = (cmd: string) => `\n[[suite]]\nname = "unit"\nservice = []\nreport = "\${WITNESS_REPORT_DIR}/*.xml"\ncmd = "${cmd}"\n`;
+  const gsuite = (cmd: string) => `\n[[suite]]\nkind = "api"\nname = "unit"\nservice = []\nreport = "\${WITNESS_REPORT_DIR}/*.xml"\ncmd = "${cmd}"\n`;
 
   test("a compile error before any test -> setup_failed with the error line, no listing or reruns", async () => {
     const dir = tmpRepo(`version = 1${gsuite("echo 'Restore complete'; echo 'src/Basket.cs(13,59): error CS1525: Invalid expression term'; echo 'Build FAILED.'; exit 1")}${RUN}`);
@@ -145,7 +147,7 @@ describe("eShopOnWeb eval fixes: suites", { concurrency: 4 }, () => {
   });
 
   test("dotnet MTP project without a TRX reporter: check fails up front, hint covers central package management", async () => {
-    const dir = tmpRepo(`version = 1\n[[suite]]\nname = "publicapi"\nadapter = "dotnet"\nservice = []\ncmd = "dotnet test --project tests/Api/Api.csproj"\n`, {
+    const dir = tmpRepo(`version = 1\n[[suite]]\nkind = "api"\nname = "publicapi"\nadapter = "dotnet"\nservice = []\ncmd = "dotnet test --project tests/Api/Api.csproj"\n`, {
       files: {
         "global.json": JSON.stringify({ test: { runner: "Microsoft.Testing.Platform" } }),
         "tests/Api/Api.csproj": `<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="xunit.v2" /></ItemGroup></Project>`,
@@ -165,6 +167,7 @@ describe("eShopOnWeb eval fixes: --against", { concurrency: 2 }, () => {
   test("the worktree gets the target's .witness/ helpers; check --against boots the base; suite-level origin rows stay out", async () => {
     const dir = tmpRepo(`version = 1\n${service("ok")}
 [[suite]]
+kind = "api"
 name = "fake"
 service = "api"
 cmd = "bash .witness/run-suite.sh"
@@ -196,6 +199,7 @@ start = "node $APPS/server.mjs ok"
 env = { GREETING = "legacy" }
 ready = { http = "\${self.url}/health", timeout = "3s" }
 [[suite]]
+kind = "api"
 name = "fake"
 service = "api"
 cmd = "curl -fsS $WITNESS_API_URL/hello | grep -q world || exit 3; node $APPS/suite.mjs pass"
@@ -214,7 +218,7 @@ ${RUN}`);
 describe("principles: stale reports and leftover daemons", { concurrency: 2 }, () => {
   test("a report that was already on disk before the suite ran is not its result", async () => {
     const old = `<?xml version="1.0"?><testsuite name="x"><testcase classname="Old" name="passes" time="0.1"/></testsuite>`;
-    const dir = tmpRepo(`version = 1\n[[suite]]\nname = "unit"\nservice = []\ncmd = "echo ran"\nreport = "out/*.xml"\n${RUN}`, { files: { "out/old.xml": old } });
+    const dir = tmpRepo(`version = 1\n[[suite]]\nkind = "api"\nname = "unit"\nservice = []\ncmd = "echo ran"\nreport = "out/*.xml"\n${RUN}`, { files: { "out/old.xml": old } });
     const r = await witness(dir, ["run", "--json"]);
     assert.equal(r.code, 2, r.stderr);
     assert.equal(r.json?.suites[0].cause, "report_missing");

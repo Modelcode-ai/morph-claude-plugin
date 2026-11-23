@@ -80,6 +80,7 @@ ${extra}
 
 export const suite = (mode: string, extra = "") => `
 [[suite]]
+kind = "api"
 name = "fake"
 service = "api"
 cmd = "node $APPS/suite.mjs ${mode}"

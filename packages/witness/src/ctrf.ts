@@ -16,6 +16,7 @@ export interface RunMeta {
   diagnosis?: Diagnosis;
   against?: { ref: string; outcome: Outcome; parity?: Record<Parity, number> };
   adapters: string[];
+  kinds?: Record<string, string>;
 }
 
 export function runSource(): "local" | "ci" | "morph" {
@@ -51,6 +52,7 @@ export function buildCtrf(meta: RunMeta, tests: TestRecord[]) {
       summary,
       tests: tests.map((t) => {
         const w: Record<string, unknown> = { id: t.id, suite: t.suite, adapter: t.adapter, obtained: t.obtained };
+        if (meta.kinds?.[t.suite]) w.kind = meta.kinds[t.suite];
         if (t.statusDetail) w.status_detail = t.statusDetail;
         if (t.parity) w.parity = t.parity;
         if (t.originStatus) w.origin_status = t.originStatus;
