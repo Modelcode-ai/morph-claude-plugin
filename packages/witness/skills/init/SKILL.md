@@ -10,15 +10,15 @@ Output: a `.witness/witness.toml` that passes `witness check`, plus one run per 
 ## 1. Detect
 
 Witness runs functional tests only: tests that drive the app through its HTTP API (`kind =
-"api"`, with the app in the test process or at a URL) or in a browser (`kind = "ui"`). Unit and
-integration tests belong to the project's own build and test scripts.
+"api"`), a browser (`"ui"`), built command (`"cli"`), window (`"desktop"`) or device (`"mobile"`).
+Unit and integration tests belong to the project's own build and test scripts.
 
 Run `witness init`. It writes `.witness/witness.example.toml` and `.witness/.gitignore`, and
 proposes a suite only for test projects whose tests drive the app. It prints, and writes into the
 file as comments:
 
 - excluded: each project left out, with the reason (for example `tests/UnitTests: unit (no app
-  host, HTTP client or browser driver)`). Do not add these back.
+  host, HTTP client, ...)`). Do not add these back.
 - needs a filter: a project mixing functional and other tests with no folder or tag between them.
   Narrow its commented-out `cmd` to the functional files listed, then uncomment it.
 
@@ -48,7 +48,7 @@ Put secrets and machine-specific values in `.witness/.env` (git-ignored) and lis
 For each suite:
 
 - `adapter`: the framework, so witness can read its reports and select single tests.
-- `kind`: `api` or `ui` (required).
+- `kind` (required). For `desktop` and `mobile`, model the driver or emulator as a service.
 - `cmd`: the repo's own test command for that suite. Witness adds the report flags itself.
 - `service`: which services must be up; `[]` when the tests start the app themselves.
 - `timeout` and, when the framework supports it, `per_test_timeout`.

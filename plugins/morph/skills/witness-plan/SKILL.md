@@ -18,7 +18,7 @@ order:
 4. Commit messages on the branch: `git log --oneline <base>..HEAD`.
 
 Turn each expectation into one sentence about behavior someone outside the app can observe
-through its HTTP API or UI: a response, a page, data read back through the API. Witness runs
+through its HTTP API, UI or command line: a response, a page, a command's output, data read back. Witness runs
 functional tests only, so internal logic, a function's return value or a database row read
 directly are not plan items; the project's unit and integration tests cover those. Note which
 source each expectation came from; the plan's `source` field names them.

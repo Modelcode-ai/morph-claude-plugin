@@ -10,8 +10,8 @@ Input: `.witness/plan.yaml`. Output: the plan's tests exist, `witness lint` is c
 
 ## 1. Learn the local style
 
-Write functional tests only: each test drives the app through its HTTP API or in a browser. No
-unit tests, and no tests that read the database directly.
+Write functional tests only: each test drives the app from outside (HTTP API, browser, built
+command, window or device). No unit tests, nor tests that read the database directly.
 
 For each suite your plan uses (see `.witness/witness.toml`):
 
