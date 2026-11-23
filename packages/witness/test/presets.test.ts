@@ -224,7 +224,7 @@ describe("ENG-10579 presets: bats, and dotnet without build servers", () => {
     assert.deepEqual(presetEnv(ADAPTERS.bats, 3000, true), {});
     assert.equal(capabilities(s, "/nowhere", "/nowhere", { stallMs: 60_000 }).per_test_timeout, "native, per_test_timeout = 3s");
     assert.match(parseReportText(`<testsuites><testsuite name="items.bats"><testcase classname="items.bats" name="hangs"><failure type="failure">(in test file test/items.bats, line 13)\n  \`sleep 30' failed due to timeout</failure></testcase></testsuite></testsuites>`, "junit", "r.xml").cases[0].message ?? "", /failed due to timeout/);
-    const r = reconcile({ suite: "s", adapter: ADAPTERS.bats, exitCode: 1, end: "exit", files: [parseReportText(`<testsuite name="items.bats"><testcase classname="items.bats" name="hangs"><failure>(in test file test/items.bats, line 13)\n  \`sleep 30' failed due to timeout</failure></testcase></testsuite>`, "junit", "r.xml")], cwd: "." });
+    const r = reconcile({ suite: "s", adapter: ADAPTERS.bats, exitCode: 1, end: "exit", files: [{ file: "r.xml", ...parseReportText(`<testsuite name="items.bats"><testcase classname="items.bats" name="hangs"><failure>(in test file test/items.bats, line 13)\n  \`sleep 30' failed due to timeout</failure></testcase></testsuite>`, "junit", "r.xml") }], cwd: "." });
     assert.deepEqual(r.tests.map((t) => [t.id, t.status, t.statusDetail]), [["bats:items.bats#hangs", "failed", "timeout"]]);
   });
 
