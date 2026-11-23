@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# Delegates to the witness package (packages/witness).
-set -euo pipefail
-DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-exec "$DIR/packages/witness/bin/witness" "$@"
