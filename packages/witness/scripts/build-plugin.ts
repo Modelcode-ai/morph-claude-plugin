@@ -1,24 +1,15 @@
 #!/usr/bin/env node
-// Copies skills/<name> into the morph plugin as plugins/morph/skills/witness-<name>; the output is committed.
+// Renders skills/<name> (standalone profile) into the morph plugin as plugins/morph/skills/witness-<name>; the output is committed.
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { listSkills } from "../src/skills.ts";
+import { renderSkillFiles } from "../src/skills.ts";
 
 const PKG = path.resolve(import.meta.dirname, "..");
 export const PLUGIN_SKILLS = path.resolve(PKG, "..", "..", "plugins", "morph", "skills");
 export const PREFIX = "witness-";
 
 export function pluginFiles(pkgDir = PKG): Record<string, string> {
-  const files: Record<string, string> = {};
-  for (const s of listSkills(path.join(pkgDir, "skills"))) {
-    const dir = `${PREFIX}${path.basename(s.dir)}`;
-    for (const f of fs.readdirSync(s.dir)) {
-      let text = fs.readFileSync(path.join(s.dir, f), "utf8");
-      if (f === "SKILL.md") text = text.replace(/^(---\r?\n[\s\S]*?^name:\s*).*$/m, `$1${PREFIX}${s.name}`);
-      files[`${dir}/${f}`] = text;
-    }
-  }
-  return files;
+  return renderSkillFiles(path.join(pkgDir, "skills"), "standalone", PREFIX);
 }
 
 export function generatedDirs(out = PLUGIN_SKILLS): string[] {

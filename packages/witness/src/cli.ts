@@ -24,15 +24,15 @@ Usage:
   witness init                                    write .witness/witness.example.toml guessed from the repo
   witness plan check [file] [--draft] [--no-list] validate a test plan (default .witness/plan.yaml)
   witness lint [files...] [--plan file]           static checks on test files (default: changed test files)
-  witness skills path | list                      where the agent skills are / what they are
-  witness skills install --dir <path> [--link] [--prefix witness-]
-                                                  copy (or link) the skills into an agent's skills folder
+  witness skills path [--profile p] | list        render the agent skills and print where / what they are
+  witness skills install --dir <path> [--profile standalone|morph] [--link] [--prefix witness-]
+                                                  render (or link) the skills into an agent's skills folder
 
 Common: --json (machine output on stdout) · --config <path> (default .witness/witness.toml)
         --run-dir-root <path> (default .witness/runs)
 Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout · 5 interrupted · 64 usage`;
 
-const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix"]);
+const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix", "profile"]);
 const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link"]);
 const REPEAT = new Set(["suite", "select"]);
 
@@ -127,7 +127,7 @@ export async function main(argv: string[]): Promise<number> {
   try {
     if (cmd === "init") return initCommand(process.cwd(), json);
     if (cmd === "skills")
-      return skillsCommand(pos[0], { dir: flags.dir as string | undefined, link: !!flags.link, prefix: flags.prefix as string | undefined, json, log: (s) => process.stderr.write(`witness  ${s}\n`) });
+      return skillsCommand(pos[0], { dir: flags.dir as string | undefined, link: !!flags.link, prefix: flags.prefix as string | undefined, profile: flags.profile as string | undefined, json, log: (s) => process.stderr.write(`witness  ${s}\n`) });
     if (cmd === "lint") {
       const cp = typeof flags.config === "string" ? path.resolve(flags.config) : findConfig(process.cwd());
       const lintCfg = cp ? loadConfig(cp) : undefined;
