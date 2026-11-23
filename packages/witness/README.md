@@ -215,7 +215,17 @@ npm run typecheck
 npm run build            # bun -> dist/witness.mjs (commit it)
 npm run build:plugin     # skills -> plugins/morph/skills/witness-* (commit it)
 npm run check:skills     # word budget and no harness-specific tool names
+npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario s,...]
 ```
+
+`npm run conformance` is the conformance kit (`conformance/`): one small HTTP app and a real test
+project per framework (pytest, jest, vitest, mocha, Playwright, JUnit with Maven and Gradle, go,
+RSpec, PHPUnit, xunit v3 on Microsoft.Testing.Platform, MSTest on VSTest). For each it runs witness
+through a full run, `--select`, listing, a deleted and a truncated report, a per-test timeout and a
+`${WITNESS_SELECT}` compound command, checks the CTRF and `status.json`, and prints a framework ×
+scenario matrix (results in `conformance/.results/`). It uses the local toolchain when there is one,
+else a Docker image (`--docker <name>` forces it); `KIT_DOTNET=/path/to/dotnet` picks a .NET SDK.
+CI runs it per framework on native toolchains.
 
 Fixtures live in `testdata/`: report corpus per framework (including broken files) under
 `testdata/reports/`, small node apps for the integration tests under `testdata/apps/`, and one
