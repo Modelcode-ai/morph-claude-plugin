@@ -1,0 +1,26 @@
+From 78b9f1945a6dde75f5652a29f776718d7d92f800 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 11:45:42 -0800
+Subject: [PATCH 12/12] ENG-10574: witness eval: dotnet-host turns off the
+ MSBuild server, node reuse and the compiler server (they outlived every run)
+
+---
+ .witness/dotnet-host | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/.witness/dotnet-host b/.witness/dotnet-host
+index 7bcc62a..319ba90 100755
+--- a/.witness/dotnet-host
++++ b/.witness/dotnet-host
+@@ -4,6 +4,8 @@
+ root=$(cd "$(dirname "$0")/.." && pwd)
+ : "${DOTNET_HOST_ROOT:?set DOTNET_HOST_ROOT to an SDK 11 install, in .witness/.env}"
+ export DOTNET_ROOT="$DOTNET_HOST_ROOT" DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
++# no MSBuild server, node reuse or compiler server: they outlive the suite's process group
++export DOTNET_CLI_USE_MSBUILD_SERVER=0 MSBUILDDISABLENODEREUSE=1 UseSharedCompilation=false
+ verb=$1
+ shift
+ exec "$DOTNET_HOST_ROOT/dotnet" "$verb" --artifacts-path "$root/.witness/cache/host-artifacts" "$@"
+-- 
+2.50.1 (Apple Git-155)
+

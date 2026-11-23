@@ -4,6 +4,8 @@
 root=$(cd "$(dirname "$0")/.." && pwd)
 : "${DOTNET_HOST_ROOT:?set DOTNET_HOST_ROOT to an SDK 11 install, in .witness/.env}"
 export DOTNET_ROOT="$DOTNET_HOST_ROOT" DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+# no MSBuild server, node reuse or compiler server: they outlive the suite's process group
+export DOTNET_CLI_USE_MSBUILD_SERVER=0 MSBUILDDISABLENODEREUSE=1 UseSharedCompilation=false
 verb=$1
 shift
 exec "$DOTNET_HOST_ROOT/dotnet" "$verb" --artifacts-path "$root/.witness/cache/host-artifacts" "$@"

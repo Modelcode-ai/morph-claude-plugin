@@ -15,10 +15,10 @@ Witness `1.0.0-mvp` (branch `eng-10541`, commit 6bacb7e) was run on a clean upst
 | --- | --- |
 | `witness/witness.toml` | The config since ENG-10574: 1 service (`web`) and the 3 functional suites (`functional`, `publicapi`, `e2e`). See [Functional scope and Playwright e2e](#functional-scope-and-playwright-e2e-eng-10574-phase-1). The earlier 5-suite config, which `witness init` produced and I edited by following the `init` skill, is in `patches/0001`. |
 | `witness/dotnet` | A wrapper that runs `dotnet` in the SDK 11 image. It mounts the checkout at its own path, so the host paths witness passes (`--results-directory`) also work inside the container. It also forwards `WITNESS_*` and app env vars, publishes `${PORT}`, and removes the container on SIGTERM. |
-| `witness/dotnet-host` | A wrapper that runs `dotnet` from a host SDK 11 at `$DOTNET_HOST_ROOT`, with `--artifacts-path .witness/cache/host-artifacts`, so host builds never share `bin/` or `obj/` with container builds. The `e2e` suite uses it. |
+| `witness/dotnet-host` | A wrapper that runs `dotnet` from a host SDK 11 at `$DOTNET_HOST_ROOT`, with `--artifacts-path .witness/cache/host-artifacts`, so host builds never share `bin/` or `obj/` with container builds. It turns off the MSBuild server, node reuse and the compiler server, which would outlive the run. The `e2e` suite uses it. |
 | `witness/plan.yaml` | The test plan for the change in step 4. |
 | `compare.py` | Compares a run's CTRF counts with its TRX files and with dotnet's `total:` line: `python3 compare.py <run dir>`. |
-| `patches/` | The local commits in `~/work/witness-targets/eShopOnWeb-witness-eval`. 0001-0007 are on branch `witness-eval`: config, TrxReport package, the change, plan, tests, wrapper fix, plan fix. 0008-0009 are on branch `eng-10574`: the `BrowserFixture` change and the functional-scope config. |
+| `patches/` | The local commits in `~/work/witness-targets/eShopOnWeb-witness-eval`. 0001-0007 are on branch `witness-eval`: config, TrxReport package, the change, plan, tests, wrapper fix, plan fix. 0008-0012 are on branch `eng-10574`: the `BrowserFixture` change, the functional-scope config, `kind` per suite, the publicapi filter, and `dotnet-host` without build servers. |
 
 To reproduce: `git am patches/*.patch` on a clone of eShopOnWeb at `aed6281`, then `witness check` and `witness run`. This needs Docker, the SDK 11 image and the `eshop-nuget` volume. Since 0009 it also needs a host SDK 11 named in `.witness/.env` (`DOTNET_HOST_ROOT=...`) and Chromium 1248 (see the e2e section).
 
@@ -207,3 +207,74 @@ No `witness-dn-*` container was left after any step, including `witness up` / `w
    The fix sanitizes the folder name before the lookup, so both forms match. There is a regression test in `test/eval-fixes.test.ts`.
 2. **The repo's failure demo fails one step early.** `Cart_AddItem_ShowsExpectedTotal` should fail on `Expect(page.GetByText("$999.99"))`. It times out after 30s on `GetByRole(AriaRole.Link, new() { Name = "Basket" })`, because clicking "Add to Basket" already opens the basket page and the cart icon has no accessible name "Basket". The artifacts are produced either way. This is in the upstream test, so I left it.
 3. **Rough edge: `witness check` lists 107 publicapi tests while the run counts 144.** `--list-tests` lists each theory once, and the run reports each data row. Known; not new.
+
+## Phase 2 (functional scope, stacked branch)
+
+Witness at the tip of `eng-10574`, rebased onto ENG-10571, ENG-10572 (required `kind`) and ENG-10573 (adapter presets). The eval checkout is on `eng-10574` at `78b9f19`, and suites declare `kind` (api, api, ui).
+
+### Summary
+
+- **Functional scope holds.** `witness check` is clean, and the final run is `VERDICT passed · 201 passed, 0 failed · 1 skipped · 3 suite(s) · 21s` (`r-20261123-114906-feed`). That is functional 56, publicapi 143 (DependencyTests is filtered out), e2e 2 plus the intentional skip. CTRF, TRX and dotnet's `total:` line agree for every suite.
+- **`kind` and services.** `status.json`, `witness report --format json`, the markdown report and CTRF show both, after one fix (CTRF had no `services`). The report's App column reads "in the tests" for `functional` and `publicapi` and `web` for `e2e`. `witness status` shows `kind` only, as ENG-10572 specifies.
+- **Six Witness bugs found and fixed** on `eng-10574`, each with a regression test (`npm test`: 195 pass). Three of them change what an agent sees on this repo: selecting a test in a filtered dotnet suite failed; `web` dying took down suites that host the app themselves; `check` failed on a service no suite uses.
+
+### Results
+
+Run ids before `r-20261123-112957` were pruned by `keep_runs = 20`; their rows say so.
+
+| Step | Command | Result | Time | Run id | Replaces |
+| --- | --- | --- | --- | --- | --- |
+| warning before the filter | `witness check --stage config` with publicapi unfiltered | `warn · suite publicapi: 1 of 25 test files under tests/PublicApiIntegrationTests don't drive the app (tests/PublicApiIntegrationTests/DependencyTests.cs)` | 0s | - | - |
+| check | `witness check` with `--filter 'FullyQualifiedName!~PublicApiIntegrationTests.DependencyTests'` | `CHECK ok`, no warning. Listed functional 56, publicapi 106, e2e 3. One line per suite: `report: adapter (trx) · list: native · select: native · per-test timeout: none` | 15s | - | phase 1 check |
+| full run | `witness run --label p2-full` | `VERDICT passed · 201 passed · 1 skipped`; status, JSON report and markdown report show kind and services. CTRF had `kind` but no `services` (fixed, `de43c5a`) | 32s | `r-20261123-112645-2c74` (pruned) | phase 1 run |
+| artifacts | `Skip` removed from `Cart_AddItem_ShowsExpectedTotal`; `witness run --suite e2e`; `Skip` restored | `failed · 2 passed, 1 failed`, exit 1. Screenshot (533 KB), trace (3.0 MB) and video (2.2 MB), all with the test's id. CTRF: `kind: ui, services: [web]` | 45s | `r-20261123-114946-70e4` | phase 1 "demo failure, after the fix" |
+| select functional | `witness run --select 'functional:dotnet:...IndexTest#OnPostUpdateTo0EmptyBasket'` | `1 passed` | 7s | `r-20261123-112951-c25c` (pruned) | phase 1 select |
+| select publicapi, before the fix | `witness run --select 'publicapi:dotnet:...CreateUserEndpointTest#ReturnsConflictForDuplicateUserName'` | **`error · 1 missing`**, `report_missing`, evidence `error: 1`. The suite's `--filter` and Witness's `--filter` were both passed; MSTest: `Option '--filter' from provider 'MSTest' (UID: MSTestExtension) expects at most 1 arguments`, exit 5 | 6s | `r-20261123-112957-7500` | - |
+| select publicapi, after the fix | same | `--filter '(FullyQualifiedName!~PublicApiIntegrationTests.DependencyTests)&(FullyQualifiedName=...ReturnsConflictForDuplicateUserName)'`; `1 passed` | 5s | `r-20261123-113106-3e89` | - |
+| select e2e | `witness run --select 'e2e:dotnet:...SmokeTests#HomePage_ShowsExpectedProductData'` | boots `web`, `1 passed` | 11s | `r-20261123-113003-2047` | phase 1 select |
+| invalid runner args | a second `--filter` added to publicapi's `cmd` | `error`, `setup_failed`, evidence `Standard output: Option '--filter' from provider 'MSTest' ... expects at most 1 arguments` (fixed, `1c6a46a`; before: `report_missing`, `error: 1`) | 4s | `r-20261123-113142-b3f8` | - |
+| `--against witness-eval-base` | `witness run --label p2-against --against witness-eval-base` | Target passed (201). Origin `error`: e2e `setup_failed`, `BrowserFixture ... threw in InitializeAsync · System.TimeoutException : Web app did not start within 90 seconds.`, because that base predates the `E2E_BASE_URL` fixture and starts its own app. Parity: 198 same, 2 differ, 2 only on target | 2m32s | `r-20261123-113243-15fe` | ENG-10541 verify-2 |
+| `--against eng-10574-base` | the same, against `witness-eval-base` plus the fixture commit (new local branch) | `VERDICT passed · against eng-10574-base: origin passed, 0 differ`. Parity: 200 same (functional 54, publicapi 143, e2e 3), 2 only on target (the new basket tests). The origin built e2e on the host in its own worktree | 59s | `r-20261123-113535-35a0` | ENG-10541 verify-2 |
+| wrong ready URL | `/home_page_health_chek` | `mistrial`, `ready_timeout`, not retryable, `answered HTTP 404 for 30s: the app is up but this URL is not its health check`. functional and publicapi passed (199); only e2e skipped | 48s | `r-20261123-113652-a9a6` | ENG-10541 re-run "wrong ready URL" |
+| app port taken | start and ready fixed to 5199, `python3 -m http.server 5199` holding it | `mistrial`, `port_in_use` before start, `try: lsof -nP -iTCP:5199 -sTCP:LISTEN`. 199 passed; e2e skipped | 14s | `r-20261123-113747-25ca` | ENG-10541 re-run "app port taken" |
+| `docker kill` web during functional, before the fix | kill 3s into `functional` | **`functional · stopping: service web died`**, `error`; publicapi and e2e `skipped · not run: a service died`. `VERDICT mistrial · 0 passed`. functional and publicapi host the app themselves and never use `web` | 6s | `r-20261123-113821-fa9a` | ENG-10541 "service dies" |
+| `docker kill` web during functional, after the fix | same | functional 56 and publicapi 143 passed; `suite e2e: skipped · not run: service web service_died`; `mistrial`, `service_died`, `exited with code 137` | 18s | `r-20261123-114027-00e5` | - |
+| `docker kill` web as e2e starts | kill when `e2e` starts | `e2e · stopping: service web died`, `error`; 199 passed; `mistrial`, `service_died` | 19s | `r-20261123-114051-87ad` | - |
+| `docker pause` web as e2e starts | pause when `e2e` starts | `mistrial`, `service_died`, `readiness check failed 3 times in a row (The operation was aborted due to timeout)`, after 20s; 199 passed | 38s | `r-20261123-114117-d42e` | ENG-10541 "service freezes" |
+| SIGINT during e2e | `kill -INT` 2.5s into `e2e` | `interrupted`, exit 5; 6 host test and browser processes before, 0 after; no container left | 21s | `r-20261123-114206-533c` | ENG-10541 "SIGINT" |
+| compile error, before the fix | `private int _broken = ;` in `Basket.cs` | `mistrial`, `setup_failed (boot, service web)`, **evidence `1 Error(s)`**. functional and publicapi `setup_failed` with the `error CS1525` line; e2e skipped | 11s | `r-20261123-114236-3561` | ENG-10541 re-run "compile error" |
+| compile error, after the fix | same | evidence `.../Basket.cs(12,27): error CS1525: Invalid expression term ';'` (fixed, `490b829`) | 13s | `r-20261123-114337-a11f` | - |
+| hanging test | `Hangs() => Thread.Sleep(10 min)` in e2e, `stall_timeout = "45s"` | `stalled`, exit 4, `1 error`; try: HangDump. No container left, but **7 host processes stayed**: the SDK's MSBuild server, its reused nodes and VBCSCompiler (ppid 1, outside the process group) | 56s | `r-20261123-114357-f5cc` | ENG-10541 re-run "hanging test" |
+| e2e without build servers | `dotnet-host` exports `DOTNET_CLI_USE_MSBUILD_SERVER=0 MSBUILDDISABLENODEREUSE=1 UseSharedCompilation=false` (patch 0012) | `passed`, e2e 6s with a recompile; 0 host processes left | 14s | `r-20261123-114520-cece` | - |
+| plan, draft | `witness plan check --draft` | `PLAN ok · 5 found` (lists all 3 suites) | 16s | - | step 4 "plan" |
+| lint | `witness lint` | `LINT ok · 2 file(s), 5 test(s), 0 error(s)` | 0s | - | step 4 "write" |
+| plan check | `witness plan check` | `PLAN ok · 5 found`; printed the `--select` command | 11s | - | step 4 "plan check" |
+| run the plan | the printed `witness run --select 'functional:dotnet:...'` (5 ids) | `VERDICT passed · 5 passed` | 7s | `r-20261123-114620-a9ba` | step 4 "run selected" |
+| init on the clean clone | `witness init` in a fresh clone of `aed6281` | Proposes `endtoendtests` (ui), `functionaltests` (api), `publicapiintegrationtests` (api, with the DependencyTests filter), all `service = []`. Excludes AppHostTests, IntegrationTests, UnitTests and DependencyTests.cs with reasons. Also proposes services `web` and `publicapi`, which no suite uses | 0s | - | ENG-10541 "init" |
+| check on init's config, before the fix | `witness check` | **`CHECK failed`: `setup_failed (boot, service publicapi)`**, a service no suite needs | 1s | - | - |
+| check on init's config, after the fix | same | `not starting publicapi, web: no suite checked here uses it`. Suites then fail on the host's SDK 10 with `setup_failed`, `A compatible .NET SDK was not found.` (fixed, `9365686`; before: `report_missing` with report-args advice) | 0s | - | - |
+| final check | `witness check` | `CHECK ok` | 18s | - | - |
+| final run | `witness run --label p2-final` | `VERDICT passed · 201 passed, 0 failed · 1 skipped · 3 suite(s)`; CTRF: functional and publicapi `kind: api, services: []`, e2e `kind: ui, services: [web]` | 21s | `r-20261123-114906-feed` | phase 1 final |
+
+No `witness-dn-*` container was left after any step.
+
+### Witness bugs fixed
+
+| Commit | Bug | Exact output before |
+| --- | --- | --- |
+| `de43c5a` | CTRF tests had `kind` but not `services`, though ENG-10572's notes say CTRF carries both. A CTRF reader could not tell that `functional` hosts the app itself | `"extra": {"witness": {"id": "...", "suite": "e2e", "adapter": "dotnet", "obtained": "report", "kind": "ui"}}` |
+| `70f5bde` | `--select`, `--retries` and per-test reruns failed on any dotnet suite whose `cmd` already has `--filter`, which is what `init` proposes for mixed projects. Witness now ANDs the selection into the existing filter | `Option '--filter' from provider 'MSTest' (UID: MSTestExtension) expects at most 1 arguments` |
+| `1c6a46a` | MTP's invalid-arguments exit (5) was `report_missing` with useless evidence | `cause: report_missing ... evidence: error: 1` |
+| `93def06` | A service that died stopped the running suite and skipped all later ones, including suites with `service = []`. The watchdog now checks only the running suite's services; a suite's services are checked before it starts; only suites that need the dead service are skipped | `suite functional · stopping: service web died` / `suite publicapi: skipped · not run: a service died` |
+| `490b829` | A failed service setup quoted MSBuild's summary, not the compiler error | `evidence: 1 Error(s)` |
+| `3509437` | `check` started every service, even ones no suite uses, so `init`'s own config for this repo failed on `publicapi`. It now starts the suites' services and names the rest | `CHECK failed` / `cause: setup_failed (boot, service publicapi)` |
+| `9365686` | A missing .NET SDK was `report_missing` with advice about report args | `cause: report_missing ... try: check that suite endtoendtests writes its report` |
+
+### Still open
+
+- **The run output doesn't say why a suite was skipped.** `witness status` and the markdown report show `e2e ... skipped` with zeros; only the console VERDICT has `not run: service web service_died`. `status.json` has the note.
+- **`init` proposes services that no suite uses.** Here that is `web` and `publicapi`, because every proposed suite starts the app itself. `check` now skips them with a line saying so, but the config still carries two unused services, with ready URL `/`.
+- **The `init` skill doesn't mention that `init` may already filter a mixed project.** It covers only the "needs a filter" case. For this repo, `init` applied the DependencyTests filter itself, and the skill's guidance (keep the proposed suites, don't add excluded ones back) still leads to the right config.
+- **Witness's teardown doesn't cover daemons the suite starts** (MSBuild server, node reuse, VBCSCompiler). The wrapper turns them off here. A dotnet adapter hint, or exporting those variables for dotnet suites, would cover other repos.
+- **No per-test timeout for MTP**, unchanged. The stall hint points to HangDump.
+- **Boot waits before suites that need no service.** With a wrong ready URL, `functional` and `publicapi` start only after `web` fails (31s), though they don't need it.

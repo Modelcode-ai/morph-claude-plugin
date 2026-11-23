@@ -1,0 +1,40 @@
+From ba8fea21db6f8aa1758da148879ff8a98e60dd81 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 11:25:19 -0800
+Subject: [PATCH 10/12] witness eval: suites declare kind (api, api, ui)
+
+---
+ .witness/witness.toml | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/.witness/witness.toml b/.witness/witness.toml
+index fa1eb5e..8bfc053 100644
+--- a/.witness/witness.toml
++++ b/.witness/witness.toml
+@@ -17,6 +17,7 @@ ready = { http = "${self.url}/home_page_health_check", status = 200, timeout = "
+ 
+ [[suite]]
+ name = "functional"
++kind = "api"
+ adapter = "dotnet"
+ cwd = "."
+ cmd = ".witness/dotnet test --project tests/FunctionalTests/FunctionalTests.csproj"
+@@ -25,6 +26,7 @@ timeout = "20m"
+ 
+ [[suite]]
+ name = "publicapi"
++kind = "api"
+ adapter = "dotnet"
+ cwd = "."
+ cmd = ".witness/dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj"
+@@ -33,6 +35,7 @@ timeout = "20m"
+ 
+ [[suite]]
+ name = "e2e"
++kind = "ui"
+ adapter = "dotnet"
+ cwd = "."
+ cmd = ".witness/dotnet-host test --project tests/EndToEndTests/EndToEndTests.csproj"
+-- 
+2.50.1 (Apple Git-155)
+

@@ -1,0 +1,26 @@
+From ef1554e2905ce161c2b88eeb0ec6035a94a56f68 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 11:26:44 -0800
+Subject: [PATCH 11/12] ENG-10574: witness eval: publicapi excludes
+ DependencyTests (not functional; the filter witness init proposes)
+
+---
+ .witness/witness.toml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/.witness/witness.toml b/.witness/witness.toml
+index 8bfc053..f0e039a 100644
+--- a/.witness/witness.toml
++++ b/.witness/witness.toml
+@@ -29,7 +29,7 @@ name = "publicapi"
+ kind = "api"
+ adapter = "dotnet"
+ cwd = "."
+-cmd = ".witness/dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj"
++cmd = ".witness/dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj --filter 'FullyQualifiedName!~PublicApiIntegrationTests.DependencyTests'"
+ service = []
+ timeout = "20m"
+ 
+-- 
+2.50.1 (Apple Git-155)
+
