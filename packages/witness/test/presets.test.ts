@@ -205,3 +205,12 @@ cmd = "node -e \\"fetch(process.env.WITNESS_API_URL + '/hello').then(r => proces
     void APPS;
   });
 });
+
+test("a stalled jest run that finished but did not exit says so and suggests --forceExit", async () => {
+  const { diagnose } = await import("../src/diagnosis.ts");
+  const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "witness-linger-")), "s.log");
+  fs.writeFileSync(log, "Tests: 1 failed, 3 passed, 4 total\nJest did not exit one second after the test run has completed.\n\nwitness: stopping suite: no output and no report growth for 4m00s\n");
+  const d = diagnose({ stage: "suite", cause: "stalled", suite: "s", log, perTestTimeout: true });
+  assert.match(d.evidence!, /Jest did not exit/);
+  assert.ok(d.try.some((t) => /--forceExit/.test(t)));
+});
