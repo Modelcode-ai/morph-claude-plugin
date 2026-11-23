@@ -4,6 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ADAPTERS, appendArgs, dotnetFqnToId, pytestId, selectCommand, trxHint } from "../src/adapters.ts";
+import { splitIds } from "../src/cli.ts";
 import { buildFailure, reportPathEvidence, suiteCommand } from "../src/suite.ts";
 import type { Suite } from "../src/config.ts";
 
@@ -89,4 +90,10 @@ describe("eShopOnWeb eval fixes: build failures, report paths, TRX hint", () => 
     assert.match(h, /<PackageReference Include="Microsoft\.Testing\.Extensions\.TrxReport" Version="<version>" \/> to t\/T\.csproj/);
     assert.doesNotMatch(h, /PackageVersion/);
   });
+});
+
+test("--select splits on top-level commas only; a title with a comma stays one id", () => {
+  assert.deepEqual(splitIds("dotnet:A#t(x: 1, y: \"a,b\"),unit:dotnet:A#u"), ['dotnet:A#t(x: 1, y: "a,b")', "unit:dotnet:A#u"]);
+  assert.deepEqual(splitIds("jest:src/a.test.ts > adds 1, 2,jest:src/a.test.ts > b"), ["jest:src/a.test.ts > adds 1, 2", "jest:src/a.test.ts > b"]);
+  assert.deepEqual(splitIds("a, b"), ["a", "b"]);
 });

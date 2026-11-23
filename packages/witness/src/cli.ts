@@ -36,6 +36,34 @@ const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suit
 const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link"]);
 const REPEAT = new Set(["suite", "select"]);
 
+/** Split a --select list on commas outside brackets and quotes; a piece without an `adapter:` prefix continues the previous id (a title with a comma). */
+export function splitIds(v: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let quote = "";
+  let cur = "";
+  for (const ch of v) {
+    if (quote) quote = ch === quote ? "" : quote;
+    else if (ch === '"' || ch === "'") quote = ch;
+    else if ("([{".includes(ch)) depth++;
+    else if (")]}".includes(ch)) depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur);
+  const prefixed = parts.some((x) => /^\s*[\w-]+:\S/.test(x));
+  const out: string[] = [];
+  for (const x of parts) {
+    if (prefixed && out.length && !/^\s*[\w-]+:\S/.test(x)) out[out.length - 1] += `,${x}`;
+    else out.push(x);
+  }
+  return out.map((x) => x.trim()).filter(Boolean);
+}
+
 export function parseArgs(argv: string[]) {
   const flags: Record<string, string | boolean> = {};
   const lists: Record<string, string[]> = {};
@@ -59,7 +87,7 @@ export function parseArgs(argv: string[]) {
     if (!VALUE_FLAGS.has(k)) throw new UsageError(`unknown option --${k}`);
     const v = eq > 0 ? a.slice(eq + 1) : argv[++i];
     if (v === undefined) throw new UsageError(`--${k} needs a value`);
-    if (REPEAT.has(k)) (lists[k] ??= []).push(...(k === "select" ? v.split(",").map((s) => s.trim()).filter(Boolean) : [v]));
+    if (REPEAT.has(k)) (lists[k] ??= []).push(...(k === "select" ? splitIds(v) : [v]));
     else flags[k] = v;
   }
   return { cmd: pos[0], pos: pos.slice(1), flags, lists };
