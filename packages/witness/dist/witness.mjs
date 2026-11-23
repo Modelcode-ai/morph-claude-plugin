@@ -5746,10 +5746,10 @@ var require_resolve_block_map = __commonJS((exports) => {
     let offset = bm.offset;
     let commentEnd = null;
     for (const collItem of bm.items) {
-      const { start, key, sep: sep2, value } = collItem;
+      const { start, key, sep: sep3, value } = collItem;
       const keyProps = resolveProps.resolveProps(start, {
         indicator: "explicit-key-ind",
-        next: key ?? sep2?.[0],
+        next: key ?? sep3?.[0],
         offset,
         onError,
         parentIndent: bm.indent,
@@ -5763,7 +5763,7 @@ var require_resolve_block_map = __commonJS((exports) => {
           else if ("indent" in key && key.indent !== bm.indent)
             onError(offset, "BAD_INDENT", startColMsg);
         }
-        if (!keyProps.anchor && !keyProps.tag && !sep2) {
+        if (!keyProps.anchor && !keyProps.tag && !sep3) {
           commentEnd = keyProps.end;
           if (keyProps.comment) {
             if (map.comment)
@@ -5788,7 +5788,7 @@ var require_resolve_block_map = __commonJS((exports) => {
       ctx.atKey = false;
       if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
         onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
-      const valueProps = resolveProps.resolveProps(sep2 ?? [], {
+      const valueProps = resolveProps.resolveProps(sep3 ?? [], {
         indicator: "map-value-ind",
         next: value,
         offset: keyNode.range[2],
@@ -5804,7 +5804,7 @@ var require_resolve_block_map = __commonJS((exports) => {
           if (ctx.options.strict && keyProps.start < valueProps.found.offset - 1024)
             onError(keyNode.range, "KEY_OVER_1024_CHARS", "The : indicator must be at most 1024 chars after the start of an implicit block mapping key");
         }
-        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep2, null, valueProps, onError);
+        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : composeEmptyNode(ctx, offset, sep3, null, valueProps, onError);
         if (ctx.schema.compat)
           utilFlowIndentCheck.flowIndentCheck(bm.indent, value, onError);
         offset = valueNode.range[2];
@@ -5890,7 +5890,7 @@ var require_resolve_end = __commonJS((exports) => {
     let comment = "";
     if (end) {
       let hasSpace = false;
-      let sep2 = "";
+      let sep3 = "";
       for (const token of end) {
         const { source, type } = token;
         switch (type) {
@@ -5904,13 +5904,13 @@ var require_resolve_end = __commonJS((exports) => {
             if (!comment)
               comment = cb;
             else
-              comment += sep2 + cb;
-            sep2 = "";
+              comment += sep3 + cb;
+            sep3 = "";
             break;
           }
           case "newline":
             if (comment)
-              sep2 += source;
+              sep3 += source;
             hasSpace = true;
             break;
           default:
@@ -5950,18 +5950,18 @@ var require_resolve_flow_collection = __commonJS((exports) => {
     let offset = fc.offset + fc.start.source.length;
     for (let i = 0;i < fc.items.length; ++i) {
       const collItem = fc.items[i];
-      const { start, key, sep: sep2, value } = collItem;
+      const { start, key, sep: sep3, value } = collItem;
       const props = resolveProps.resolveProps(start, {
         flow: fcName,
         indicator: "explicit-key-ind",
-        next: key ?? sep2?.[0],
+        next: key ?? sep3?.[0],
         offset,
         onError,
         parentIndent: fc.indent,
         startOnNewline: false
       });
       if (!props.found) {
-        if (!props.anchor && !props.tag && !sep2 && !value) {
+        if (!props.anchor && !props.tag && !sep3 && !value) {
           if (i === 0 && props.comma)
             onError(props.comma, "UNEXPECTED_TOKEN", `Unexpected , in ${fcName}`);
           else if (i < fc.items.length - 1)
@@ -6013,8 +6013,8 @@ var require_resolve_flow_collection = __commonJS((exports) => {
           }
         }
       }
-      if (!isMap && !sep2 && !props.found) {
-        const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep2, null, props, onError);
+      if (!isMap && !sep3 && !props.found) {
+        const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep3, null, props, onError);
         coll.items.push(valueNode);
         offset = valueNode.range[2];
         if (isBlock(value))
@@ -6026,7 +6026,7 @@ var require_resolve_flow_collection = __commonJS((exports) => {
         if (isBlock(key))
           onError(keyNode.range, "BLOCK_IN_FLOW", blockMsg);
         ctx.atKey = false;
-        const valueProps = resolveProps.resolveProps(sep2 ?? [], {
+        const valueProps = resolveProps.resolveProps(sep3 ?? [], {
           flow: fcName,
           indicator: "map-value-ind",
           next: value,
@@ -6037,8 +6037,8 @@ var require_resolve_flow_collection = __commonJS((exports) => {
         });
         if (valueProps.found) {
           if (!isMap && !props.found && ctx.options.strict) {
-            if (sep2)
-              for (const st of sep2) {
+            if (sep3)
+              for (const st of sep3) {
                 if (st === valueProps.found)
                   break;
                 if (st.type === "newline") {
@@ -6055,7 +6055,7 @@ var require_resolve_flow_collection = __commonJS((exports) => {
           else
             onError(valueProps.start, "MISSING_CHAR", `Missing , or : between ${fcName} items`);
         }
-        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep2, null, valueProps, onError) : null;
+        const valueNode = value ? composeNode(ctx, value, valueProps, onError) : valueProps.found ? composeEmptyNode(ctx, valueProps.end, sep3, null, valueProps, onError) : null;
         if (valueNode) {
           if (isBlock(value))
             onError(valueNode.range, "BLOCK_IN_FLOW", blockMsg);
@@ -6232,7 +6232,7 @@ var require_resolve_block_scalar = __commonJS((exports) => {
         chompStart = i + 1;
     }
     let value = "";
-    let sep2 = "";
+    let sep3 = "";
     let prevMoreIndented = false;
     for (let i = 0;i < contentStart; ++i)
       value += lines[i][0].slice(trimIndent) + `
@@ -6250,33 +6250,33 @@ var require_resolve_block_scalar = __commonJS((exports) => {
         indent = "";
       }
       if (type === Scalar.Scalar.BLOCK_LITERAL) {
-        value += sep2 + indent.slice(trimIndent) + content;
-        sep2 = `
+        value += sep3 + indent.slice(trimIndent) + content;
+        sep3 = `
 `;
       } else if (indent.length > trimIndent || content[0] === "\t") {
-        if (sep2 === " ")
-          sep2 = `
+        if (sep3 === " ")
+          sep3 = `
 `;
-        else if (!prevMoreIndented && sep2 === `
+        else if (!prevMoreIndented && sep3 === `
 `)
-          sep2 = `
+          sep3 = `
 
 `;
-        value += sep2 + indent.slice(trimIndent) + content;
-        sep2 = `
+        value += sep3 + indent.slice(trimIndent) + content;
+        sep3 = `
 `;
         prevMoreIndented = true;
       } else if (content === "") {
-        if (sep2 === `
+        if (sep3 === `
 `)
           value += `
 `;
         else
-          sep2 = `
+          sep3 = `
 `;
       } else {
-        value += sep2 + content;
-        sep2 = " ";
+        value += sep3 + content;
+        sep3 = " ";
         prevMoreIndented = false;
       }
     }
@@ -6457,27 +6457,27 @@ var require_resolve_flow_scalar = __commonJS((exports) => {
     if (!match)
       return source;
     let res = match[1];
-    let sep2 = " ";
+    let sep3 = " ";
     let pos = first.lastIndex;
     line.lastIndex = pos;
     while (match = line.exec(source)) {
       if (match[1] === "") {
-        if (sep2 === `
+        if (sep3 === `
 `)
-          res += sep2;
+          res += sep3;
         else
-          sep2 = `
+          sep3 = `
 `;
       } else {
-        res += sep2 + match[1];
-        sep2 = " ";
+        res += sep3 + match[1];
+        sep3 = " ";
       }
       pos = line.lastIndex;
     }
     const last = /[ \t]*(.*)/sy;
     last.lastIndex = pos;
     match = last.exec(source);
-    return res + sep2 + (match?.[1] ?? "");
+    return res + sep3 + (match?.[1] ?? "");
   }
   function doubleQuotedValue(source, onError) {
     let res = "";
@@ -7250,14 +7250,14 @@ var require_cst_stringify = __commonJS((exports) => {
       }
     }
   }
-  function stringifyItem({ start, key, sep: sep2, value }) {
+  function stringifyItem({ start, key, sep: sep3, value }) {
     let res = "";
     for (const st of start)
       res += st.source;
     if (key)
       res += stringifyToken(key);
-    if (sep2)
-      for (const st of sep2)
+    if (sep3)
+      for (const st of sep3)
         res += st.source;
     if (value)
       res += stringifyToken(value);
@@ -8387,18 +8387,18 @@ var require_parser = __commonJS((exports) => {
       if (this.type === "map-value-ind") {
         const prev = getPrevProps(this.peek(2));
         const start = getFirstKeyStartProps(prev);
-        let sep2;
+        let sep3;
         if (scalar.end) {
-          sep2 = scalar.end;
-          sep2.push(this.sourceToken);
+          sep3 = scalar.end;
+          sep3.push(this.sourceToken);
           delete scalar.end;
         } else
-          sep2 = [this.sourceToken];
+          sep3 = [this.sourceToken];
         const map = {
           type: "block-map",
           offset: scalar.offset,
           indent: scalar.indent,
-          items: [{ start, key: scalar, sep: sep2 }]
+          items: [{ start, key: scalar, sep: sep3 }]
         };
         this.onKeyLine = true;
         this.stack[this.stack.length - 1] = map;
@@ -8552,15 +8552,15 @@ var require_parser = __commonJS((exports) => {
               } else if (isFlowToken(it.key) && !includesToken(it.sep, "newline")) {
                 const start2 = getFirstKeyStartProps(it.start);
                 const key = it.key;
-                const sep2 = it.sep;
-                sep2.push(this.sourceToken);
+                const sep3 = it.sep;
+                sep3.push(this.sourceToken);
                 delete it.key;
                 delete it.sep;
                 this.stack.push({
                   type: "block-map",
                   offset: this.offset,
                   indent: this.indent,
-                  items: [{ start: start2, key, sep: sep2 }]
+                  items: [{ start: start2, key, sep: sep3 }]
                 });
               } else if (start.length > 0) {
                 it.sep = it.sep.concat(start, this.sourceToken);
@@ -8754,13 +8754,13 @@ var require_parser = __commonJS((exports) => {
           const prev = getPrevProps(parent);
           const start = getFirstKeyStartProps(prev);
           fixFlowSeqItems(fc);
-          const sep2 = fc.end.splice(1, fc.end.length);
-          sep2.push(this.sourceToken);
+          const sep3 = fc.end.splice(1, fc.end.length);
+          sep3.push(this.sourceToken);
           const map = {
             type: "block-map",
             offset: fc.offset,
             indent: fc.indent,
-            items: [{ start, key: fc, sep: sep2 }]
+            items: [{ start, key: fc, sep: sep3 }]
           };
           this.onKeyLine = true;
           this.stack[this.stack.length - 1] = map;
@@ -9360,6 +9360,18 @@ function dotnetProject(cwd, cmd) {
   const m = /--project[ =]+["']?([^\s"']+)/.exec(cmd) ?? /(?:^|\s)["']?([^\s"']+\.(?:cs|fs|vb)proj)\b/.exec(cmd);
   return m ? path2.resolve(cwd, m[1]) : undefined;
 }
+function trxHint(cwd, cmd) {
+  const proj = dotnetProject(cwd, cmd);
+  const where = proj && path2.relative(cwd, proj) || "the test project";
+  const add = `add <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" /> to ${where}`;
+  const start = proj ? path2.dirname(proj) : cwd;
+  const props = readUp(start, "Directory.Packages.props");
+  if (!props.text || !/<ManagePackageVersionsCentrally>\s*true\s*</i.test(props.text + readUp(start, "Directory.Build.props").text))
+    return `this Microsoft.Testing.Platform project has no TRX reporter: ${add.replace(" />", ' Version="<version>" />')}`;
+  const file = props.dirs.at(-1) ? path2.relative(cwd, path2.join(props.dirs.at(-1), "Directory.Packages.props")) : "Directory.Packages.props";
+  const ver = /<PackageVersion\s+Include="Microsoft\.Testing\.(?:Platform|Extensions\.[\w.]+)"\s+Version="([^"]+)"/.exec(props.text)?.[1];
+  return `this Microsoft.Testing.Platform project has no TRX reporter: ${add}, and <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="${ver ?? "<version>"}" /> to ${file} (the repo uses central package management)`;
+}
 function dotnetMode(cwd, cmd = "") {
   const gj = readUp(cwd, "global.json").text;
   let mtp = false;
@@ -9429,7 +9441,7 @@ var ADAPTERS = {
         return "";
       return `${mode === "vstest" ? "--logger trx" : mode === "mtp-xunit" ? "--report-xunit-trx" : "--report-trx"} --results-directory ${shq(d)}`;
     },
-    reportHint: (cwd, cmd) => dotnetMode(cwd, cmd) === "mtp-none" ? `this Microsoft.Testing.Platform project has no TRX reporter: add <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" /> to ${path2.relative(cwd, dotnetProject(cwd, cmd) ?? "the test project") || "the test project"}` : undefined,
+    reportHint: (cwd, cmd) => dotnetMode(cwd, cmd) === "mtp-none" ? trxHint(cwd, cmd) : undefined,
     reportMarker: /--logger[ =:]+["']?trx|--report-(xunit-)?trx/,
     reportGlobs: [
       { base: "report-dir", glob: "**/*.trx" },
@@ -10765,6 +10777,8 @@ function parseConfig(doc, file) {
       throw new ConfigError(where, "needs start (a command) or external (a URL)");
     if (svc.external && !/^https?:\/\//.test(svc.external))
       throw new ConfigError(`${where}.external`, "expected an http(s) URL");
+    if (!svc.ready && !svc.external)
+      throw new ConfigError(`${where}.ready`, 'is required: a service counts as up only after its readiness check passes; set ready = { http = "${self.url}/health" } or ready = { cmd = "..." } (ready = { cmd = "true" } for a worker with nothing to probe)');
     return svc;
   });
   const suites = tables(doc, "suite").map((s, i) => {
@@ -10971,7 +10985,7 @@ function diagnose(inp) {
   const d = {
     stage: inp.stage,
     cause,
-    retryable: RETRYABLE.has(cause),
+    retryable: RETRYABLE.has(cause) && !(cause === "ready_timeout" && inp.steadyStatus),
     try: []
   };
   if (inp.service)
@@ -11031,7 +11045,10 @@ function suggestions(d, inp, missingTool) {
         t.push(`curl -i ${inp.url}`);
       if (log)
         t.push(log);
-      t.push(`raise ready.timeout for service ${svc ?? ""}`.trim());
+      if (inp.steadyStatus)
+        t.push(`the app answers HTTP ${inp.steadyStatus} at the ready URL, so it is up but the URL ${inp.steadyStatus === 404 ? "does not exist" : "is refused"}: fix ready.http (or ready.status) for service ${svc ?? ""}; a longer timeout will not help`.trim());
+      else
+        t.push(`raise ready.timeout for service ${svc ?? ""}`.trim());
       break;
     case "port_in_use":
       if (inp.port)
@@ -11058,7 +11075,12 @@ function suggestions(d, inp, missingTool) {
     case "stalled":
       if (log)
         t.push(log);
-      t.push(`set per_test_timeout for suite ${inp.suite ?? ""} so a hung test fails instead of hanging`);
+      if (inp.perTestTimeout !== false)
+        t.push(`set per_test_timeout for suite ${inp.suite ?? ""} so a hung test fails instead of hanging`);
+      else if (inp.adapter === "dotnet")
+        t.push(`per_test_timeout does nothing for this dotnet project (Microsoft.Testing.Platform); to name the hung test add the Microsoft.Testing.Extensions.HangDump package and append --hangdump --hangdump-timeout 5m to the suite cmd`);
+      if (inp.perTestTimeout === false)
+        t.push(`narrow it down: witness run --suite ${inp.suite ?? "<suite>"} --select <test-id>,...`);
       t.push("raise [run] stall_timeout if the suite is legitimately quiet for long");
       break;
     case "report_missing":
@@ -11207,6 +11229,8 @@ async function killGroup(pgid, graceMs) {
 }
 async function runCapture(cmd, opts) {
   const child = spawn("bash", ["-c", cmd], { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  if (child.pid)
+    opts.track?.(child.pid, true);
   const chunks = [];
   child.stdout?.on("data", (d) => chunks.push(d));
   child.stderr?.on("data", (d) => chunks.push(d));
@@ -11216,11 +11240,15 @@ async function runCapture(cmd, opts) {
     if (child.pid)
       killGroup(child.pid, 2000);
   }, opts.timeoutMs);
+  const abortPoll = opts.abort ? setInterval(() => opts.abort.aborted && child.pid && void killGroup(child.pid, 2000), 200) : undefined;
   const code = await new Promise((resolve3) => {
     child.on("error", () => resolve3(127));
     child.on("close", (c2) => resolve3(c2));
   });
   clearTimeout(timer);
+  clearInterval(abortPoll);
+  if (child.pid)
+    opts.track?.(child.pid, false);
   const out = Buffer.concat(chunks).toString("utf8");
   if (opts.log) {
     fs4.mkdirSync(path4.dirname(opts.log), { recursive: true });
@@ -11241,6 +11269,18 @@ async function httpProbe(url, status, timeoutMs = 3000) {
     const err = e;
     return { ok: false, detail: err.cause?.code ?? err.cause?.message ?? err.message };
   }
+}
+function portAnswers(host, port, timeoutMs = 1000) {
+  return new Promise((resolve3) => {
+    const sock = net.connect({ host, port });
+    const done = (v) => {
+      sock.destroy();
+      resolve3(v);
+    };
+    sock.setTimeout(timeoutMs, () => done(false));
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
 }
 function portFree(port) {
   return new Promise((resolve3) => {
@@ -11335,7 +11375,7 @@ function summarize(name, state, tests) {
       s.passed++;
     else if (t.status === "skipped" || t.status === "pending")
       s.skipped++;
-    else if (t.status === "failed" && t.statusDetail !== "error")
+    else if (t.status === "failed" && !t.statusDetail)
       s.failed++;
     else if (t.statusDetail === "missing")
       s.missing++;
@@ -11346,9 +11386,9 @@ function summarize(name, state, tests) {
 }
 function suiteLevel(adapter, suite, exitCode, message, exitCodeOnly = false) {
   const ok = exitCode === 0;
-  const r = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? "passed" : "failed", durationMs: 0, obtained: "suite-level", message };
-  if (!ok && !exitCodeOnly)
-    r.statusDetail = "error";
+  const r = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? exitCodeOnly ? "passed" : "other" : "failed", durationMs: 0, obtained: "suite-level", message };
+  if (!exitCodeOnly)
+    r.statusDetail = ok ? "missing" : "error";
   return r;
 }
 function presentIn(ids, id) {
@@ -11380,8 +11420,14 @@ function reconcile(inp) {
     const absent = expected.filter((id) => !presentIn(have, id));
     for (const id of absent)
       tests.push(missing(id, adapter, suite, "missing"));
-    const failed = tests.some((t) => t.status === "failed");
-    if (failed)
+    const failed = tests.filter((t) => t.status === "failed");
+    if (failed.length && failed.every((t) => t.statusDetail === "error")) {
+      const lines = (failed[0].message ?? "").split(`
+`).map((l) => l.replace(/^[-\s]+/, "").trim()).filter(Boolean);
+      const inner = lines.slice(1).find((l) => /exception|error|did not|timed? ?out|refused|not found/i.test(l));
+      return { tests, state: "error", cause: "setup_failed", note: `${failed.length} test(s) errored in fixture setup; none failed its own checks`, evidence: [lines[0], inner].filter(Boolean).join(" · ").slice(0, 500), hint: "a test fixture's setup failed (it starts a browser, app, container or database), so no test ran its own checks: fix what the fixture needs, then run the suite again" };
+    }
+    if (failed.length)
       return { tests, state: "failed", note: unreadable.length ? `${unreadable.length} report file(s) unreadable` : undefined };
     if (exitCode !== 0)
       return { tests, state: "error", cause: "report_incomplete", note: `exit code ${exitCode} but the report shows no failures` };
@@ -11389,6 +11435,8 @@ function reconcile(inp) {
       return { tests, state: "error", cause: "report_incomplete", note: `${absent.length} expected test(s) missing from the report` };
     if (unreadable.length)
       return { tests, state: "error", cause: "report_unreadable", note: `${unreadable.length} report file(s) unreadable: ${unreadable[0].error}` };
+    if (tests.every((t) => t.status === "skipped" || t.status === "pending"))
+      return { tests, state: "error", cause: "report_incomplete", note: `all ${tests.length} test(s) were skipped; nothing was checked`, hint: "every test was skipped: look for a skip condition that fired (a fixture that skips when the app or a dependency is unreachable, a missing marker or env var)" };
     return { tests, state: "passed" };
   }
   if (inp.exitCodeOnly) {
@@ -11400,27 +11448,33 @@ function reconcile(inp) {
     return { tests: [], state: "error", cause, note, rerun: expected.map((id) => cleanId(adapter, id.slice(adapter.name.length + 1))) };
   return { tests: [suiteLevel(adapter, suite, exitCode, `${note}; exit code ${exitCode}`)], state: "error", cause, note };
 }
-function missing(id, adapter, suite, detail) {
-  return { id, name: id.slice(adapter.name.length + 1), suite, adapter: adapter.name, status: "other", statusDetail: detail, durationMs: 0, obtained: "report", message: detail === "timeout" ? "did not finish before the suite was stopped" : "expected but absent from the report" };
+function missing(id, adapter, suite, detail, message) {
+  return { id, name: id.slice(adapter.name.length + 1), suite, adapter: adapter.name, status: "other", statusDetail: detail, durationMs: 0, obtained: "report", message: message ?? (detail === "timeout" ? "did not finish before the suite was stopped" : "expected but absent from the report") };
 }
 function fromReruns(results, adapter, suite, cwd, originalExit, cause) {
   const tests = [];
   for (const r of results) {
     const sid = stableId(adapter.name, r.id);
     const cases = r.files.flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite, cwd, "per-test-rerun")));
-    const hit = cases.find((c2) => c2.id === sid) ?? (cases.length === 1 ? { ...cases[0], id: sid } : undefined);
+    const exact = cases.find((c2) => c2.id === sid);
+    const params = cases.filter((c2) => presentIn(new Set([c2.id]), sid));
+    const hit = exact ?? (params.length ? { ...params[0], id: sid, status: params.some((c2) => c2.status === "failed") ? "failed" : params[0].status } : cases.length === 1 ? { ...cases[0], id: sid } : undefined);
     if (hit)
       tests.push(hit);
-    else {
-      const t = { id: sid, name: r.id, suite, adapter: adapter.name, status: r.exitCode === 0 ? "passed" : "failed", durationMs: 0, obtained: "per-test-rerun", message: r.timedOut ? "timed out when run alone" : `run alone: exit code ${r.exitCode}` };
+    else if (r.timedOut || r.exitCode !== 0) {
+      const t = { id: sid, name: r.id, suite, adapter: adapter.name, status: "failed", durationMs: 0, obtained: "per-test-rerun", message: r.timedOut ? "timed out when run alone" : `run alone: exit code ${r.exitCode}` };
       if (r.timedOut)
         t.statusDetail = "timeout";
       tests.push(t);
+    } else {
+      tests.push({ id: sid, name: r.id, suite, adapter: adapter.name, status: "other", statusDetail: "missing", durationMs: 0, obtained: "per-test-rerun", message: "run alone: exit code 0 but the test is not in its report (the filter may have matched nothing)" });
     }
   }
   const failed = tests.some((t) => t.status === "failed");
   if (failed)
     return { tests, state: "failed", cause, note: "suite report unusable; tests rerun one by one" };
+  if (tests.some((t) => t.status === "other"))
+    return { tests, state: "error", cause, note: "suite report unusable; some tests rerun alone are missing from their reports" };
   if (originalExit !== 0)
     return { tests, state: "error", cause: "report_incomplete", note: `suite exited ${originalExit} without a usable report, but each test passes alone` };
   return { tests, state: "passed", cause, note: "suite report unusable; tests rerun one by one" };
@@ -11463,6 +11517,8 @@ function applyParity(target, origin) {
     return { ...t, parity: p, originStatus: ot.status };
   });
   for (const ot of o.values()) {
+    if (ot.obtained === "suite-level")
+      continue;
     counts.origin_only++;
     out.push({ id: ot.id, name: ot.name, suite: ot.suite, adapter: ot.adapter, status: "other", statusDetail: "missing", durationMs: 0, obtained: ot.obtained, filePath: ot.filePath, parity: "origin_only", originStatus: ot.status, message: "present on the origin, absent on the target" });
   }
@@ -11529,6 +11585,9 @@ class RunDir {
     this.state.procs = this.state.procs.filter((p) => p.pgid !== pgid);
     this.saveState();
   }
+  tracker(kind, name) {
+    return (pgid, running) => running ? this.track({ kind, name, pid: pgid, pgid }) : this.untrack(pgid);
+  }
   linkLatest() {
     const link = path6.join(this.root, "latest");
     try {
@@ -11576,12 +11635,9 @@ async function reapStale(root, graceMs, log) {
     const fresh = Date.now() - Date.parse(state.started_at) < 24 * 3600000;
     let killed = 0;
     if (fresh) {
-      for (const p of state.procs) {
-        if (groupAlive(p.pgid)) {
-          await killGroup(p.pgid, graceMs);
+      for (const p of state.procs)
+        if (await killTracked(p, graceMs))
           killed++;
-        }
-      }
     }
     for (const wt of state.worktrees ?? [])
       removeWorktree(wt);
@@ -11598,6 +11654,40 @@ async function reapStale(root, graceMs, log) {
     reaped.push(id);
   }
   return reaped;
+}
+async function killTracked(p, graceMs, opts = {}) {
+  let hit = false;
+  const pid = p.pidfile ? Number(readText(p.pidfile)) : 0;
+  if (p.stop && opts.runStop !== false && (pidAlive(pid) || groupAlive(p.pgid))) {
+    spawnSync2("bash", ["-c", p.stop], { cwd: p.cwd, stdio: "ignore", timeout: 60000 });
+    hit = true;
+  }
+  if (pid > 1 && pidAlive(pid)) {
+    try {
+      process.kill(pid, graceMs ? "SIGTERM" : "SIGKILL");
+    } catch {}
+    const until = Date.now() + graceMs;
+    while (pidAlive(pid) && Date.now() < until)
+      await new Promise((r) => setTimeout(r, 100));
+    if (pidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {}
+    }
+    hit = true;
+  }
+  if (groupAlive(p.pgid)) {
+    await killGroup(p.pgid, graceMs);
+    hit = true;
+  }
+  return hit;
+}
+function readText(f) {
+  try {
+    return fs5.readFileSync(f, "utf8").trim();
+  } catch {
+    return "";
+  }
 }
 function removeWorktree(wt) {
   const common = git(wt, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
@@ -11779,7 +11869,9 @@ class Stack {
       const log = path7.join(this.o.logDir, `dep-${d.name}.log`);
       if (d.start && !this.o.reuse?.deps_started.includes(d.name)) {
         this.o.progress.line(`deps   ${d.name} · not reachable (${r.detail}); starting it`);
-        const s = await runCapture(substitute(d.start, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: d.timeoutMs, log });
+        const s = await runCapture(substitute(d.start, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: d.timeoutMs, log, abort: this.o.abort, track: this.o.run?.tracker("dependency", d.name) });
+        if (this.o.abort.aborted)
+          return;
         if (s.code !== 0)
           this.fail("deps", "dependency_unreachable", { command: d.start, log, evidence: s.out.trim().split(`
 `).pop() });
@@ -11841,14 +11933,18 @@ class Stack {
       await this.setup(svc, cwd, env, vars, log);
     if (this.o.abort.aborted)
       return;
+    const readyUrl = svc.ready?.http ? substitute(svc.ready.http, vars) : undefined;
+    const held = readyUrl ? await heldReadyPort(readyUrl, alloc.port) : undefined;
+    if (held)
+      this.fail("boot", "port_in_use", { service: svc.name, port: held, url: readyUrl, evidence: `port ${held} (in ready.http ${readyUrl}) already accepts connections before ${svc.name} started: another process holds it, so the readiness check would talk to that process` });
     const cmd = substitute(svc.start, vars);
     const proc = spawnGroup(cmd, { name: svc.name, cwd, env, log });
     ls.proc = proc;
     ls.pgid = proc.pgid;
     this.live.set(alias, ls);
-    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path7.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop, cwd });
+    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path7.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop ? substitute(svc.stop, vars) : undefined, cwd });
     this.o.run?.event("service_started", { service: svc.name, pid: proc.pid, port: alloc.port, cmd }, `starting ${svc.name}`);
-    this.o.progress.line(`boot   ${svc.name} · starting on port ${alloc.port}`);
+    this.o.progress.line(`boot   ${svc.name} · starting (PORT=${alloc.port}${readyUrl ? `, ready check ${readyUrl}` : ""})`);
     try {
       await this.waitReady(ls, cwd, false, cmd);
     } catch (e) {
@@ -11856,6 +11952,8 @@ class Stack {
       await this.stopOne(ls);
       throw e;
     }
+    if (this.o.abort.aborted)
+      return;
     this.o.run?.event("service_ready", { service: svc.name, url: ls.url, ms: Date.now() - t0 }, `${svc.name} ready`);
     this.o.progress.line(`boot   ${svc.name} · ready at ${ls.url} (${fmtDuration(Date.now() - t0)})`);
   }
@@ -11897,6 +11995,8 @@ class Stack {
     const pidfile = svc.pidfile ? path7.resolve(cwd, substitute(svc.pidfile, this.vars(ls))) : undefined;
     let delay = 200;
     let last = "";
+    let steady;
+    const steadyAfter = Math.min(30000, timeoutMs / 2);
     const exitedFail = () => this.fail("boot", "exited_before_ready", { service: svc.name, command: cmd, log: ls.log, cwd: svc.cwd, port: ls.port, evidence: undefined });
     for (;; ) {
       if (this.o.abort.aborted)
@@ -11915,19 +12015,21 @@ class Stack {
         } else if (ls.proc?.exited)
           exitedFail();
       }
-      if (!svc.ready) {
-        await sleep(1000);
-        if (!external && !pidfile && ls.proc?.exited)
-          exitedFail();
-        return;
-      }
       const r = await this.probe(ls);
       if (r.ok)
         return;
       last = r.detail;
-      if (Date.now() > until) {
-        const url = svc.ready.http ? substitute(svc.ready.http, this.vars(ls)) : undefined;
-        this.fail("boot", "ready_timeout", { service: svc.name, command: svc.ready.cmd ?? cmd, log: external ? undefined : ls.log, url, port: ls.port, evidence: `not ready after ${fmtDuration(timeoutMs)}: ${last}`, cwd: svc.cwd });
+      const http4xx = /^HTTP (4\d\d)$/.exec(r.detail);
+      const now = Date.now();
+      if (!http4xx)
+        steady = undefined;
+      else if (steady?.status !== Number(http4xx[1]))
+        steady = { status: Number(http4xx[1]), since: now };
+      const stuck = steady && now - steady.since >= steadyAfter;
+      if (now > until || stuck) {
+        const url = svc.ready?.http ? substitute(svc.ready.http, this.vars(ls)) : external ? ls.url : undefined;
+        const evidence = stuck ? `${url ?? "the ready URL"} answered HTTP ${steady.status} for ${fmtDuration(now - steady.since)}: the app is up but this URL is not its health check` : `not ready after ${fmtDuration(timeoutMs)}: ${last}`;
+        this.fail("boot", "ready_timeout", { service: svc.name, command: svc.ready?.cmd ?? cmd, log: external ? undefined : ls.log, url, port: ls.port, evidence, cwd: svc.cwd, steadyStatus: stuck ? steady.status : undefined });
       }
       await sleep(delay);
       delay = Math.min(delay * 1.5, 1000);
@@ -11935,12 +12037,17 @@ class Stack {
   }
   async probe(ls) {
     const r = ls.svc.ready;
-    if (!r)
-      return { ok: true, detail: "no readiness check" };
+    if (!r) {
+      if (!ls.svc.external)
+        return { ok: false, detail: "no readiness check configured" };
+      const h = await httpProbe(ls.url);
+      return /^HTTP [1-4]\d\d$/.test(h.detail) ? { ok: true, detail: h.detail } : h;
+    }
     const vars = this.vars(ls);
     if (r.http)
       return httpProbe(substitute(r.http, vars), r.status);
-    const res = await runCapture(substitute(r.cmd, vars), { cwd: path7.resolve(this.o.root, ls.svc.cwd), env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv() }), timeoutMs: 1e4 });
+    const env = childEnv(this.o.baseEnv, { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv(), ...mapValues(ls.svc.env, (v) => substitute(v, vars)) });
+    const res = await runCapture(substitute(r.cmd, vars), { cwd: path7.resolve(this.o.root, ls.svc.cwd), env, timeoutMs: 1e4 });
     return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split(`
 `).pop() || `exit code ${res.code}` };
   }
@@ -11954,7 +12061,7 @@ class Stack {
         dead = `pid ${ls.pid} is gone`;
       else if (!ls.ownedByUs && ls.pgid && !groupAlive(ls.pgid))
         dead = "process group is gone";
-      if (!dead && ls.svc.ready && now - ls.lastProbe >= 5000) {
+      if (!dead && (ls.svc.ready || ls.svc.external) && now - ls.lastProbe >= 5000) {
         ls.lastProbe = now;
         const r = await this.probe(ls);
         ls.probeFailures = r.ok ? 0 : ls.probeFailures + 1;
@@ -11976,7 +12083,9 @@ class Stack {
     const grace = this.o.cfg.run.graceMs;
     if (ls.svc.stop) {
       const cwd = path7.resolve(this.o.root, ls.svc.cwd);
-      await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? "") }), timeoutMs: 60000, log: ls.log });
+      const r = await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? "") }), timeoutMs: 60000, log: ls.log });
+      if (r.code !== 0)
+        this.o.progress.line(`stop   ${ls.svc.name} · stop command failed (exit ${r.code ?? "timeout"}); killing its processes; see ${ls.log}`);
     }
     if (ls.pid && pidAlive(ls.pid)) {
       try {
@@ -12006,10 +12115,26 @@ class Stack {
       if (!d.stop)
         continue;
       this.o.progress.line(`deps   ${d.name} · stopping`);
-      await runCapture(substitute(d.stop, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 120000, log: path7.join(this.o.logDir, `dep-${d.name}.log`) });
+      const log = path7.join(this.o.logDir, `dep-${d.name}.log`);
+      const r = await runCapture(substitute(d.stop, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 120000, log });
+      if (r.code !== 0)
+        this.o.progress.line(`deps   ${d.name} · stop command failed (exit ${r.code ?? "timeout"}); it may still be running; see ${log}`);
     }
     this.depsStarted = [];
   }
+}
+var LOCAL = new Set(["127.0.0.1", "localhost", "0.0.0.0", "[::1]", "::1"]);
+async function heldReadyPort(url, allocated) {
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return;
+  }
+  const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
+  if (port === allocated || !LOCAL.has(u.hostname))
+    return;
+  return await portAnswers(u.hostname === "localhost" || u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, ""), port) ? port : undefined;
 }
 function mapValues(o, f) {
   return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)]));
@@ -12443,6 +12568,64 @@ function parseReportFile(file, hint, cwd) {
 
 // src/suite.ts
 var MAX_RERUNS = 200;
+var BUILD_FAILED = [
+  /\berror (CS|FS|BC|MSB|NU|NETSDK)\d{4}\b/,
+  /\bBuild FAILED\b/,
+  /\[ERROR\] (COMPILATION ERROR|Failed to execute goal \S+:(compile|testCompile|resources))/,
+  /^FAILURE: Build failed with an exception/,
+  /^e: .*\.kts?:\d+/,
+  /\berror TS\d{4}\b/,
+  /^(FAIL|ok)\s+\S+\s+\[(build|setup) failed\]/,
+  /^No test projects were found\.?$/,
+  /: command not found$|^bash: .*: No such file or directory$/
+];
+function buildFailure(text, exitCode) {
+  const lines = text.split(/\r?\n/);
+  for (const re of BUILD_FAILED) {
+    const hit = lines.find((l) => re.test(l.trim()));
+    if (hit)
+      return hit.trim().slice(0, 500);
+  }
+  return exitCode === 127 ? lines.filter((l) => l.trim()).at(-1)?.trim().slice(0, 500) : undefined;
+}
+function reportPathEvidence(text) {
+  const paths = [];
+  let listing = false;
+  for (const line of text.split(/\r?\n/)) {
+    const named = /Results File:\s*(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
+    if (named)
+      paths.push(named[1]);
+    if (/artifacts produced:?\s*$/i.test(line))
+      listing = true;
+    else if (listing) {
+      const m = /^\s*-\s+(\S.*\.(?:trx|xml|json))\s*$/i.exec(line);
+      if (m)
+        paths.push(m[1]);
+      else if (line.trim())
+        listing = false;
+    }
+  }
+  const p = paths.find((x) => path8.isAbsolute(x));
+  if (!p)
+    return;
+  return fs8.existsSync(p) ? `the test run wrote its report to ${p}, outside the folders witness reads; set report = "<glob>" for the suite` : `the test run says it wrote ${p}, but there is no such file here (written inside a container, or on another filesystem?)`;
+}
+function readFrom(file, offset) {
+  try {
+    const fd = fs8.openSync(file, "r");
+    try {
+      const size = fs8.fstatSync(fd).size;
+      const start = Math.max(offset, size - 512 * 1024);
+      const buf = Buffer.alloc(Math.max(0, size - start));
+      fs8.readSync(fd, buf, 0, buf.length, start);
+      return buf.toString("utf8");
+    } finally {
+      fs8.closeSync(fd);
+    }
+  } catch {
+    return "";
+  }
+}
 var safeId = (id) => id.replace(/[^\w.@-]+/g, "_").slice(0, 180);
 function dirSize(dir) {
   let n = 0;
@@ -12492,16 +12675,20 @@ async function runSuite(ctx, suite, select, retries) {
   const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
   ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
   ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
+  const logStart = fileSize(log);
+  const before = snapshotReports(ctx, suite, adapter, cwd, reportDir);
   const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
-  const files = collect(ctx, suite, adapter, cwd, reportDir, log, t0);
+  const files = collect(ctx, suite, adapter, cwd, reportDir, log, before);
   let expected = select;
   const usable = files.some((f) => f.cases.length);
   const hint = adapter.reportHint?.(cwd, cmd);
-  if (!expected && !usable && !hint && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
+  const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
+  const output = !usable && exec.end === "exit" && !exitCodeOnly ? readFrom(log, logStart) : "";
+  const broken = output && exec.code !== 0 ? buildFailure(output, exec.code) : undefined;
+  if (!expected && !usable && !hint && !broken && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
     expected = await listTests(ctx, suite, adapter, cwd, log);
   }
-  const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
-  let res = reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
+  let res = broken ? { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it" } : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
   if (res.rerun?.length && !ctx.abort.aborted) {
     if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select) && !hint) {
       ctx.progress.line(`${p}suite  ${suite.name} · ${res.cause === "report_unreadable" ? "report unreadable" : "no report"}; rerunning ${res.rerun.length} test(s) one at a time`);
@@ -12512,12 +12699,13 @@ async function runSuite(ctx, suite, select, retries) {
         const dir = path8.join(reportDir, "rerun", String(i + 1));
         fs8.mkdirSync(dir, { recursive: true });
         const c2 = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
+        const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
         const e = await execWatched(ctx, suite, adapter, c2, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60000));
         if (e.died) {
           exec.died = e.died;
           break;
         }
-        const got = collect(ctx, suite, adapter, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), Date.now() - e.ms);
+        const got = collect(ctx, suite, adapter, cwd, dir, path8.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), snap);
         if (i === 0 && !got.some((f) => f.cases.length)) {
           ctx.progress.line(`${p}suite  ${suite.name} · a single test run alone wrote no report either; not rerunning the rest`);
           results.length = 0;
@@ -12525,7 +12713,8 @@ async function runSuite(ctx, suite, select, retries) {
         }
         results.push({ id, exitCode: e.code, files: got, timedOut: e.end !== "exit" });
       }
-      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause) : { ...res, rerun: undefined, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
+      const ids = res.rerun;
+      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause) : { ...res, rerun: undefined, tests: ids.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", `no report from the suite (exit code ${exec.code}), nor when one test ran alone`)) };
     } else {
       res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
     }
@@ -12546,7 +12735,9 @@ async function runSuite(ctx, suite, select, retries) {
     diagnosis = exec.died;
   else if (res.cause && res.state !== "failed" && res.state !== "passed") {
     const h = res.cause === "report_missing" ? hint : undefined;
-    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence: h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : undefined), extraTry: h ? [h] : undefined });
+    const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
+    const extraTry = [h, res.hint].filter((x) => !!x);
+    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeout && adapter.perTestTimeout(60000, cwd, cmd)), adapter: suite.adapter });
   }
   ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
   const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");
@@ -12614,7 +12805,37 @@ witness: stopping suite: ${why}
   ctx.activity.text = "";
   return { code: end === "exit" ? proc.code : null, end, ms: Date.now() - t0, died };
 }
-function collect(ctx, suite, adapter, cwd, reportDir, log, startedAt) {
+function outsideReports(ctx, suite, adapter, cwd, reportDir) {
+  const out = [];
+  const globs = suite.report ? [{ base: "cwd", glob: substitute(suite.report, { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
+  for (const g of globs) {
+    if (g.base === "report-dir")
+      continue;
+    let base = cwd;
+    let glob = g.glob;
+    if (path8.isAbsolute(glob)) {
+      const fixed = glob.split("/").findIndex((x) => /[*?{]/.test(x));
+      const parts = glob.split("/");
+      base = fixed < 0 ? path8.dirname(glob) : parts.slice(0, fixed).join("/") || "/";
+      glob = fixed < 0 ? path8.basename(glob) : parts.slice(fixed).join("/");
+    }
+    for (const rel of globFiles(base, [glob], { skipDirs: new Set([".git", "node_modules", ".witness"]) }))
+      out.push({ src: path8.join(base, rel), rel });
+  }
+  return out;
+}
+var stamp = (f) => {
+  try {
+    const st = fs8.statSync(f);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return "";
+  }
+};
+function snapshotReports(ctx, suite, adapter, cwd, reportDir) {
+  return new Map(outsideReports(ctx, suite, adapter, cwd, reportDir).filter((f) => !f.src.startsWith(reportDir + path8.sep)).map((f) => [f.src, stamp(f.src)]));
+}
+function collect(ctx, suite, adapter, cwd, reportDir, log, before) {
   const files = [];
   if (adapter.fromStdout && !suite.report) {
     const out = path8.join(reportDir, "stdout.jsonl");
@@ -12623,37 +12844,22 @@ function collect(ctx, suite, adapter, cwd, reportDir, log, startedAt) {
       files.push(out);
     } catch {}
   }
-  const globs = suite.report ? [{ base: "cwd", glob: substitute(suite.report, { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
-  for (const g of globs) {
-    if (g.base === "report-dir") {
-      for (const f of globFiles(reportDir, [g.glob], { skipDirs: new Set(["rerun", "retry"]) }))
-        files.push(path8.join(reportDir, f));
+  if (!suite.report) {
+    for (const g of adapter.reportGlobs)
+      if (g.base === "report-dir")
+        for (const f of globFiles(reportDir, [g.glob], { skipDirs: new Set(["rerun", "retry"]) }))
+          files.push(path8.join(reportDir, f));
+  }
+  for (const { src, rel } of outsideReports(ctx, suite, adapter, cwd, reportDir)) {
+    if (src.startsWith(reportDir + path8.sep)) {
+      files.push(src);
       continue;
     }
-    let base = cwd;
-    let glob = g.glob;
-    if (path8.isAbsolute(glob)) {
-      const fixed = glob.split("/").findIndex((s) => /[*?{]/.test(s));
-      const parts = glob.split("/");
-      base = fixed < 0 ? path8.dirname(glob) : parts.slice(0, fixed).join("/") || "/";
-      glob = fixed < 0 ? path8.basename(glob) : parts.slice(fixed).join("/");
-    }
-    for (const rel of globFiles(base, [glob], { skipDirs: new Set([".git", "node_modules", ".witness"]) })) {
-      const src = path8.join(base, rel);
-      if (src.startsWith(reportDir + path8.sep)) {
-        files.push(src);
-        continue;
-      }
-      try {
-        if (fs8.statSync(src).mtimeMs < startedAt - 2000)
-          continue;
-      } catch {
-        continue;
-      }
-      const dst = path8.join(reportDir, rel.replace(/[\\/]/g, "__"));
-      fs8.copyFileSync(src, dst);
-      files.push(dst);
-    }
+    if (before.get(src) === stamp(src))
+      continue;
+    const dst = path8.join(reportDir, rel.replace(/[\\/]/g, "__"));
+    fs8.copyFileSync(src, dst);
+    files.push(dst);
   }
   const uniq = [...new Set(files)];
   return uniq.map((f) => parseReportFile(f, adapter.format, cwd));
@@ -12664,7 +12870,7 @@ async function listTests(ctx, suite, adapter, cwd, log) {
   if (!cmd)
     return;
   ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · listing tests to see what the run left out`);
-  const r = await runCapture(cmd, { cwd, env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: log.replace(/\.log$/, ".list.log") });
+  const r = await runCapture(cmd, { cwd, env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: log.replace(/\.log$/, ".list.log"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
   if (r.code !== 0)
     return;
   const ids = adapter.list.parse(r.out);
@@ -12681,11 +12887,11 @@ async function retryFailed(ctx, suite, adapter, cwd, vars, reportDir, tests, ret
     const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids, cwd);
     ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids.length} failed test(s)`);
     const rlog = path8.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
-    const t0 = Date.now();
+    const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
     const e = await execWatched(ctx, suite, adapter, cmd, cwd, dir, rlog, suite.timeoutMs);
     if (e.end !== "exit")
       return;
-    const again = collect(ctx, suite, adapter, cwd, dir, rlog, t0).flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite.name, cwd)));
+    const again = collect(ctx, suite, adapter, cwd, dir, rlog, snap).flatMap((f) => f.cases.map((c2) => toRecord(c2, adapter, suite.name, cwd)));
     for (const t of failing) {
       const r = again.find((a) => a.id === t.id);
       t.retries = (t.retries ?? 0) + 1;
@@ -12861,7 +13067,7 @@ async function runCommand(cfg, opts) {
       progress.line(`${sig}: stopping (press Ctrl-C again to kill everything now)`);
     else {
       for (const p of run.state.procs)
-        killGroup(p.pgid, 0);
+        killTracked(p, 0, { runStop: false });
       run.status.phase = "finished";
       run.status.outcome = "interrupted";
       run.status.finished_at = new Date().toISOString();
@@ -12879,6 +13085,7 @@ async function runCommand(cfg, opts) {
   const { env: baseEnv, missing: missing2 } = loadEnv(cfg);
   let target = { outcome: "passed", suites: [], tests: [], artifacts: [] };
   let against;
+  let internalError;
   try {
     if (missing2.length) {
       target = { ...target, outcome: "mistrial", diagnosis: diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 }) };
@@ -12911,6 +13118,10 @@ async function runCommand(cfg, opts) {
             progress.plain(`  origin ${l}`);
       }
     }
+  } catch (e) {
+    internalError = e.stack ?? String(e);
+    progress.plain(color.red(`witness internal error: ${internalError}`));
+    target = { ...target, outcome: "error" };
   } finally {
     clearInterval(hb);
   }
@@ -12923,6 +13134,9 @@ async function runCommand(cfg, opts) {
   status.outcome = target.outcome;
   if (target.diagnosis)
     status.diagnosis = target.diagnosis;
+  if (internalError)
+    status.internal_error = internalError.split(`
+`)[0];
   if (against)
     status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {} };
   const ctrf = buildCtrf({
@@ -12957,14 +13171,18 @@ async function runCommand(cfg, opts) {
   return EXIT[target.outcome];
 }
 function verdictSummary(status, ms) {
-  const s = status.summary;
   const parts = [];
-  if (s) {
-    parts.push(`${s.passed} passed, ${s.failed} failed`);
-    if (s.skipped)
-      parts.push(`${s.skipped} skipped`);
-    if (s.other)
-      parts.push(`${s.other} other`);
+  if (status.summary) {
+    const sum = (k) => status.suites.reduce((a, x) => a + (x[k] ?? 0), 0);
+    parts.push(`${sum("passed")} passed, ${sum("failed")} failed`);
+    if (sum("error"))
+      parts.push(`${sum("error")} error`);
+    if (sum("missing"))
+      parts.push(`${sum("missing")} missing`);
+    if (sum("skipped"))
+      parts.push(`${sum("skipped")} skipped`);
+    if (status.against?.parity?.origin_only)
+      parts.push(`${status.against.parity.origin_only} only on origin`);
   }
   parts.push(`${status.suites.length} suite(s)`);
   if (status.against)
@@ -12996,24 +13214,41 @@ async function runSide(cfg, o) {
     await stack.checkDeps();
     if (isTarget)
       o.run.setPhase("boot", "booting services");
-    const wanted = neededServices(cfg, o.suites);
-    if (o.origin?.size) {
-      const alias = new Map;
-      const names = wanted.map((n) => {
-        const org = o.origin.get(n);
-        if (org)
-          alias.set(org.name, n);
-        return org?.name ?? n;
-      });
-      await stack.boot(names, alias);
-    } else
-      await stack.boot(wanted);
+    const alias = new Map;
+    const bootName = (n) => {
+      const org = o.origin?.get(n);
+      if (org)
+        alias.set(org.name, n);
+      return org?.name ?? n;
+    };
+    const chain = (names) => topoOrder(cfg.services, names.map(bootName)).map((x) => x.name);
+    const bootFailed = new Map;
+    const blocker = (names) => chain(names).find((n) => bootFailed.has(n));
+    for (const n of neededServices(cfg, o.suites)) {
+      if (o.abort.aborted || blocker([n]))
+        continue;
+      try {
+        await stack.boot([bootName(n)], alias);
+      } catch (e) {
+        if (!(e instanceof Failure))
+          throw e;
+        bootFailed.set(e.diagnosis.service && chain([n]).includes(e.diagnosis.service) ? e.diagnosis.service : bootName(n), e.diagnosis);
+        o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
+        side.outcome = "mistrial";
+        side.diagnosis ??= e.diagnosis;
+      }
+    }
     if (isTarget)
       o.run.setPhase("suite", "running suites");
     const ctx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
     for (const s of o.suites) {
       if (o.abort.aborted)
         break;
+      const blocked = blocker(neededServices(cfg, [s]));
+      if (blocked) {
+        side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: `not run: service ${blocked} ${bootFailed.get(blocked).cause}` });
+        continue;
+      }
       const r = await runSuite(ctx, s, o.select?.get(s.name), o.retries);
       side.suites.push(r.summary);
       side.tests.push(...r.tests);
@@ -13056,31 +13291,56 @@ async function runAgainst(cfg, opts, o) {
     return runSide(cfg, { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup, setupCacheDir: path9.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin });
   }
   const ref = opts.against;
-  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
-  if (!resolved.ok) {
-    const d = diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` });
-    return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
+  const w = addWorktree(cfg, ref);
+  if ("diagnosis" in w)
+    return { outcome: "mistrial", suites: [], tests: [], diagnosis: w.diagnosis, artifacts: [] };
+  o.run.state.worktrees.push(w.wt);
+  o.run.saveState();
+  o.progress.line(`against ${ref} · checked out ${w.sha.slice(0, 10)} in ${w.wt}`);
+  if (w.copied)
+    o.progress.line(`against ${ref} · copied the target's .witness/ (config helpers) into the worktree`);
+  try {
+    return await runSide(cfg, { ...o, root: w.root, outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
+  } finally {
+    removeWorktree2(cfg, w.wt);
+    o.run.state.worktrees = o.run.state.worktrees.filter((x) => x !== w.wt);
+    o.run.saveState();
   }
+}
+function addWorktree(cfg, ref) {
+  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  if (!resolved.ok)
+    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` }) };
   const wt = fs9.mkdtempSync(path9.join(os.tmpdir(), "witness-against-"));
   const add = git(cfg.root, ["worktree", "add", "--detach", wt, resolved.out]);
   if (!add.ok) {
     fs9.rmSync(wt, { recursive: true, force: true });
-    const d = diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` });
-    return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
+    return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` }) };
   }
-  o.run.state.worktrees.push(wt);
-  o.run.saveState();
-  o.progress.line(`against ${ref} · checked out ${resolved.out.slice(0, 10)} in ${wt}`);
+  const root = path9.join(wt, path9.relative(gitTop(cfg.root), fs9.realpathSync(cfg.root)));
+  const copied = copyWitnessDir(path9.join(cfg.root, ".witness"), path9.join(root, ".witness"));
+  return { wt, root, sha: resolved.out, copied };
+}
+function removeWorktree2(cfg, wt) {
+  git(cfg.root, ["worktree", "remove", "--force", wt]);
+  fs9.rmSync(wt, { recursive: true, force: true });
+  git(cfg.root, ["worktree", "prune"]);
+}
+var NOT_COPIED = new Set(["runs", "check", "cache", "up", "up.json", "run.lock", "scratch"]);
+function copyWitnessDir(src, dst) {
+  if (!fs9.existsSync(src))
+    return false;
+  fs9.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path9.relative(src, p).split(path9.sep)[0]) });
+  return true;
+}
+function ensureScratch(root) {
+  const dir = path9.join(root, ".witness", "scratch");
   try {
-    const sub = path9.relative(gitTop(cfg.root), fs9.realpathSync(cfg.root));
-    return await runSide(cfg, { ...o, root: path9.join(wt, sub), outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
-  } finally {
-    git(cfg.root, ["worktree", "remove", "--force", wt]);
-    fs9.rmSync(wt, { recursive: true, force: true });
-    git(cfg.root, ["worktree", "prune"]);
-    o.run.state.worktrees = o.run.state.worktrees.filter((w) => w !== wt);
-    o.run.saveState();
-  }
+    fs9.mkdirSync(dir, { recursive: true });
+    if (!fs9.existsSync(path9.join(dir, ".gitignore")))
+      fs9.writeFileSync(path9.join(dir, ".gitignore"), `*
+`);
+  } catch {}
 }
 function gitTop(dir) {
   const r = git(dir, ["rev-parse", "--show-toplevel"]);
@@ -13128,6 +13388,7 @@ async function checkCommand(cfg, o) {
     throw e;
   }
   const checkRoot = path10.join(cfg.root, ".witness", "check");
+  await reapStale(checkRoot, cfg.run.graceMs, (m) => p.line(m));
   fs10.rmSync(checkRoot, { recursive: true, force: true });
   const g = gitInfo(cfg.root);
   const run = new RunDir(checkRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: "check" });
@@ -13135,13 +13396,27 @@ async function checkCommand(cfg, o) {
   const onSig = () => abort.aborted = true;
   process.on("SIGINT", onSig);
   process.on("SIGTERM", onSig);
-  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup, setupCacheDir: path10.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: readUp2(cfg.root) });
+  let root = cfg.root;
+  let wt;
+  if (o.against) {
+    const w = addWorktree(cfg, o.against);
+    if ("diagnosis" in w) {
+      release();
+      p.line(color.red(`check  --against ${o.against} · ${w.diagnosis.evidence}`));
+      return done(EXIT_USAGE);
+    }
+    ({ wt, root } = w);
+    run.state.worktrees.push(wt);
+    run.saveState();
+    p.line(`check  against ${o.against} · checked out ${w.sha.slice(0, 10)} in ${wt}${w.copied ? " (with this checkout's .witness/)" : ""}`);
+  }
+  const stack = new Stack({ cfg, root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !wt, setupCacheDir: wt ? null : path10.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: wt ? null : readUp2(cfg.root) });
   let code = 0;
   try {
     await stack.checkDeps();
     report.push({ stage: "deps", ok: true, detail: `${cfg.dependencies.length} dependency check(s) passed` });
     if (upTo < 2) {
-      p.plain(color.green("CHECK ok · up to deps"));
+      p.plain(color.green(`CHECK ok · up to deps${o.against ? ` · against ${o.against}` : ""}`));
       return done(0);
     }
     const services = o.service ? [o.service] : cfg.services.filter((s) => s.role === "target").map((s) => s.name);
@@ -13151,16 +13426,25 @@ async function checkCommand(cfg, o) {
     await stack.boot(services);
     report.push({ stage: "boot", ok: true, detail: [...stack.live.values()].map((l) => `${l.svc.name} at ${l.url}`).join(", ") || "no services" });
     if (upTo < 3) {
-      p.plain(color.green("CHECK ok · up to boot"));
+      p.plain(color.green(`CHECK ok · up to boot${o.against ? ` · against ${o.against}` : ""}`));
       return done(0);
     }
     const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
-    const ctx = { cfg, root: cfg.root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
+    const ctx = { cfg, root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
     for (const s of suites) {
       const ad = ADAPTERS[s.adapter];
+      const hint = s.report ? undefined : ad.reportHint?.(path10.resolve(root, s.cwd), s.cmd);
+      if (hint) {
+        const d = diagnose({ stage: "report", cause: "report_missing", suite: s.name, command: s.cmd, evidence: hint, extraTry: [hint] });
+        report.push({ stage: "suite", ok: false, detail: `${s.name}: cannot write a per-test report`, diagnosis: d });
+        p.line(color.red(`check  suite ${s.name} · cannot write a per-test report`));
+        printDiag(p, d);
+        code = Math.max(code, EXIT.error);
+        continue;
+      }
       const listCmd = ad.list?.cmd(s.cmd);
       if (listCmd) {
-        const r2 = await runCapture(listCmd, { cwd: path10.resolve(cfg.root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: run.file("logs", `${s.name}.list.log`) });
+        const r2 = await runCapture(listCmd, { cwd: path10.resolve(root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60000, log: run.file("logs", `${s.name}.list.log`), abort, track: run.tracker("list", s.name) });
         const ids = r2.code === 0 ? ad.list.parse(r2.out) : [];
         if (ids.length) {
           report.push({ stage: "suite", ok: true, detail: `${s.name}: ${ids.length} test(s) listed` });
@@ -13190,6 +13474,11 @@ async function checkCommand(cfg, o) {
     code = EXIT.mistrial;
   } finally {
     await stack.teardown();
+    if (wt) {
+      removeWorktree2(cfg, wt);
+      run.state.worktrees = [];
+      run.saveState();
+    }
     run.status.phase = "finished";
     run.saveStatus();
     release();
@@ -13198,9 +13487,11 @@ async function checkCommand(cfg, o) {
   }
   if (abort.aborted)
     code = EXIT.interrupted;
-  p.plain(code === 0 ? color.green("CHECK ok") : color.yellow(`CHECK failed · logs: ${run.file("logs")}`));
+  const on = o.against ? ` · against ${o.against}` : "";
+  p.plain(code === 0 ? color.green(`CHECK ok${on}`) : color.yellow(`CHECK failed${on} · logs: ${run.file("logs")}`));
   return done(code);
 }
+var EXIT_USAGE = 64;
 async function upCommand(cfg, o) {
   const p = new Progress;
   const existing = readUp2(cfg.root);
@@ -13496,7 +13787,11 @@ cache/
 up/
 up.json
 run.lock
+scratch/
 .env
+`);
+  else if (!/^scratch\/$/m.test(fs11.readFileSync(gi, "utf8")))
+    fs11.appendFileSync(gi, `scratch/
 `);
   if (json)
     process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + `
@@ -14218,6 +14513,23 @@ var ERR_STATUS = [
   /\bhave_http_status\(\s*:(bad_request|unauthorized|forbidden|not_found|conflict|unprocessable_entity|internal_server_error)/,
   /\b(ok|IsSuccessStatusCode|is_success|successful)\b[^\n]*\b(false|False|toBeFalsy|IsFalse|assertFalse)\b|\bassert\s+not\s+\w+\.ok\b|\b(IsFalse|assertFalse)\s*\([^\n]*\b(ok|IsSuccessStatusCode)\b/
 ];
+var OK_STATUS = [
+  /\bEnsureSuccess\w*\s*\(|\braise_for_status\s*\(/,
+  /\b(status|code|statuscode|status_code)\w*\b[^\n]*\b2\d\d\b|\b2\d\d\b[^\n]*\b(status|code)/i,
+  /HttpStatusCode\.(OK|Created|Accepted|NoContent)\b|HttpStatus\.(OK|CREATED|ACCEPTED|NO_CONTENT)\b|\bstatus\.HTTP_2\d\d|\bis2xx\w*\(|\bisSuccessful\b/,
+  /\bhave_http_status\(\s*:(ok|success|created|accepted|no_content)/,
+  /\btoBeOK\(\)|\btoHaveStatus\(\s*2\d\d|\b(ok|IsSuccessStatusCode|is_success|successful)\b[^\n]*\b(true|True|toBeTruthy|IsTrue|assertTrue)\b|\bassert\s+\w+\.ok\b|\b(IsTrue|assertTrue)\s*\([^\n]*\b(ok|IsSuccessStatusCode)\b/
+];
+var STATUS_ONLY_EXPECT = /^\s*(returns?|responds?( with)?|gets?|is)?\s*(HTTP\s*)?([1-5]\d\d|[1-5]xx)(\s+[A-Za-z ]{1,20})?\s*\.?\s*$|^\s*(ok|success(ful)?|succeeds)\s*\.?\s*$/i;
+var CLASS_LANGS = new Set(["cs", "java", "php"]);
+function enclosingClass(code, at) {
+  let name;
+  const re = /\b(?:class|record|object)\s+(\w+)/g;
+  let m;
+  while ((m = re.exec(code)) && m.index < at)
+    name = m[1];
+  return name;
+}
 var EXPECTS_FAILURE = /\b[45]\d\d\b|\b[45]xx\b|error|fail|reject|refus|den(y|ied)|forbidden|unauthori[sz]ed|not found|invalid|conflict|bad request|throws?\b|exception|not allowed|blocked/i;
 var expectsSuccess = (item) => !EXPECTS_FAILURE.test(`${item.expect}`);
 var lastSegment2 = (id) => (id.split(/::|#| > /).pop() ?? id).replace(/[[(].*$/, "").trim();
@@ -14304,19 +14616,26 @@ ${raw.slice(t.start, t.end)}`);
     }
   }
   if (opts.plan) {
-    for (const item of opts.plan.items.filter(expectsSuccess)) {
+    for (const item of opts.plan.items) {
+      const wantsSuccess = expectsSuccess(item);
       for (const tid of item.tests) {
         const [, id] = splitId(tid);
         const fileHint = id.includes("::") ? id.split("::")[0] : id.includes(" > ") ? id.split(" > ")[0] : undefined;
         if (fileHint && !rel.replace(/\\/g, "/").endsWith(fileHint.replace(/^\.\//, "")))
           continue;
         const name = lastSegment2(id);
-        for (const t of tests.filter((x) => x.name.trim() === name)) {
+        const cls = CLASS_LANGS.has(lang) && id.includes("#") ? id.split("#")[0].split(".").pop().split(/[+$]/).pop() : undefined;
+        for (const t of tests.filter((x) => x.name.trim() === name && (!cls || enclosingClass(code, x.start) === cls))) {
           const lines = code.slice(t.start, t.end).split(`
 `);
           const asserting = lines.filter((l) => hasAssert(l, lang));
-          if (asserting.length && asserting.every((l) => ERR_STATUS.some((re) => re.test(l))))
+          if (!asserting.length)
+            continue;
+          const isErr = (l) => ERR_STATUS.some((re) => re.test(l));
+          if (wantsSuccess && asserting.every(isErr))
             push({ line: t.line, rule: "error-status-only", level: "error", test: t.name, message: `${item.id} expects "${item.expect}", but test "${t.name}" only asserts an error status: assert the success result` });
+          else if (!STATUS_ONLY_EXPECT.test(item.expect) && asserting.every((l) => isErr(l) || OK_STATUS.some((re) => re.test(l))))
+            push({ line: t.line, rule: "status-only", level: "error", test: t.name, message: `${item.id} expects "${item.expect}", but test "${t.name}" only checks the status code: assert what the item expects (body, rendered text, stored state)` });
         }
       }
     }
@@ -14509,7 +14828,7 @@ function skillsCommand(sub, o) {
 var HELP = `witness ${VERSION}: boot the app, run its own tests, and record results you can trust.
 
 Usage:
-  witness check  [--stage config|deps|boot|suite] [--service s] [--suite s] [--no-setup]
+  witness check  [--stage config|deps|boot|suite] [--service s] [--suite s] [--no-setup] [--against <git-ref>]
   witness run    [--suite s]... [--select id,...] [--retries n] [--no-setup] [--against <git-ref>] [--label name]
   witness up     [--service s] [--no-setup]        start services and leave them running (run reuses them)
   witness down                                    stop what \`witness up\` started
@@ -14528,6 +14847,38 @@ Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout �
 var VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix"]);
 var BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link"]);
 var REPEAT = new Set(["suite", "select"]);
+function splitIds(v) {
+  const parts = [];
+  let depth = 0;
+  let quote = "";
+  let cur = "";
+  for (const ch of v) {
+    if (quote)
+      quote = ch === quote ? "" : quote;
+    else if (ch === '"' || ch === "'")
+      quote = ch;
+    else if ("([{".includes(ch))
+      depth++;
+    else if (")]}".includes(ch))
+      depth = Math.max(0, depth - 1);
+    else if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur);
+  const prefixed = parts.some((x) => /^\s*[\w-]+:\S/.test(x));
+  const out = [];
+  for (const x of parts) {
+    if (prefixed && out.length && !/^\s*[\w-]+:\S/.test(x))
+      out[out.length - 1] += `,${x}`;
+    else
+      out.push(x);
+  }
+  return out.map((x) => x.trim()).filter(Boolean);
+}
 function parseArgs(argv) {
   const flags = {};
   const lists = {};
@@ -14554,7 +14905,7 @@ function parseArgs(argv) {
     if (v === undefined)
       throw new UsageError(`--${k} needs a value`);
     if (REPEAT.has(k))
-      (lists[k] ??= []).push(...k === "select" ? v.split(",").map((s) => s.trim()).filter(Boolean) : [v]);
+      (lists[k] ??= []).push(...k === "select" ? splitIds(v) : [v]);
     else
       flags[k] = v;
   }
@@ -14580,7 +14931,7 @@ async function main(argv) {
 
 ${HELP}
 `);
-    return EXIT_USAGE;
+    return EXIT_USAGE2;
   }
   const { cmd, pos, flags, lists } = args;
   if (flags.version) {
@@ -14591,7 +14942,7 @@ ${HELP}
   if (!cmd || flags.help || cmd === "help") {
     process.stdout.write(HELP + `
 `);
-    return cmd || flags.help ? 0 : EXIT_USAGE;
+    return cmd || flags.help ? 0 : EXIT_USAGE2;
   }
   const json = !!flags.json;
   let cfg;
@@ -14641,6 +14992,7 @@ ${HELP}
     if (!needsConfig)
       throw new UsageError(`unknown command "${cmd}"`);
     cfg = loadConfig(configPath(flags));
+    ensureScratch(cfg.root);
     const rr = runRoot(flags, cfg.root);
     switch (cmd) {
       case "check": {
@@ -14649,7 +15001,7 @@ ${HELP}
           throw new UsageError(`--stage must be config, deps, boot or suite`);
         if (typeof flags.service === "string" && !cfg.services.some((s) => s.name === flags.service))
           throw new UsageError(`unknown service "${flags.service}"`);
-        return await checkCommand(cfg, { stage, service: flags.service, suites: lists.suite, json, noSetup: !!flags["no-setup"] });
+        return await checkCommand(cfg, { stage, service: flags.service, suites: lists.suite, json, noSetup: !!flags["no-setup"], against: flags.against });
       }
       case "run": {
         const retries = flags.retries === undefined ? 0 : Number(flags.retries);
@@ -14668,7 +15020,7 @@ ${HELP}
     if (e instanceof UsageError) {
       process.stderr.write(`witness  ${e.message}
 `);
-      return EXIT_USAGE;
+      return EXIT_USAGE2;
     }
     if (e instanceof ConfigError) {
       const d = diagnose({ stage: "config", cause: "bad_config", evidence: e.message });
@@ -14684,9 +15036,9 @@ ${HELP}
     }
     throw e;
   }
-  return EXIT_USAGE;
+  return EXIT_USAGE2;
 }
-var EXIT_USAGE = 64;
+var EXIT_USAGE2 = 64;
 var self = process.argv[1] ? fs15.realpathSync(process.argv[1]) : "";
 if (self.endsWith("cli.ts") || self.endsWith("witness.mjs")) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
@@ -14696,7 +15048,8 @@ if (self.endsWith("cli.ts") || self.endsWith("witness.mjs")) {
   });
 }
 export {
+  splitIds,
   parseArgs,
   main,
-  EXIT_USAGE
+  EXIT_USAGE2 as EXIT_USAGE
 };
