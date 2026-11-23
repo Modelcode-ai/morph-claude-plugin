@@ -51,6 +51,7 @@ const BUILD_FAILED = [
   /\berror TS\d{4}\b/,
   /^(FAIL|ok)\s+\S+\s+\[(build|setup) failed\]/,
   /^No test projects were found\.?$/,
+  /^A compatible \.NET SDK was not found\.?$/,
   /: command not found$|^bash: .*: No such file or directory$/,
   /^(Standard output: )?(Option '--[\w-]+' .*|Unknown option '--[\w-]+'.*)$/,
   /The command-line arguments are invalid\./,
