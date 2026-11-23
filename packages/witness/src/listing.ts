@@ -110,7 +110,7 @@ export async function listSuiteTests(suite: Suite, ctx: ListCtx): Promise<TestLi
   let error: string | undefined;
   if (lc) {
     const v = { ...ctx.vars, WITNESS_REPORT_DIR: ctx.scratch };
-    const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...(lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}), ...Object.fromEntries(Object.entries(suite.env).map(([k, x]) => [k, substitute(x, v)])) });
+    const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...adapter.env, ...(lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}), ...Object.fromEntries(Object.entries(suite.env).map(([k, x]) => [k, substitute(x, v)])) });
     const r = await runCapture(lc.cmd, { cwd: ctx.cwd, env, timeoutMs: 5 * 60_000, log: ctx.log, abort: ctx.abort, track: ctx.track });
     let ids = r.code === 0 || lc.format === "report" ? parseListing(lc, adapter, r.out, ctx.scratch, ctx.cwd) : [];
     if (ids.length) {
@@ -168,7 +168,7 @@ export function capabilities(suite: Suite, root: string, cwd: string, runSetting
   if (select === "none")
     out.push(`no selection: --select, --retries and per-test reruns don't work${a.selectArgs ? " (put ${WITNESS_SELECT} where the runner's arguments go: the command is too complex to rewrite)" : ' (set select = "<cmd> {ids}")'}`);
 
-  const nativeTimeout = !!a.perTestTimeout?.(60_000, cwd, suite.cmd);
+  const nativeTimeout = !!a.perTestTimeoutEnv || !!a.perTestTimeout?.(60_000, cwd, suite.cmd);
   const ptt = suite.perTestTimeoutArg ? "template" : nativeTimeout ? "native" : "none";
   const set = suite.perTestTimeoutMs ? `per_test_timeout = ${fmtDuration(suite.perTestTimeoutMs)}` : "per_test_timeout not set";
   if (ptt === "none")

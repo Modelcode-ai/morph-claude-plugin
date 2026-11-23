@@ -74,7 +74,7 @@ export interface ReconcileResult {
 const SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
 
 /** The framework stopped the test at its own per-test time limit. */
-export const TEST_TIMEOUT = /^Failed: Timeout \(?>[\d.]+s|Exceeded timeout of \d+ ?ms for a test|Timeout of \d+ms exceeded|Test timeout of \d+ms exceeded|Test timed out in \d+ms|execution timed out after \d+|timed out after \d+ (?:ms|milliseconds|seconds)|Execution aborted after \d+ seconds?|panic: test timed out after/i;
+export const TEST_TIMEOUT = /^Failed: Timeout \(?>[\d.]+s|Exceeded timeout of \d+ ?ms for a test|Timeout of \d+ms exceeded|Test timeout of \d+ms exceeded|Test timed out in \d+ms|execution timed out after \d+|timed out after \d+ (?:ms|milliseconds|seconds)|Execution aborted after \d+ seconds?|panic: test timed out after|' failed due to timeout\b/i;
 
 const cleanId = (adapter: Adapter, id: string) => (id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id);
 

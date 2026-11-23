@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ADAPTERS, type Adapter, addArgs, fillSelect, hasSelectVar, selectCommand, stableId } from "./adapters.ts";
+import { ADAPTERS, type Adapter, addArgs, fillSelect, hasSelectVar, presetEnv, selectCommand, stableId } from "./adapters.ts";
 import { type Config, type Suite, substitute } from "./config.ts";
 import { type Diagnosis, diagnose } from "./diagnosis.ts";
 import { listSuiteTests, type TestList, writeListCache } from "./listing.ts";
@@ -263,7 +263,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
     const h = res.cause === "report_missing" ? hint : undefined;
     const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
     const extraTry = [h, res.hint].filter((x): x is string => !!x);
-    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeout && adapter.perTestTimeout(60_000, cwd, cmd)), adapter: suite.adapter });
+    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeoutEnv || adapter.perTestTimeout?.(60_000, cwd, cmd)), adapter: suite.adapter });
   }
   ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
   const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");
@@ -281,6 +281,7 @@ async function execWatched(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cmd: s
     WITNESS_REPORT_DIR: reportDir,
     WITNESS_ARTIFACTS: artifacts,
     WITNESS_RUN_DIR: ctx.run.dir,
+    ...presetEnv(adapter, suite.perTestTimeoutMs, !!suite.perTestTimeoutArg),
     ...(adapter.reportEnv && !suite.report ? adapter.reportEnv(reportDir) : {}),
     ...Object.fromEntries(Object.entries(suite.env).map(([k, v]) => [k, substitute(v, { ...vars, WITNESS_REPORT_DIR: reportDir })])),
   });

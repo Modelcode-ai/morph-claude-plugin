@@ -6,7 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 import { parse } from "smol-toml";
-import { ADAPTERS, addArgs, fillSelect, selectCommand } from "../src/adapters.ts";
+import { ADAPTERS, addArgs, fillSelect, presetEnv, selectCommand } from "../src/adapters.ts";
 import { parseConfig, type Suite } from "../src/config.ts";
 import { capabilities, listCommand, listSuiteTests, writeListCache } from "../src/listing.ts";
 import { parseReportText } from "../src/parsers/index.ts";
@@ -214,4 +214,25 @@ test("a stalled jest run that finished but did not exit says so and suggests --f
   const d = diagnose({ stage: "suite", cause: "stalled", suite: "s", log, perTestTimeout: true });
   assert.match(d.evidence!, /Jest did not exit/);
   assert.ok(d.try.some((t) => /--forceExit/.test(t)));
+});
+
+describe("ENG-10579 presets: bats, and dotnet without build servers", () => {
+  test("bats: junit report into the report dir, --filter on the test names, the per-test timeout through BATS_TEST_TIMEOUT", () => {
+    const s = suite("bats", "npx bats test", { perTestTimeoutMs: 3000 });
+    assert.equal(suiteCommand(s, ADAPTERS.bats, {}, "/r", ["items.bats#lists items", "items.bats#a.b (c)"]), "npx bats test --filter '^(lists items|a\\.b \\(c\\))$' --report-formatter junit --output /r");
+    assert.deepEqual(presetEnv(ADAPTERS.bats, 3000), { BATS_TEST_TIMEOUT: "3" });
+    assert.deepEqual(presetEnv(ADAPTERS.bats, 3000, true), {});
+    assert.equal(capabilities(s, "/nowhere", "/nowhere", { stallMs: 60_000 }).per_test_timeout, "native, per_test_timeout = 3s");
+    assert.match(parseReportText(`<testsuites><testsuite name="items.bats"><testcase classname="items.bats" name="hangs"><failure type="failure">(in test file test/items.bats, line 13)\n  \`sleep 30' failed due to timeout</failure></testcase></testsuite></testsuites>`, "junit", "r.xml").cases[0].message ?? "", /failed due to timeout/);
+    const r = reconcile({ suite: "s", adapter: ADAPTERS.bats, exitCode: 1, end: "exit", files: [parseReportText(`<testsuite name="items.bats"><testcase classname="items.bats" name="hangs"><failure>(in test file test/items.bats, line 13)\n  \`sleep 30' failed due to timeout</failure></testcase></testsuite>`, "junit", "r.xml")], cwd: "." });
+    assert.deepEqual(r.tests.map((t) => [t.id, t.status, t.statusDetail]), [["bats:items.bats#hangs", "failed", "timeout"]]);
+  });
+
+  test("every dotnet suite runs with the MSBuild server, node reuse and the compiler servers off; the suite's env wins", async () => {
+    const dump = `node -e "require('fs').writeFileSync(process.env.OUT, JSON.stringify(process.env))" --`;
+    const dir = tmpRepo(`version = 1\n[[suite]]\nname = "net"\nkind = "api"\nadapter = "dotnet"\nservice = []\ncmd = ${JSON.stringify(dump)}\nenv = { OUT = "\${WITNESS_RUN_DIR}/env.json", UseSharedCompilation = "true" }\n`);
+    await witness(dir, ["run", "--json"]);
+    const env = readJson(path.join(latest(dir), "env.json"));
+    assert.deepEqual([env.DOTNET_CLI_USE_MSBUILD_SERVER, env.MSBUILDDISABLENODEREUSE, env.UseRazorBuildServer, env.UseSharedCompilation], ["0", "1", "false", "true"]);
+  });
 });

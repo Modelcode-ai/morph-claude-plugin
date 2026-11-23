@@ -15,6 +15,7 @@ export type AdapterName =
   | "mocha"
   | "rspec"
   | "phpunit"
+  | "bats"
   | "generic";
 
 export interface ReportGlob {
@@ -41,6 +42,10 @@ export interface Adapter {
   select?: (cmd: string, ids: string[]) => string | null;
   list?: NativeList;
   perTestTimeout?: (ms: number, cwd: string, cmd: string) => string | null;
+  /** The per-test timeout as environment variables, for runners that take it only that way (bats). */
+  perTestTimeoutEnv?: (ms: number) => Record<string, string>;
+  /** Environment the preset sets for every run, listing and probe of the suite; the suite's own env wins. */
+  env?: Record<string, string>;
   /** Report or timeout plugins the framework needs; `missing` matches the error it prints without them. */
   plugins?: Plugin[];
   /** Corrects the parsed report with what only the console says (a test aborted at its time limit, a test host that died mid-test). */
@@ -306,6 +311,9 @@ export function dotnetMode(cwd: string, cmd = ""): DotnetMode {
   return /"xunit\.v3"/.test(readUp(cwd, "Directory.Packages.props").text) ? "mtp-xunit" : "mtp";
 }
 
+// build servers and reused MSBuild nodes leave the suite's process group and outlive a stalled suite
+const DOTNET_NO_BUILD_SERVERS = { DOTNET_CLI_USE_MSBUILD_SERVER: "0", MSBUILDDISABLENODEREUSE: "1", UseSharedCompilation: "false", UseRazorBuildServer: "false" };
+
 export const ADAPTERS: Record<AdapterName, Adapter> = {
   pytest: {
     name: "pytest",
@@ -377,6 +385,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
       },
     },
     perTestTimeout: (ms, cwd, cmd) => (dotnetMode(cwd, cmd) === "vstest" ? `--blame-hang-timeout ${Math.ceil(ms / 1000)}s` : null),
+    env: DOTNET_NO_BUILD_SERVERS,
     amend: dotnetHostDied,
     id: classHash,
   },
@@ -468,6 +477,16 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     plugins: [{ name: "phpunit/php-invoker", needed: (ptt) => ptt, missing: /php-invoker|pcntl extension is required/i, hint: "phpunit enforces per-test time limits only with the phpunit/php-invoker package and the pcntl extension: composer require --dev phpunit/php-invoker" }],
     id: classHash,
   },
+  bats: {
+    name: "bats",
+    format: "junit",
+    reportArgs: (d) => `--report-formatter junit --output ${shq(d)}`,
+    reportMarker: /--report-formatter\b/,
+    reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
+    selectArgs: (ids) => `--filter ${shq(`^(${ids.map((id) => escapeRegExp(splitClassHash(id)[1])).join("|")})$`)}`,
+    perTestTimeoutEnv: (ms) => ({ BATS_TEST_TIMEOUT: String(Math.ceil(ms / 1000)) }),
+    id: classHash,
+  },
   generic: {
     name: "generic",
     format: "junit",
@@ -478,6 +497,11 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
 
 function dotnetFilter(ids: string[]): string {
   return ids.map((id) => { const [c, m] = splitClassHash(id); return `FullyQualifiedName=${c}.${stripParams(m)}`; }).join("|");
+}
+
+/** The preset's environment plus the per-test timeout for runners that read it from the environment. */
+export function presetEnv(adapter: Adapter, perTestTimeoutMs: number | undefined, hasTimeoutArg = false): Record<string, string> {
+  return { ...adapter.env, ...(perTestTimeoutMs && !hasTimeoutArg && adapter.perTestTimeoutEnv ? adapter.perTestTimeoutEnv(perTestTimeoutMs) : {}) };
 }
 
 export const stableId = (adapter: AdapterName, id: string) => `${adapter}:${id}`;
