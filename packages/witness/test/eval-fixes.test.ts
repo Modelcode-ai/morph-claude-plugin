@@ -78,6 +78,7 @@ ${RUN}`);
     assert.equal(by.unit.passed, 3);
     assert.equal(by.fake.state, "skipped");
     assert.match(by.fake.note, /not run: service api ready_timeout/);
+    assert.ok(ctrf(dir).results.tests.every((t: any) => t.extra.witness.suite === "unit" && t.extra.witness.services.length === 0));
   });
 
   test("ready.cmd sees the service env; external services are probed at their URL", async () => {

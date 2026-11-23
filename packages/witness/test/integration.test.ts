@@ -21,6 +21,7 @@ describe("witness run: outcomes and causes", { concurrency: 4 }, () => {
     assert.equal(c.results.extra.witness.label, "smoke");
     assert.deepEqual(c.results.tests.map((t: any) => t.extra.witness.id).sort(), ["generic:Api#hello", "generic:Calc#add", "generic:Calc#sub"]);
     assert.ok(c.results.tests.every((t: any) => t.extra.witness.obtained === "report" && t.extra.witness.kind === "api"));
+    assert.ok(c.results.tests.every((t: any) => t.extra.witness.services.join() === "api"));
     const st = readJson(path.join(latest(dir), "status.json"));
     assert.equal(st.phase, "finished");
     assert.deepEqual([st.suites[0].kind, st.suites[0].services], ["api", ["api"]]);

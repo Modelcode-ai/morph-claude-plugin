@@ -181,7 +181,7 @@ reads it through `report = "<glob>"`. Stable test ids are `<adapter>:<id>`: a py
 ```
 
 The CTRF file carries `results.extra.witness` (run id, outcome, commit, branch, dirty, source,
-against, diagnosis) and per-test `extra.witness` (id, suite, kind, adapter, obtained, status_detail,
+against, diagnosis) and per-test `extra.witness` (id, suite, kind, services, adapter, obtained, status_detail,
 parity, origin_status). Each suite in `status.json` has `kind` and `services`: the services witness
 started for it, empty when the tests host the app themselves (they don't exercise those services,
 and `--against` with origin services tests the same code twice). `witness report` shows both.

@@ -208,6 +208,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
       against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity } : undefined,
       adapters: [...new Set(suites.map((s) => s.adapter))],
       kinds: Object.fromEntries(suites.map((s) => [s.name, s.kind])),
+      services: Object.fromEntries(suites.map((s) => [s.name, suiteMeta(cfg, s).services])),
     },
     target.tests,
   );

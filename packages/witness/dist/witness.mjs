@@ -14125,6 +14125,8 @@ function buildCtrf(meta, tests) {
         const w = { id: t.id, suite: t.suite, adapter: t.adapter, obtained: t.obtained };
         if (meta.kinds?.[t.suite])
           w.kind = meta.kinds[t.suite];
+        if (meta.services?.[t.suite])
+          w.services = meta.services[t.suite];
         if (t.statusDetail)
           w.status_detail = t.statusDetail;
         if (t.parity)
@@ -14789,7 +14791,8 @@ async function runCommand(cfg, opts) {
     diagnosis: target.diagnosis,
     against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity } : undefined,
     adapters: [...new Set(suites.map((s) => s.adapter))],
-    kinds: Object.fromEntries(suites.map((s) => [s.name, s.kind]))
+    kinds: Object.fromEntries(suites.map((s) => [s.name, s.kind])),
+    services: Object.fromEntries(suites.map((s) => [s.name, suiteMeta(cfg, s).services]))
   }, target.tests);
   writeJson(run.file("results.ctrf.json"), ctrf);
   writeJson(run.file("artifacts.json"), target.artifacts);
