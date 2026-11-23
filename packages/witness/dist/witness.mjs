@@ -9434,6 +9434,7 @@ function dotnetMode(cwd, cmd = "") {
   }
   return /"xunit\.v3"/.test(readUp(cwd, "Directory.Packages.props").text) ? "mtp-xunit" : "mtp";
 }
+var DOTNET_NO_BUILD_SERVERS = { DOTNET_CLI_USE_MSBUILD_SERVER: "0", MSBUILDDISABLENODEREUSE: "1", UseSharedCompilation: "false", UseRazorBuildServer: "false" };
 var ADAPTERS = {
   pytest: {
     name: "pytest",
@@ -9514,6 +9515,7 @@ var ADAPTERS = {
       }
     },
     perTestTimeout: (ms, cwd, cmd) => dotnetMode(cwd, cmd) === "vstest" ? `--blame-hang-timeout ${Math.ceil(ms / 1000)}s` : null,
+    env: DOTNET_NO_BUILD_SERVERS,
     amend: dotnetHostDied,
     id: classHash
   },
@@ -9608,6 +9610,16 @@ var ADAPTERS = {
     plugins: [{ name: "phpunit/php-invoker", needed: (ptt) => ptt, missing: /php-invoker|pcntl extension is required/i, hint: "phpunit enforces per-test time limits only with the phpunit/php-invoker package and the pcntl extension: composer require --dev phpunit/php-invoker" }],
     id: classHash
   },
+  bats: {
+    name: "bats",
+    format: "junit",
+    reportArgs: (d) => `--report-formatter junit --output ${shq(d)}`,
+    reportMarker: /--report-formatter\b/,
+    reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
+    selectArgs: (ids) => `--filter ${shq(`^(${ids.map((id) => escapeRegExp(splitClassHash(id)[1])).join("|")})$`)}`,
+    perTestTimeoutEnv: (ms) => ({ BATS_TEST_TIMEOUT: String(Math.ceil(ms / 1000)) }),
+    id: classHash
+  },
   generic: {
     name: "generic",
     format: "junit",
@@ -9620,6 +9632,9 @@ function dotnetFilter(ids) {
     const [c, m] = splitClassHash(id);
     return `FullyQualifiedName=${c}.${stripParams(m)}`;
   }).join("|");
+}
+function presetEnv(adapter, perTestTimeoutMs, hasTimeoutArg = false) {
+  return { ...adapter.env, ...perTestTimeoutMs && !hasTimeoutArg && adapter.perTestTimeoutEnv ? adapter.perTestTimeoutEnv(perTestTimeoutMs) : {} };
 }
 var stableId = (adapter, id) => `${adapter}:${id}`;
 function selectCommand(adapter, cmd, ids, template) {
@@ -10612,7 +10627,8 @@ var HAS_WELLFORMED = !!"".isWellFormed;
  */
 
 // src/config.ts
-var KIND_HELP = `set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), or kind = "ui" for tests that drive it in a browser. Unit and integration tests don't belong in Witness: the project's own build and test scripts run them`;
+var KINDS = ["api", "ui", "cli", "desktop", "mobile"];
+var KIND_HELP = `set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), "ui" for tests that drive it in a browser, "cli" for tests that run its built binary or command and check the output, exit code or files, "desktop" for a desktop app driven through its window (Electron, WinAppDriver, pywinauto, TestFX), or "mobile" for an app on a device or emulator (Appium, Detox, Espresso, XCUITest, Maestro, Flutter integration_test). Unit and integration tests don't belong in Witness: the project's own build and test scripts run them`;
 
 class ConfigError extends Error {
   key;
@@ -10851,8 +10867,8 @@ function parseConfig(doc, file) {
     if (!(adapter in ADAPTERS))
       throw new ConfigError(`${where}.adapter`, `unknown adapter "${adapter}"; one of ${Object.keys(ADAPTERS).join(", ")}`);
     const kind = str(s, "kind", where);
-    if (kind !== "api" && kind !== "ui")
-      throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected "api" or "ui", got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
+    if (!KINDS.includes(kind))
+      throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected one of ${KINDS.map((k) => `"${k}"`).join(", ")}, got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
     const pttArg = str(s, "per_test_timeout_arg", where);
     if (pttArg && !/\{s\}|\{ms\}/.test(pttArg))
       throw new ConfigError(`${where}.per_test_timeout_arg`, 'needs {s} or {ms} where the timeout goes, e.g. "-timeout {s}s"');
@@ -11889,7 +11905,7 @@ async function allocatePort(pool, taken) {
 // src/reconcile.ts
 import * as path5 from "node:path";
 var SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
-var TEST_TIMEOUT = /^Failed: Timeout \(?>[\d.]+s|Exceeded timeout of \d+ ?ms for a test|Timeout of \d+ms exceeded|Test timeout of \d+ms exceeded|Test timed out in \d+ms|execution timed out after \d+|timed out after \d+ (?:ms|milliseconds|seconds)|Execution aborted after \d+ seconds?|panic: test timed out after/i;
+var TEST_TIMEOUT = /^Failed: Timeout \(?>[\d.]+s|Exceeded timeout of \d+ ?ms for a test|Timeout of \d+ms exceeded|Test timeout of \d+ms exceeded|Test timed out in \d+ms|execution timed out after \d+|timed out after \d+ (?:ms|milliseconds|seconds)|Execution aborted after \d+ seconds?|panic: test timed out after|' failed due to timeout\b/i;
 var cleanId = (adapter, id) => id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id;
 function toRecord(c, adapter, suite, cwd, obtained = "report") {
   const file = normFile(c.file, cwd);
@@ -12165,7 +12181,7 @@ async function listSuiteTests(suite, ctx) {
   let error;
   if (lc) {
     const v = { ...ctx.vars, WITNESS_REPORT_DIR: ctx.scratch };
-    const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}, ...Object.fromEntries(Object.entries(suite.env).map(([k, x]) => [k, substitute(x, v)])) });
+    const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...adapter.env, ...lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}, ...Object.fromEntries(Object.entries(suite.env).map(([k, x]) => [k, substitute(x, v)])) });
     const r = await runCapture(lc.cmd, { cwd: ctx.cwd, env, timeoutMs: 5 * 60000, log: ctx.log, abort: ctx.abort, track: ctx.track });
     let ids = r.code === 0 || lc.format === "report" ? parseListing(lc, adapter, r.out, ctx.scratch, ctx.cwd) : [];
     if (ids.length) {
@@ -12223,7 +12239,7 @@ function capabilities(suite, root, cwd, runSettings) {
     select = "none";
   if (select === "none")
     out.push(`no selection: --select, --retries and per-test reruns don't work${a.selectArgs ? " (put ${WITNESS_SELECT} where the runner's arguments go: the command is too complex to rewrite)" : ' (set select = "<cmd> {ids}")'}`);
-  const nativeTimeout = !!a.perTestTimeout?.(60000, cwd, suite.cmd);
+  const nativeTimeout = !!a.perTestTimeoutEnv || !!a.perTestTimeout?.(60000, cwd, suite.cmd);
   const ptt = suite.perTestTimeoutArg ? "template" : nativeTimeout ? "native" : "none";
   const set = suite.perTestTimeoutMs ? `per_test_timeout = ${fmtDuration(suite.perTestTimeoutMs)}` : "per_test_timeout not set";
   if (ptt === "none")
@@ -12609,7 +12625,7 @@ function setupInputsHash(cwd, cmd) {
 }
 
 // src/plan.ts
-var KINDS = ["new", "changed", "parity"];
+var KINDS2 = ["new", "changed", "parity"];
 var TOP_KEYS = ["version", "source", "items"];
 var ITEM_KEYS = ["id", "behavior", "expect", "kind", "tests"];
 function parsePlan(text, opts = {}) {
@@ -12662,8 +12678,8 @@ function parsePlan(text, opts = {}) {
     for (const k of ["behavior", "expect"])
       if (typeof o[k] !== "string" || !o[k].trim())
         err(`${w}.${k}`, k === "behavior" ? "required: the behavior in one sentence" : "required: the observable result a test checks", ["items", i]);
-    if (!KINDS.includes(o.kind))
-      err(`${w}.kind`, `must be one of ${KINDS.join(", ")}, got ${JSON.stringify(o.kind)}`, ["items", i, "kind"]);
+    if (!KINDS2.includes(o.kind))
+      err(`${w}.kind`, `must be one of ${KINDS2.join(", ")}, got ${JSON.stringify(o.kind)}`, ["items", i, "kind"]);
     let tests = [];
     if (o.tests !== undefined && (!Array.isArray(o.tests) || o.tests.some((t) => typeof t !== "string")))
       err(`${w}.tests`, "expected a list of test ids", ["items", i, "tests"]);
@@ -13463,6 +13479,16 @@ function lintCommand(o) {
 }
 
 // src/functional.ts
+var EXTRA = {
+  ".rs": { lang: "rs", as: "go" },
+  ".bats": { lang: "sh", as: "rb" },
+  ".swift": { lang: "swift", as: "go" },
+  ".dart": { lang: "dart", as: "js" }
+};
+function fLangOf(file) {
+  const l = langOf(file);
+  return l ? { lang: l, as: l } : EXTRA[path10.extname(file).toLowerCase()];
+}
 var MAX_SCAN = 4000;
 var URLISH = /URL|HOST|ORIGIN|ENDPOINT|BASE/i;
 var LOCALHOST = /\b(localhost|127\.0\.0\.1|0\.0\.0\.0):\d+|https?:\/\/localhost\b/;
@@ -13550,8 +13576,163 @@ var RULES = [
   { langs: ["php"], type: "ui", label: "browser driver", mod: /^(Laravel\\Dusk|Symfony\\Component\\Panther|Facebook\\WebDriver)\b/ },
   { langs: ["php"], type: "ui", label: "browser driver", code: /\$browser\s*->\s*visit\s*\(/ },
   { langs: ["php"], type: "db", label: "database", code: /\bRefreshDatabase\b|\bDatabaseTransactions\b|\bDB::|\bKernelTestCase\b/ },
+  { langs: ["py"], type: "exec", label: "subprocess", code: /\bsubprocess\.(run|call|check_call|check_output|Popen)\s*\(|\bpexpect\.(spawn|run)\s*\(|\bcreate_subprocess_(exec|shell)\s*\(|\bos\.system\s*\(/ },
+  { langs: ["py"], type: "cli", label: "pytest-console-scripts", code: /\bscript_runner\.run\s*\(/ },
+  { langs: ["js"], type: "exec", label: "child process", mod: /^(node:)?child_process$|^(execa|cross-spawn|zx|zx\/core)$/ },
+  { langs: ["go"], type: "exec", label: "os/exec", code: /\bexec\.Command(Context)?\s*\(/ },
+  { langs: ["go"], type: "cli", label: "testscript", mod: /go-internal\/testscript$/ },
+  { langs: ["go"], type: "cli", label: "gexec.Build", code: /\bgexec\.Build\s*\(/ },
+  { langs: ["rs"], type: "cli", label: "assert_cmd", code: /\bCommand::cargo_bin\s*\(|\bcargo_bin(_cmd)?!\s*\(|\benv!\s*\(\s*"/, arg: /^CARGO_BIN_EXE_/ },
+  { langs: ["rs"], type: "cli", label: "assert_cmd", code: /\bCommand::cargo_bin\s*\(|\bcargo_bin(_cmd)?!\s*\(/ },
+  { langs: ["rs"], type: "cli", label: "trycmd", code: /\btrycmd::TestCases\b|\bsnapbox::cmd\b/ },
+  { langs: ["rs"], type: "exec", label: "std::process::Command", code: /\bCommand::new\s*\(/ },
+  { langs: ["cs"], type: "exec", label: "Process.Start", code: /\bProcessStartInfo\b|\bProcess\.Start\s*\(|\bCli\.Wrap\s*\(/ },
+  { langs: ["java"], type: "exec", label: "ProcessBuilder", code: /\bnew\s+ProcessBuilder\s*\(|\bRuntime\.getRuntime\s*\(\s*\)\s*\.exec\s*\(/ },
+  { langs: ["js"], type: "desktop", label: "Playwright Electron", code: /\b_?electron\.launch\s*\(/ },
+  { langs: ["js"], type: "desktop", label: "Electron driver", mod: /^(spectron|wdio-electron-service)$/ },
+  { langs: ["js"], type: "mobile", label: "Detox", mod: /^detox$/ },
+  { langs: ["js"], type: "mobile", label: "Detox", code: /\bdevice\.(launchApp|reloadReactNative|installApp)\s*\(/ },
+  { langs: ["js", "py", "java", "cs"], type: "mobile", label: "Appium", code: /\bplatformName["']?\s*[:=,]\s*["']/, arg: /^(android|ios)$/i },
+  { langs: ["js", "py", "java", "cs"], type: "desktop", label: "Appium desktop", code: /\bplatformName["']?\s*[:=,]\s*["']/, arg: /^(windows|mac)$/i },
+  { langs: ["py"], type: "desktop", label: "pywinauto", mod: /^pywinauto\b/ },
+  { langs: ["py"], type: "desktop", label: "Appium desktop", mod: /^appium\.options\.(windows|mac)\b/ },
+  { langs: ["py"], type: "mobile", label: "Appium", mod: /^appium\b(?!\.options\.(windows|mac))/ },
+  { langs: ["cs"], type: "desktop", label: "WinAppDriver", code: /\bWindowsDriver\b/ },
+  { langs: ["cs"], type: "desktop", label: "desktop UI automation", mod: /^(OpenQA\.Selenium\.Appium\.Windows|FlaUI)\b/ },
+  { langs: ["cs"], type: "mobile", label: "Appium", code: /\b(AndroidDriver|IOSDriver)\b/ },
+  { langs: ["java"], type: "desktop", label: "TestFX", mod: /^org\.testfx\b/ },
+  { langs: ["java"], type: "desktop", label: "Appium desktop", mod: /^io\.appium\.java_client\.(windows|mac)\b/ },
+  { langs: ["java"], type: "mobile", label: "Appium", mod: /^io\.appium\.java_client\b(?!\.(windows|mac))/ },
+  { langs: ["java"], type: "mobile", label: "Espresso", mod: /^androidx\.test\.(espresso|uiautomator)\b/ },
+  { langs: ["swift"], type: "mobile", label: "XCUITest", code: /\bXCUIApplication\s*\(/ },
+  { langs: ["dart"], type: "mobile", label: "Flutter integration_test", mod: /^package:(integration_test|flutter_driver|patrol)\// },
   { langs: ALL, type: "url", label: "localhost URL", lit: LOCALHOST }
 ];
+var ENTRY_FILES = ["pyproject.toml", "setup.cfg", "setup.py", "package.json", "go.mod", "Cargo.toml", "pom.xml"];
+function projectEntries(root, dir = ".") {
+  const e = { names: [], paths: [], funcs: [], modules: [] };
+  const read = (f) => {
+    try {
+      return fs10.readFileSync(f, "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const script = (name, target) => {
+    e.names.push(name);
+    const [mod, fn] = target.trim().split(":");
+    if (fn)
+      e.funcs.push(fn.trim().split(".").pop());
+    if (mod)
+      e.modules.push(mod.trim().split(".")[0]);
+  };
+  const top = path10.resolve(root);
+  for (let d = path10.resolve(root, dir);; d = path10.dirname(d)) {
+    for (const f of ENTRY_FILES) {
+      const text = read(path10.join(d, f));
+      if (!text)
+        continue;
+      if (f === "pyproject.toml") {
+        try {
+          const t = parse(text);
+          for (const [n, v] of Object.entries({ ...t.project?.scripts, ...t.tool?.poetry?.scripts }))
+            if (typeof v === "string")
+              script(n, v);
+          if (typeof t.project?.name === "string")
+            e.modules.push(t.project.name.replace(/-/g, "_"));
+        } catch {}
+      } else if (f === "setup.cfg" || f === "setup.py") {
+        for (const m of text.matchAll(/^\s*["']?([\w.-]+)\s*=\s*([\w.]+:[\w.]+)["']?/gm))
+          script(m[1], m[2]);
+      } else if (f === "package.json") {
+        try {
+          const p = JSON.parse(text);
+          const bin = typeof p.bin === "string" ? { [String(p.name ?? "").replace(/^@[^/]+\//, "")]: p.bin } : p.bin ?? {};
+          for (const [n, v] of Object.entries(bin)) {
+            if (n)
+              e.names.push(n);
+            if (typeof v === "string")
+              e.paths.push(path10.posix.normalize(path10.relative(top, path10.join(d, v)).replace(/\\/g, "/")));
+          }
+        } catch {}
+      } else if (f === "go.mod") {
+        const m = /^module\s+(\S+)/m.exec(text);
+        if (m)
+          e.names.push(m[1].split("/").pop());
+        for (const c of globFiles(path10.join(d, "cmd"), ["*/*.go"], { maxDepth: 2 }))
+          e.names.push(c.split("/")[0]);
+      } else if (f === "Cargo.toml") {
+        try {
+          const t = parse(text);
+          if (typeof t.package?.name === "string")
+            e.names.push(t.package.name);
+          for (const b of t.bin ?? [])
+            if (typeof b?.name === "string")
+              e.names.push(b.name);
+        } catch {}
+      } else if (f === "pom.xml") {
+        const m = /<artifactId>([^<]+)<\/artifactId>/.exec(text.replace(/<parent>[\s\S]*?<\/parent>/, ""));
+        if (m)
+          e.names.push(m[1]);
+      }
+    }
+    for (const b of globFiles(path10.join(d, "bin"), ["*"], { maxDepth: 1 })) {
+      e.names.push(b.replace(/\.[cm]?[jt]s$|\.sh$|\.py$/, ""));
+      e.paths.push(path10.relative(top, path10.join(d, "bin", b)).replace(/\\/g, "/"));
+    }
+    for (const m of globFiles(d, ["*/__main__.py", "src/*/__main__.py"], { maxDepth: 3 }))
+      e.modules.push(m.split("/").slice(-2)[0]);
+    if (d === top || path10.dirname(d) === d || !d.startsWith(top))
+      break;
+  }
+  const uniq = (xs) => [...new Set(xs.filter((x) => x && x !== "." && x.length > 1))];
+  return { names: uniq(e.names), paths: uniq(e.paths), funcs: uniq(e.funcs), modules: uniq(e.modules) };
+}
+var BUILT = /^(\.{1,2}\/)*(bin|target\/(debug|release)|build|dist|out|publish)\/[\w.@-]+$|\.(jar|dll|exe)$|^-jar$/;
+function cliTarget(lits, e) {
+  const norm2 = (x) => x.replace(/\\/g, "/").replace(/^(\.{1,2}\/)+/, "");
+  if (lits.includes("go") && lits.some((l) => l === "run" || l === "build"))
+    return "go run";
+  for (const l of lits) {
+    if (/^go (run|build)\b/.test(l))
+      return "go run";
+    if (BUILT.test(l))
+      return l;
+    if (!e)
+      continue;
+    const first = l.trim().split(/\s+/)[0] ?? "";
+    const base = first.split("/").pop() ?? "";
+    const stem = base.replace(/\.([cm]?[jt]s|py|sh|exe|jar|dll)$/, "");
+    if (e.names.some((n) => first === n || stem === n))
+      return first;
+    if (e.paths.some((p) => norm2(first).endsWith(norm2(p)) && norm2(first).includes("/") || base === path10.basename(p) && !/^(index|main)\./.test(base)))
+      return first;
+    const m = /(?:^|\s)-m\s+([\w.]+)/.exec(l);
+    if (m && e.modules.includes(m[1].split(".")[0]))
+      return `python -m ${m[1]}`;
+  }
+  const i = lits.indexOf("-m");
+  if (i >= 0 && e?.modules.includes((lits[i + 1] ?? "").split(".")[0]))
+    return `python -m ${lits[i + 1]}`;
+  return;
+}
+var SH_NOT_APP = new Set("[ [[ ]] { } ( ) ! echo printf cd pushd popd export local declare readonly set unset skip if then else elif fi for while until do done case esac function return run load source . true false test cat grep egrep sed awk mkdir rm cp mv ln touch chmod diff cmp wc head tail sort uniq tr cut tee xargs find jq yq sleep eval exec bats_load_library bats_require_minimum_version setup teardown setup_file teardown_file".split(" "));
+function batsTarget(code, e) {
+  const defined = new Set([...code.matchAll(/^\s*(?:function\s+)?([\w-]+)\s*\(\s*\)/gm)].map((m) => m[1]));
+  const pathChanged = /\bPATH=/.test(code);
+  for (const line of code.split(`
+`).filter((l) => !/^\s*#/.test(l))) {
+    const m = /^\s*(?:run\s+(?:-\d+\s+|--[\w-]+\s+|!\s+)*|!\s+)?(\S+)/.exec(line);
+    const w = m?.[1].replace(/^["']|["']$/g, "");
+    if (!w || /[(){}]/.test(w) || w.startsWith("@") || w.startsWith("#") || /^\w+=/.test(w) || /^(assert|refute)\w*$/.test(w) || SH_NOT_APP.has(w) || defined.has(w))
+      continue;
+    if (/^\$\{?(output|status|lines|BATS_\w*OUTPUT|stderr|[0-9@*#?])\b/.test(w) || /^\$\{?[0-9@*#?]/.test(w))
+      continue;
+    if (w.includes("/") || w.startsWith("$") || e?.names.includes(w) || pathChanged)
+      return w;
+  }
+  return;
+}
 var has = (f, t) => !!f.sigs.get(t)?.size;
 function rawString(raw, at) {
   const q = raw[at];
@@ -13590,6 +13771,14 @@ function importsOf(raw, code, lang) {
     each(/\brequire(?:_relative)?\s*\(?\s*["']/g, quoted);
   else if (lang === "php")
     each(/^\s*use\s+([\w\\]+)/gm, (m) => out.push(m[1]));
+  else if (lang === "rs")
+    each(/^\s*(?:pub\s+)?use\s+([\w:]+)|^\s*extern\s+crate\s+(\w+)/gm, (m) => out.push(m[1] ?? m[2]));
+  else if (lang === "swift")
+    each(/^\s*(?:@testable\s+)?import\s+(\w+)/gm, (m) => out.push(m[1]));
+  else if (lang === "dart")
+    each(/^\s*import\s+["']/gm, quoted);
+  else if (lang === "sh")
+    each(/^\s*(?:load|source|\.)\s+["']?([^\s"']+)/gm, (m) => out.push(m[1]));
   return out.filter(Boolean);
 }
 var NOT_TAGS = new Set(["parametrize", "skip", "skipif", "xfail", "asyncio", "anyio", "usefixtures", "django_db", "timeout", "filterwarnings", "flaky", "order", "dependency"]);
@@ -13618,11 +13807,18 @@ function tagsOf(raw, code, lang) {
   }
   return [...t];
 }
+var EXTRA_TEST = {
+  rs: /#\[\s*(?:[\w:]+::)?test\b/,
+  sh: /^\s*@test\s/m,
+  swift: /\bfunc\s+test\w*\s*\(/,
+  dart: /\b(test|testWidgets|patrolTest)\s*\(\s*["']/
+};
 function scanSource(rel, raw, opts = {}) {
-  const lang = langOf(rel);
-  if (!lang)
+  const fl = fLangOf(rel);
+  if (!fl)
     return null;
-  const code = mask(raw, lang);
+  const lang = fl.lang;
+  const code = mask(raw, fl.as);
   const mods = importsOf(raw, code, lang);
   const sigs = new Map;
   const hit = (r) => (sigs.get(r.type) ?? sigs.set(r.type, new Set).get(r.type)).add(r.label);
@@ -13647,12 +13843,31 @@ function scanSource(rel, raw, opts = {}) {
     if (r.lit && rawLines.some((l, i) => /["'`]/.test(codeLines[i] ?? "") && r.lit.test(l)))
       hit(r);
   }
-  const isTest = opts.isTest ?? findTests(raw, code, lang).length > 0;
+  const lits = [...code.matchAll(/(["'`])[ ]*\1/g)].map((m) => rawString(raw, m.index));
+  const mark = (type, label) => (sigs.get(type) ?? sigs.set(type, new Set).get(type)).add(label);
+  if (lang === "sh") {
+    const t = batsTarget(opts.helpers ? `${raw}
+${opts.helpers}` : raw, opts.entries);
+    if (t)
+      mark("cli", `runs ${t}`);
+  } else if (sigs.has("exec")) {
+    const t = cliTarget(lits, opts.entries);
+    if (t)
+      mark("cli", `runs ${t}`);
+  }
+  if (lang === "py" && /\bCliRunner\s*\(/.test(code)) {
+    const funcs = opts.entries?.funcs.length ? opts.entries.funcs : ["cli", "main", "app"];
+    const inv = [...code.matchAll(/\.invoke\s*\(\s*([\w.]+)/g)].map((m) => m[1].split(".").pop()).find((f) => funcs.includes(f));
+    if (inv)
+      mark("cli", `CliRunner invokes ${inv}`);
+  }
+  const extra = EXTRA_TEST[lang];
+  const isTest = opts.isTest ?? (extra ? extra.test(code) : findTests(raw, code, lang).length > 0);
   const ns = lang === "cs" || lang === "java" ? /^\s*(?:namespace|package)\s+([\w.]+)/m.exec(code)?.[1] : undefined;
   const classes = lang === "cs" || lang === "java" ? [...code.matchAll(/\bclass\s+(\w+)/g)].map((m) => m[1]) : [];
   return { rel, isTest, sigs, tags: tagsOf(raw, code, lang), namespace: ns, classes };
 }
-function scanFile(root, rel, isTest) {
+function scanFile(root, rel, isTest, entries) {
   let raw;
   try {
     raw = fs10.readFileSync(path10.join(root, rel), "utf8");
@@ -13661,9 +13876,28 @@ function scanFile(root, rel, isTest) {
   }
   if (raw.length > 512 * 1024)
     return null;
-  return scanSource(rel, raw, { isTest });
+  const helpers = rel.endsWith(".bats") ? batsHelpers(path10.join(root, rel), raw) : undefined;
+  return scanSource(rel, raw, { isTest, entries, helpers });
+}
+function batsHelpers(file, raw) {
+  const out = [];
+  for (const m of raw.matchAll(/^\s*(load|source|\.)\s+["']?([^\s"']+)/gm)) {
+    const rel = m[2].replace(/\$\{?BATS_TEST_DIRNAME\}?\/?/, "");
+    for (const f of m[1] === "load" ? [`${rel}.bash`, rel] : [rel]) {
+      try {
+        out.push(fs10.readFileSync(path10.resolve(path10.dirname(file), f), "utf8"));
+        break;
+      } catch {}
+    }
+  }
+  return out.join(`
+`);
 }
 function fileKind(f, ctx) {
+  if (has(f, "desktop"))
+    return "desktop";
+  if (has(f, "mobile"))
+    return "mobile";
   if (has(f, "ui"))
     return "ui";
   if (has(f, "api"))
@@ -13672,8 +13906,11 @@ function fileKind(f, ctx) {
     return "api";
   if (has(f, "http") && !has(f, "httpmock") && (ctx.host || ctx.url || has(f, "host") || has(f, "url") || has(f, "self")))
     return "api";
+  if (has(f, "cli"))
+    return "cli";
   return null;
 }
+var KIND_ORDER = ["desktop", "mobile", "ui", "api", "cli"];
 var labels = (files, types2) => [...new Set(files.flatMap((f) => types2.flatMap((t) => [...f.sigs.get(t) ?? []])))];
 function classify(files, name = "") {
   const ctx = { host: files.some((f) => has(f, "host") || has(f, "self")), url: files.some((f) => !f.isTest && has(f, "url")) };
@@ -13689,9 +13926,9 @@ function classify(files, name = "") {
     } else
       other.push(f);
   }
-  const hostsApp = files.some((f) => has(f, "host") || has(f, "self") || has(f, "api"));
-  const kind = kinds.has("ui") ? "ui" : kinds.size ? "api" : undefined;
-  const drivers = labels([...files.filter((f) => !f.isTest), ...functional], ["host", "self", "api", "ui"]);
+  const hostsApp = files.some((f) => has(f, "host") || has(f, "self") || has(f, "api") || has(f, "cli"));
+  const kind = KIND_ORDER.find((k) => kinds.has(k));
+  const drivers = labels([...files.filter((f) => !f.isTest), ...functional], ["desktop", "mobile", "host", "self", "api", "ui", "cli"]);
   const evidence = functional.length ? `${[...drivers, ...labels(functional, ["http", "url"])].slice(0, 4).join(", ")}` : "";
   const base = { kind, hostsApp, tests: tests.length, functional, other, evidence };
   if (!tests.length)
@@ -13702,7 +13939,7 @@ function classify(files, name = "") {
     const db = tests.filter((f) => has(f, "db")).length;
     const integration = /integration/i.test(name) || db * 2 >= tests.length;
     const hosts = labels(files, ["host"]);
-    const why = hosts.length ? `${hosts[0]} found, but no test sends a request through it` : "no app host, HTTP client or browser driver";
+    const why = hosts.length ? `${hosts[0]} found, but no test sends a request through it` : "no app host, HTTP client, browser driver or run of the app's command";
     const notes = labels(files, ["note"]);
     return { ...base, status: "excluded", reason: `${integration ? "integration (database access; " : "unit ("}${why})${notes.length ? `; ${notes.join("; ")}` : ""}` };
   }
@@ -13837,12 +14074,14 @@ function functionalWarnings(cfg) {
     if (!targets.length && s.adapter === "generic")
       continue;
     const roots = targets.length ? targets : [cwd];
-    const scans = expandArgs(roots, cwd).filter((f) => langOf(f)).slice(0, MAX_SCAN).map((f) => scanFile(cfg.root, path10.relative(cfg.root, f))).filter((f) => !!f);
+    const entries = projectEntries(cfg.root, s.cwd);
+    const extra = roots.filter((r) => fs10.statSync(r, { throwIfNoEntry: false })?.isDirectory()).flatMap((r) => globFiles(r, ["**/*.{bats,rs,swift,dart}"], { maxDepth: 12 }).map((f) => path10.join(r, f)));
+    const scans = [...new Set([...expandArgs(roots, cwd), ...extra])].filter((f) => fLangOf(f)).slice(0, MAX_SCAN).map((f) => scanFile(cfg.root, path10.relative(cfg.root, f), undefined, entries)).filter((f) => !!f);
     const v = classify(scans, s.name);
     if (!v.tests)
       continue;
     const where = roots.map((r) => path10.relative(cfg.root, r) || ".").join(", ");
-    const fix = "Witness runs functional tests only: give the suite a filter that selects the tests that drive the app over HTTP or in a browser, or remove it";
+    const fix = "Witness runs functional tests only: give the suite a filter that selects the tests that drive the app (over HTTP, in a browser, through its command line, window or device), or remove it";
     const sample = (xs) => `${xs.slice(0, 3).map((f) => f.rel).join(", ")}${xs.length > 3 ? ", ..." : ""}`;
     if (v.status === "excluded")
       out.push({ suite: s.name, files: v.other.map((f) => f.rel), message: `suite ${s.name} looks non-functional: ${v.reason}. Scanned ${v.tests} test file(s) under ${where} (${sample(v.other)}). ${fix}.` });
@@ -14393,7 +14632,7 @@ async function runSuite(ctx, suite, select, retries) {
     const h = res.cause === "report_missing" ? hint : undefined;
     const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
     const extraTry = [h, res.hint].filter((x) => !!x);
-    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeout && adapter.perTestTimeout(60000, cwd, cmd)), adapter: suite.adapter });
+    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeoutEnv || adapter.perTestTimeout?.(60000, cwd, cmd)), adapter: suite.adapter });
   }
   ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
   const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");
@@ -14409,6 +14648,7 @@ async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeou
     WITNESS_REPORT_DIR: reportDir,
     WITNESS_ARTIFACTS: artifacts,
     WITNESS_RUN_DIR: ctx.run.dir,
+    ...presetEnv(adapter, suite.perTestTimeoutMs, !!suite.perTestTimeoutArg),
     ...adapter.reportEnv && !suite.report ? adapter.reportEnv(reportDir) : {},
     ...Object.fromEntries(Object.entries(suite.env).map(([k, v]) => [k, substitute(v, { ...vars, WITNESS_REPORT_DIR: reportDir })]))
   });
@@ -15120,7 +15360,7 @@ async function checkCommand(cfg, o) {
         continue;
       }
       const cwd = path14.resolve(root, s.cwd);
-      const cenv = childEnv(env, { ...stack.serviceUrlEnv(), ...Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, substitute(v, stack.vars())])) });
+      const cenv = childEnv(env, { ...stack.serviceUrlEnv(), ...ad.env, ...Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, substitute(v, stack.vars())])) });
       let pluginMissing = false;
       for (const pl of ad.plugins ?? []) {
         if (!pl.needed(!!s.perTestTimeoutMs) || !pl.probeArgs)
@@ -15283,7 +15523,7 @@ function statusCommand(runRoot, id, json) {
   if (st.phase !== "finished" && !pidAlive(st.pid))
     lines.push(color.yellow(`witness (pid ${st.pid}) is gone; the next run will reap this one`));
   for (const s of st.suites)
-    lines.push(`  ${s.name.padEnd(20)} ${(s.kind ?? "").padEnd(4)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}`);
+    lines.push(`  ${s.name.padEnd(20)} ${(s.kind ?? "").padEnd(7)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}${s.state === "skipped" && s.note ? ` · ${s.note}` : ""}`);
   if (st.summary)
     lines.push(verdictSummary(st));
   if (st.diagnosis)
@@ -15320,7 +15560,7 @@ function reportCommand(runRoot, id, format) {
   md.push("| Suite | Kind | App | State | Passed | Failed | Error | Missing | Skipped |");
   md.push("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |");
   for (const s of st.suites)
-    md.push(`| ${s.name} | ${s.kind ?? "-"} | ${appCell(s.services)} | ${s.state}${s.cause ? ` (${s.cause})` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
+    md.push(`| ${s.name} | ${s.kind ?? "-"} | ${appCell(s.services)} | ${s.state}${s.cause ? ` (${s.cause})` : ""}${s.state === "skipped" && s.note ? `: ${s.note}` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
   if (st.suites.some((s) => s.services && !s.services.length))
     md.push("", "App: the services witness started for the suite, or \"in the tests\" when the tests start the app themselves (those suites don't exercise witness's services, and `--against` with origin services doesn't change what they test).");
   if (st.diagnosis) {
@@ -15363,20 +15603,20 @@ var MAX_FILES = 4000;
 var PY_TEST = /(^|\/)(test_[^/]*|[^/]*_test)\.py$/;
 var JS_TEST = /[._-](test|spec)\.[cm]?[jt]sx?$|(^|\/)__tests__\/.*\.[cm]?[jt]sx?$/;
 var MOCHA_TEST = /(^|\/)tests?\/.*\.[cm]?[jt]s$/;
-function scanProject(root, p) {
+function scanProject(root, p, entries) {
   const base = path15.join(root, p.dir);
   const out = [];
   for (const rel of globFiles(base, ["**/*"], { maxDepth: 12, skipDirs: SKIP })) {
     if (out.length >= MAX_FILES)
       break;
-    if (!langOf(rel))
+    if (!fLangOf(rel))
       continue;
     const test = p.isTest?.(rel);
     if (test === false && !isTestPath(path15.join(path15.basename(base), rel)) && path15.basename(rel) !== "conftest.py" && !p.helper?.(rel))
       continue;
     if (p.include && !p.include(rel))
       continue;
-    const f = scanFile(base, rel, test);
+    const f = scanFile(base, rel, test, entries);
     if (f)
       out.push(f);
   }
@@ -15454,8 +15694,12 @@ function guess(root) {
     const notPw = (r) => own(r) && !pwDirs.some((t) => t !== "." && r.startsWith(`${t}/`)) && !/@playwright\/test|playwright-bdd/.test(read(path15.join(root, d, r)).slice(0, 4000));
     if (deps.vitest)
       projects.push({ label: d, adapter: "vitest", cwd: d, dir: d, cmd: "npx vitest run", nameBase: `${pre}vitest`, isTest: (r) => JS_TEST.test(r), include: notPw });
+    const detox = deps.detox ? detoxDir(path15.join(root, d)) : undefined;
+    const notDetox = (r) => !detox || !r.startsWith(`${detox}/`);
+    if (detox)
+      projects.push({ label: `${d === "." ? "" : `${d}/`}${detox}`, adapter: "jest", cwd: d, dir: d, cmd: "npx detox test", nameBase: `${pre}detox`, isTest: (r) => JS_TEST.test(r), include: (r) => own(r) && !notDetox(r), defaultKind: "mobile" });
     if (deps.jest)
-      projects.push({ label: d, adapter: "jest", cwd: d, dir: d, cmd: "npx jest", nameBase: `${pre}jest`, isTest: (r) => JS_TEST.test(r), include: notPw });
+      projects.push({ label: d, adapter: "jest", cwd: d, dir: d, cmd: "npx jest", nameBase: `${pre}jest`, isTest: (r) => JS_TEST.test(r), include: (r) => notPw(r) && notDetox(r) });
     if (deps.mocha)
       projects.push({ label: d, adapter: "mocha", cwd: d, dir: d, cmd: "npx mocha", nameBase: `${pre}mocha`, isTest: (r) => JS_TEST.test(r) || MOCHA_TEST.test(r), include: notPw });
     if (deps.cypress)
@@ -15472,14 +15716,79 @@ function guess(root) {
   const php = has2(/(^|\/)phpunit\.xml(\.dist)?$/)[0];
   if (php)
     projects.push({ label: dirOf(php), adapter: "phpunit", cwd: dirOf(php), dir: dirOf(php), cmd: "vendor/bin/phpunit", nameBase: "phpunit", isTest: (r) => /Test\.php$/.test(r) });
+  const cargo = has2(/(^|\/)Cargo\.toml$/).sort((a, b) => a.length - b.length)[0];
+  if (cargo) {
+    const d = dirOf(cargo);
+    projects.push({ label: d, adapter: "generic", cwd: d, dir: d, cmd: "cargo test", nameBase: "cargo-tests", include: (r) => r.endsWith(".rs"), note: "cargo test writes no JUnit report, so witness records one row from the exit code; cargo-nextest's JUnit output gives per-test rows (docs/witness/APP-KINDS.md)", filter: cargoFilter });
+  }
+  const bats = has2(/\.bats$/);
+  if (bats.length) {
+    const dirs = [...new Set(bats.map(dirOf))];
+    const d = commonDir(dirs);
+    const npx = pkgs.some((pj) => /"bats"\s*:/.test(read(path15.join(root, pj))));
+    const cmd = `${npx ? "npx bats" : "bats"}${dirs.some((x) => x !== d) ? " -r" : ""} ${d}`;
+    projects.push({ label: d, adapter: "bats", cwd: ".", dir: d, cmd, nameBase: "bats", isTest: (r) => r.endsWith(".bats"), include: (r) => r.endsWith(".bats"), filter: (v) => batsFilter(cmd, d, v) });
+  }
+  const gradleRoot = gradle ? dirOf(gradle) : undefined;
+  const androidTest = has2(/(^|\/)build\.gradle(\.kts)?$/).map(dirOf).filter((d) => fs15.existsSync(path15.join(root, d, "src", "androidTest")));
+  if (androidTest.length && gradleRoot) {
+    const gw = fs15.existsSync(path15.join(root, gradleRoot, "gradlew")) ? "./gradlew" : "gradle";
+    projects.push({ label: `${androidTest.join(", ")} (androidTest)`, adapter: "junit-gradle", cwd: gradleRoot, dir: gradleRoot, cmd: `${gw} connectedAndroidTest`, nameBase: "android-tests", include: (r) => /(^|\/)src\/androidTest\//.test(r), defaultKind: "mobile", report: "**/build/outputs/androidTest-results/connected/**/*.xml" });
+  }
+  for (const pub of has2(/(^|\/)pubspec\.yaml$/).filter((f) => files.some((x) => x.startsWith(`${dirOf(f) === "." ? "" : `${dirOf(f)}/`}integration_test/`)))) {
+    const d = dirOf(pub);
+    projects.push({ label: `${d === "." ? "" : `${d}/`}integration_test`, adapter: "generic", cwd: d, dir: d, cmd: "flutter test integration_test", nameBase: "flutter-integration", include: (r) => r.startsWith("integration_test/"), defaultKind: "mobile", note: "flutter test writes no JUnit report: one row from the exit code" });
+  }
+  for (const ui of [...new Set(has2(/(^|\/)[^/]*UITests\/.*\.swift$/).map((f) => f.slice(0, f.search(/[^/]*UITests\//) + f.slice(f.search(/[^/]*UITests\//)).indexOf("/"))))]) {
+    const d = dirOf(ui);
+    const proj = files.find((f) => dirOf(f) === d && f.endsWith(".xcodeproj/project.pbxproj"));
+    const scheme = proj ? path15.basename(path15.dirname(proj), ".xcodeproj") : path15.basename(ui).replace(/UITests$/, "");
+    projects.push({ label: ui, adapter: "generic", cwd: d, dir: d, cmd: `xcodebuild test -scheme ${scheme} -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:${path15.basename(ui)}`, nameBase: "xcuitest", include: (r) => r.startsWith(`${path15.basename(ui)}/`), defaultKind: "mobile", note: "xcodebuild writes an .xcresult, not JUnit: one row from the exit code unless a converter such as xcbeautify --report junit writes into $WITNESS_REPORT_DIR" });
+  }
+  const flows = has2(/\.ya?ml$/).filter((f) => /(^|\/)\.maestro\//.test(f) || /^appId:/m.test(read(path15.join(root, f)).slice(0, 2000)));
+  const maestro = flows.filter((f) => /^\s*-\s*launchApp\b/m.test(read(path15.join(root, f))));
+  if (maestro.length) {
+    const d = commonDir([...new Set(maestro.map(dirOf))]);
+    g.suites.push({ name: name("maestro"), adapter: "generic", kind: "mobile", cwd: ".", cmd: `maestro test --format junit --output \${WITNESS_REPORT_DIR}/maestro.xml ${d}`, why: `${d}: ${maestro.length} Maestro flow(s) launch the app`, hostsApp: false });
+  }
   if (fs15.existsSync(path15.join(root, "manage.py")))
     g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py" });
   for (const p of projects) {
     if (p.label === ".")
       p.label = `. (${p.adapter})`;
-    decide(g, p, classify(scanProject(root, p), p.label), name);
+    decide(g, p, classify(scanProject(root, p, projectEntries(root, p.dir)), p.label), name);
   }
   return g;
+}
+function commonDir(dirs) {
+  let parts = dirs[0].split("/");
+  for (const d of dirs) {
+    const q = d.split("/");
+    let i = 0;
+    while (i < parts.length && parts[i] === q[i])
+      i++;
+    parts = parts.slice(0, i);
+  }
+  return parts.join("/") || ".";
+}
+function detoxDir(dir) {
+  for (const f of [".detoxrc.js", ".detoxrc.json", ".detoxrc", "detox.config.js", ".detoxrc.cjs"]) {
+    const m = /["']?config["']?\s*:\s*["'](?:\.\/)?([^"']+)\/[^/"']+["']/.exec(read(path15.join(dir, f)));
+    if (m)
+      return m[1];
+  }
+  return "e2e";
+}
+function cargoFilter(v) {
+  const stems = v.functional.map((f) => /^tests\/([^/]+?)(?:\.rs|\/main\.rs)$/.exec(f.rel)?.[1]);
+  return stems.every(Boolean) ? `cargo test ${stems.map((x) => `--test ${x}`).join(" ")}` : undefined;
+}
+function batsFilter(cmd, dir, v) {
+  const base = cmd.replace(/\s+-r\s+\S+$|\s+\S+$/, "");
+  const dirs = v.filter?.dirs;
+  if (dirs)
+    return `${base} -r ${dirs.map((d) => path15.posix.join(dir, d)).join(" ")}`;
+  return v.functional.length <= 8 ? `${base} ${v.functional.map((f) => path15.posix.join(dir, f.rel)).join(" ")}` : undefined;
 }
 var pwName = (c2, isDefault) => {
   const b = path15.basename(c2).replace(/\.config\.\w+$/, "");
@@ -15502,16 +15811,17 @@ function configRegex(text, key) {
 function decide(g, p, v, name) {
   const kind = v.kind ?? p.defaultKind;
   const ev = v.evidence ? ` (${v.evidence})` : "";
-  const suite = (cmd, why) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report });
+  const suite = (cmd, why) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report, note: p.note });
   if (v.status === "functional")
     return suite(p.cmd, `${p.label}: ${v.reason}${ev}`);
   if (v.status === "excluded") {
     return g.excluded.push({ path: p.label, adapter: p.adapter, reason: v.reason });
   }
-  const filtered = filteredCmd(p.adapter, p.cmd, v, { xunitMtp: p.xunitMtp });
+  const own = p.filter?.(v);
+  const filtered = own ?? filteredCmd(p.adapter, p.cmd, v, { xunitMtp: p.xunitMtp });
   if (filtered) {
-    suite(filtered, `${p.label}: ${v.reason}; the command ${describeFilter(v)}${ev}`);
-    const why = "doesn't send a request to the app or drive a browser";
+    suite(filtered, `${p.label}: ${v.reason}; the command ${own && !v.filter?.dirs ? `runs only ${v.functional.map((f) => f.rel).join(", ")}` : describeFilter(v)}${ev}`);
+    const why = "doesn't drive the app (no request, browser, run of its command, window or device)";
     if (v.other.length <= 5)
       for (const o of v.other)
         g.excluded.push({ path: path15.posix.join(p.dir, o.rel), adapter: p.adapter, reason: why });
@@ -15536,8 +15846,9 @@ function renderExample(g) {
   const out = [
     "# Witness config (version 1). Generated by `witness init` from the files in this repo: review it,",
     "# then save it as .witness/witness.toml. Run `witness check` to try it.",
-    '# Witness runs functional tests only: tests that drive the app over HTTP (kind = "api") or in a',
-    `# browser (kind = "ui"). Unit and integration tests stay with the project's own build and test scripts.`,
+    '# Witness runs functional tests only: tests that drive the app over HTTP (kind = "api"), in a browser',
+    '# ("ui"), through its built command ("cli"), its window ("desktop") or on a device ("mobile").',
+    "# Unit and integration tests stay with the project's own build and test scripts.",
     "version = 1",
     "",
     "[env]",
@@ -15551,11 +15862,15 @@ function renderExample(g) {
     '# timeout = "60s"',
     ""
   ];
+  const device = (k) => k === "desktop" || k === "mobile";
+  const noServices = (s) => s.hostsApp && !device(s.kind);
+  const used = g.suites.some((s) => !noServices(s));
   for (const s of g.services) {
-    out.push(`# ${s.why}`, "[[service]]", `name = ${q(s.name)}`, `cwd = ${q(s.cwd)}`);
-    if (s.setup)
-      out.push(`setup = ${q(s.setup)}`);
-    out.push(`start = ${q(s.start)}`, `ready = { http = ${q(s.ready)}, timeout = "180s" }`, "");
+    const lines = [`name = ${q(s.name)}`, `cwd = ${q(s.cwd)}`, ...s.setup ? [`setup = ${q(s.setup)}`] : [], `start = ${q(s.start)}`, `ready = { http = ${q(s.ready)}, timeout = "180s" }`];
+    if (used)
+      out.push(`# ${s.why}`, "[[service]]", ...lines, "");
+    else
+      out.push(`# ${s.why}; commented out: ${g.suites.length ? "every proposed suite starts the app itself" : "no suite is proposed"}, so nothing uses it`, "# [[service]]", ...lines.map((l) => `# ${l}`), "");
   }
   if (!g.services.length)
     out.push("# [[service]]", '# name = "api"', '# start = "npm start -- --port ${PORT}"', '# ready = { http = "${self.url}/health", timeout = "120s" }', "");
@@ -15563,9 +15878,13 @@ function renderExample(g) {
     out.push(`# ${s.why}`, "[[suite]]", `name = ${q(s.name)}`, `kind = ${q(s.kind)}`, `adapter = ${q(s.adapter)}`, `cwd = ${q(s.cwd)}`, `cmd = ${q(s.cmd)}`);
     if (s.report)
       out.push(`report = ${q(s.report)}`);
-    if (s.hostsApp)
-      out.push("service = []                 # the tests start the app themselves");
-    else if (g.services.length)
+    if (s.note)
+      out.push(`# ${s.note}`);
+    if (device(s.kind))
+      out.push(`# kind = "${s.kind}": model the ${s.kind === "mobile" ? "emulator or device and its driver (Appium server, adb)" : "driver (WinAppDriver, Appium)"} as a [[dependency]] or [[service]] with a ready check; see docs/witness/APP-KINDS.md`);
+    else if (s.hostsApp)
+      out.push(`service = []                 # the tests ${s.kind === "cli" ? "run the app's command" : "start the app"} themselves`);
+    if (!noServices(s) && used && g.services.length)
       out.push(`# no service key: every service is started; the tests get ${g.services.map((x) => svcEnv(x.name)).join(", ")}`);
     out.push('timeout = "20m"', "");
   }
@@ -15580,7 +15899,7 @@ function renderExample(g) {
     out.push("# [[suite]]", `# name = ${q(n.name)}`, `# kind = ${q(n.kind)}`, `# adapter = ${q(n.adapter)}`, `# cwd = ${q(n.cwd)}`, `# cmd = ${q(n.cmd)}`, "");
   }
   if (g.excluded.length) {
-    out.push("# Not proposed: these test projects don't drive the app through its HTTP API or UI.");
+    out.push("# Not proposed: these test projects don't drive the app through its HTTP API, UI, command line, window or device.");
     for (const e of g.excluded)
       out.push(`#   ${e.path}: ${e.reason}`);
     out.push("");
