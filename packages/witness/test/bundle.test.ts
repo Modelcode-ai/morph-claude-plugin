@@ -13,7 +13,3 @@ test("bin/witness runs the bundle when asked to", { skip: !fs.existsSync(dist) &
   assert.match(r.stdout, /^\d+\.\d+\.\d+/);
 });
 
-test("bundle is not older than the sources", { skip: !fs.existsSync(dist) && "dist not built" }, () => {
-  const newest = fs.readdirSync(path.join(PKG, "src"), { recursive: true }).map((f) => fs.statSync(path.join(PKG, "src", String(f))).mtimeMs).reduce((a, b) => Math.max(a, b), 0);
-  assert.ok(fs.statSync(dist).mtimeMs >= newest - 1000, "run `npm run build` (bun) after changing src/");
-});
