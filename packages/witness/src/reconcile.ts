@@ -62,6 +62,8 @@ export interface ReconcileResult {
   rerun?: string[];
 }
 
+const SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
+
 const cleanId = (adapter: Adapter, id: string) => (id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id);
 
 export function toRecord(c: RawCase, adapter: Adapter, suite: string, cwd: string, obtained: Obtained = "report"): TestRecord {
@@ -70,6 +72,7 @@ export function toRecord(c: RawCase, adapter: Adapter, suite: string, cwd: strin
   const local = adapter.id(raw);
   const r: TestRecord = { id: stableId(adapter.name, local), name: local, suite, adapter: adapter.name, status: c.status, durationMs: c.durationMs, obtained };
   if (c.statusDetail) r.statusDetail = c.statusDetail;
+  else if (c.status === "failed" && SETUP_FAILURE.test(c.message ?? "")) r.statusDetail = "error";
   if (c.message) r.message = c.message;
   if (c.trace) r.trace = c.trace;
   if (file) r.filePath = file;

@@ -72,6 +72,11 @@ describe("reconciliation rules", () => {
     assert.equal(clean.state, "error");
   });
 
+  test("a failure raised by fixture setup is an error, not a test failure", () => {
+    const r = toRecord(c("a", "failed", { message: "Class fixture type 'BrowserFixture' threw in InitializeAsync" }), A, "s", "/repo");
+    assert.equal(r.statusDetail, "error");
+  });
+
   test("duplicate ids: later wins, pass after fail is flaky", () => {
     const t = (status: TestRecord["status"]) => toRecord(c("a", status), A, "s", "/repo");
     const [d] = dedupe([t("failed"), t("passed")]);
