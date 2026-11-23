@@ -4,7 +4,7 @@ import { type Plan, type PlanItem, splitId } from "./plan.ts";
 import { git, globFiles } from "./util.ts";
 
 export type Lang = "py" | "js" | "cs" | "java" | "go" | "rb" | "php";
-export type Rule = "no-assertion" | "swallowed-exception" | "long-sleep" | "error-status-only" | "success-status-only";
+export type Rule = "no-assertion" | "swallowed-exception" | "long-sleep" | "error-status-only" | "status-only";
 
 export interface Finding {
   file: string;
@@ -447,7 +447,7 @@ const OK_STATUS = [
 ];
 
 /** The item asks for nothing beyond a success status, so a status-only test is enough. */
-const STATUS_ONLY_EXPECT = /^\s*(HTTP\s*)?(2\d\d|2xx)(\s+[A-Za-z ]{1,12})?\s*\.?\s*$|^\s*(ok|success(ful)?|succeeds)\s*\.?\s*$/i;
+const STATUS_ONLY_EXPECT = /^\s*(returns?|responds?( with)?|gets?|is)?\s*(HTTP\s*)?([1-5]\d\d|[1-5]xx)(\s+[A-Za-z ]{1,20})?\s*\.?\s*$|^\s*(ok|success(ful)?|succeeds)\s*\.?\s*$/i;
 
 const CLASS_LANGS = new Set<Lang>(["cs", "java", "php"]);
 
@@ -542,7 +542,8 @@ export function lintSource(file: string, raw: string, opts: { plan?: Plan; rel?:
     }
   }
   if (opts.plan) {
-    for (const item of opts.plan.items.filter(expectsSuccess)) {
+    for (const item of opts.plan.items) {
+      const wantsSuccess = expectsSuccess(item);
       for (const tid of item.tests) {
         const [, id] = splitId(tid);
         const fileHint = id.includes("::") ? id.split("::")[0] : id.includes(" > ") ? id.split(" > ")[0] : undefined;
@@ -554,10 +555,10 @@ export function lintSource(file: string, raw: string, opts: { plan?: Plan; rel?:
           const asserting = lines.filter((l) => hasAssert(l, lang));
           if (!asserting.length) continue;
           const isErr = (l: string) => ERR_STATUS.some((re) => re.test(l));
-          if (asserting.every(isErr))
+          if (wantsSuccess && asserting.every(isErr))
             push({ line: t.line, rule: "error-status-only", level: "error", test: t.name, message: `${item.id} expects "${item.expect}", but test "${t.name}" only asserts an error status: assert the success result` });
           else if (!STATUS_ONLY_EXPECT.test(item.expect) && asserting.every((l) => isErr(l) || OK_STATUS.some((re) => re.test(l))))
-            push({ line: t.line, rule: "success-status-only", level: "error", test: t.name, message: `${item.id} expects "${item.expect}", but test "${t.name}" only checks the status code: assert what the item expects (body, rendered text, stored state)` });
+            push({ line: t.line, rule: "status-only", level: "error", test: t.name, message: `${item.id} expects "${item.expect}", but test "${t.name}" only checks the status code: assert what the item expects (body, rendered text, stored state)` });
         }
       }
     }

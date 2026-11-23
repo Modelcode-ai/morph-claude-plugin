@@ -51,7 +51,7 @@ the files the plan names. It reports:
 - `swallowed-exception`: a catch-all handler that lets the test carry on.
 - `long-sleep`: a fixed wait over 5 seconds.
 - `error-status-only`: a plan item expects success, but its test asserts only an error status.
-- `success-status-only`: a plan item expects content or state, but its test checks only the status code.
+- `status-only`: a plan item expects content or state, but its test checks only the status code.
 
 Fix every error by improving the test. Do not silence the linter. An ignore comment
 (`witness-lint: ignore[rule]`) is acceptable only when the finding is wrong, and the report must
