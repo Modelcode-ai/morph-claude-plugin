@@ -216,7 +216,7 @@ Witness at the tip of `eng-10574`, rebased onto ENG-10571, ENG-10572 (required `
 
 - **Functional scope holds.** `witness check` is clean, and the final run is `VERDICT passed · 201 passed, 0 failed · 1 skipped · 3 suite(s) · 21s` (`r-20261123-114906-feed`). That is functional 56, publicapi 143 (DependencyTests is filtered out), e2e 2 plus the intentional skip. CTRF, TRX and dotnet's `total:` line agree for every suite.
 - **`kind` and services.** `status.json`, `witness report --format json`, the markdown report and CTRF show both, after one fix (CTRF had no `services`). The report's App column reads "in the tests" for `functional` and `publicapi` and `web` for `e2e`. `witness status` shows `kind` only, as ENG-10572 specifies.
-- **Six Witness bugs found and fixed** on `eng-10574`, each with a regression test (`npm test`: 195 pass). Three of them change what an agent sees on this repo: selecting a test in a filtered dotnet suite failed; `web` dying took down suites that host the app themselves; `check` failed on a service no suite uses.
+- **Seven Witness bugs found and fixed** on `eng-10574`, each with a regression test (`npm test`: 195 pass). Three of them change what an agent sees on this repo: selecting a test in a filtered dotnet suite failed; `web` dying took down suites that host the app themselves; `check` failed on a service no suite uses.
 
 ### Results
 
