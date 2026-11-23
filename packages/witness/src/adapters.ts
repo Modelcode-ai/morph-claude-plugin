@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { RawCase, ReportFormat } from "./parsers/types.ts";
+import type { ParsedFile, RawCase, ReportFormat } from "./parsers/types.ts";
 import { escapeRegExp, shellWords, shq } from "./util.ts";
 
 export type AdapterName =
@@ -43,8 +43,8 @@ export interface Adapter {
   perTestTimeout?: (ms: number, cwd: string, cmd: string) => string | null;
   /** Report or timeout plugins the framework needs; `missing` matches the error it prints without them. */
   plugins?: Plugin[];
-  /** Corrects report cases with what only the console says (phpunit: a test aborted at its time limit is a pass in JUnit). */
-  amend?: (cases: RawCase[], output: string) => void;
+  /** Corrects the parsed report with what only the console says (a test aborted at its time limit, a test host that died mid-test). */
+  amend?: (files: ParsedFile[], output: string) => void;
   id: (c: RawCase) => string;
 }
 
@@ -223,7 +223,8 @@ function playwrightListParse(out: string): string[] {
 }
 
 /** PHPUnit lists a test stopped by its time limit as risky ("This test was aborted after N seconds"), not as a failure. */
-function phpunitAborted(cases: RawCase[], output: string) {
+function phpunitAborted(files: ParsedFile[], output: string) {
+  const cases = files.flatMap((f) => f.cases);
   for (const block of output.split(/\r?\n(?=\d+\) \S+::\S)/)) {
     const head = /^\d+\) (\S+)::(\S+?)(?: with data set .*)?\r?\n/.exec(block);
     const why = /This test was aborted after (\d+) seconds?/.exec(block);
@@ -234,6 +235,19 @@ function phpunitAborted(cases: RawCase[], output: string) {
       c.statusDetail = "timeout";
       c.message = `aborted after ${why[1]}s (phpunit time limit; reported as risky)`;
     }
+  }
+}
+
+/** VSTest leaves the test that hung or crashed the test host out of the TRX and names it only on the console. */
+function dotnetHostDied(files: ParsedFile[], output: string) {
+  const block = /The test running when the crash occurred:\s*\r?\n([\s\S]*?)\r?\nThis test may, or may not be the source of the crash/.exec(output);
+  const target = files.find((f) => f.cases.length);
+  if (!block || !target) return;
+  const hang = /Blame' message: The specified inactivity time of (\d+) seconds? has elapsed/.exec(output);
+  for (const fqn of block[1].split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+    const [cls, method] = splitClassHash(dotnetFqnToId(fqn));
+    if (files.some((f) => f.cases.some((c) => c.classname === cls && (c.name === method || c.name === fqn)))) continue;
+    target.cases.push({ name: method, classname: cls, status: "failed", statusDetail: hang ? "timeout" : "error", durationMs: 0, message: hang ? `hung: no progress for ${hang[1]}s, so --blame-hang-timeout killed the test host` : "the test host crashed while this test ran" });
   }
 }
 
@@ -320,6 +334,9 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   "junit-gradle": {
     name: "junit-gradle",
     format: "junit",
+    // an up-to-date test task writes no new report; --rerun (Gradle 7.6+) makes it run
+    reportArgs: () => "--rerun",
+    reportMarker: /--rerun\b|--rerun-tasks|\bcleanTest\b/,
     reportGlobs: [{ base: "cwd", glob: "**/build/test-results/**/*.xml" }],
     selectArgs: (ids) => ids.map((id) => { const [c, m] = splitClassHash(id); return `--tests ${shq(`${c}.${stripParams(m)}`)}`; }).join(" "),
     id: classHash,
@@ -354,6 +371,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
       },
     },
     perTestTimeout: (ms, cwd, cmd) => (dotnetMode(cwd, cmd) === "vstest" ? `--blame-hang-timeout ${Math.ceil(ms / 1000)}s` : null),
+    amend: dotnetHostDied,
     id: classHash,
   },
   jest: {

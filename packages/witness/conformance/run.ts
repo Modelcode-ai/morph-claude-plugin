@@ -183,7 +183,12 @@ async function runScenario(fw: Framework, t: Tool, dir: string, sc: Scenario): P
         const w = await witness(dir, cfg(sc, { cmd: fw.cmd(t) }), ["run", "--json", ...sel([fw.ids.pass, fw.ids.fail])]);
         expectRows(w, fw, { [fw.ids.pass]: { status: "passed" }, [fw.ids.fail]: { status: "failed" } });
         expectSuite(w, { state: "failed", passed: 1, failed: 1, skipped: 0 });
-        return { result: "pass", detail: "only the 2 selected ran", ms: Date.now() - t0 };
+        for (const n of [1, 2]) {
+          const again = await witness(dir, cfg(sc, { cmd: fw.cmd(t) }), ["run", "--json", ...sel([fw.ids.pass])]);
+          check(again.code === 0, `selecting the passing test alone, run ${n}: exit ${again.code} (${again.status?.suites?.[0]?.note ?? tail(again.stderr)})`);
+          expectRows(again, fw, { [fw.ids.pass]: { status: "passed" } });
+        }
+        return { result: "pass", detail: "only the selected ran; the same selection twice in a row still reports", ms: Date.now() - t0 };
       }
       case "list": {
         const config = cfg(sc, { cmd: fw.cmd(t) });

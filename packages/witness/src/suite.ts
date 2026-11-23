@@ -382,10 +382,7 @@ function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, rep
     files.push(dst);
   }
   const parsed = [...new Set(files)].map((f) => parseReportFile(f, adapter.format, cwd));
-  if (adapter.amend) {
-    const out = readFrom(log, logFrom);
-    for (const f of parsed) adapter.amend(f.cases, out);
-  }
+  adapter.amend?.(parsed, readFrom(log, logFrom));
   return parsed;
 }
 

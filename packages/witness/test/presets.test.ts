@@ -160,9 +160,16 @@ describe("partly readable reports and console-only facts", () => {
 
   test("phpunit: a test aborted at its time limit is a timeout, not the pass JUnit shows", () => {
     const cases = [{ name: "testHangs", classname: "Kit\\ItemsTest", status: "passed" as const, durationMs: 1 }, { name: "testOk", classname: "Kit\\ItemsTest", status: "passed" as const, durationMs: 1 }];
-    ADAPTERS.phpunit.amend!(cases, "There was 1 risky test:\n\n1) Kit\\ItemsTest::testHangs\n* This test was aborted after 3 seconds\n\n* This test did not perform any assertions\n");
+    ADAPTERS.phpunit.amend!([{ file: "p.xml", cases }], "There was 1 risky test:\n\n1) Kit\\ItemsTest::testHangs\n* This test was aborted after 3 seconds\n\n* This test did not perform any assertions\n");
     assert.deepEqual([cases[0].status, (cases[0] as { statusDetail?: string }).statusDetail, cases[1].status], ["failed", "timeout", "passed"]);
   });
+});
+
+test("dotnet: the test VSTest names after killing a hung test host gets a timeout row", () => {
+  const files = [{ file: "a.trx", cases: [{ name: "ListsItems", classname: "Kit.ItemsTests", status: "passed" as const, durationMs: 1 }] }];
+  const out = "Data collector 'Blame' message: The specified inactivity time of 5 seconds has elapsed. Collecting hang dumps\nThe test running when the crash occurred: \nKit.ItemsTests.Hangs\nThis test may, or may not be the source of the crash.\n";
+  ADAPTERS.dotnet.amend!(files, out);
+  assert.deepEqual(files[0].cases.map((c) => [c.classname, c.name, c.status, (c as { statusDetail?: string }).statusDetail]), [["Kit.ItemsTests", "ListsItems", "passed", undefined], ["Kit.ItemsTests", "Hangs", "failed", "timeout"]]);
 });
 
 describe("readiness on IPv6 loopback", () => {
