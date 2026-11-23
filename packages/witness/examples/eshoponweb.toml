@@ -1,4 +1,5 @@
 # Config used to evaluate witness on dotnet-architecture/eShopOnWeb (.NET 11, xunit v3 + MSTest on MTP).
+# Functional suites only: UnitTests, IntegrationTests and AppHostTests run in the project's own build.
 # publicapi needs Microsoft.Testing.Extensions.TrxReport added to its csproj (witness says so when it is missing).
 version = 1
 
@@ -13,48 +14,31 @@ env = { UseOnlyInMemoryDatabase = "true", ASPNETCORE_ENVIRONMENT = "Development"
 ready = { http = "${self.url}/home_page_health_check", timeout = "180s" }
 
 [[suite]]
-name = "unit"
-adapter = "dotnet"
-service = []
-cmd = "dotnet test --project tests/UnitTests/UnitTests.csproj"
-timeout = "15m"
-
-[[suite]]
-name = "integration"
-adapter = "dotnet"
-service = []
-cmd = "dotnet test --project tests/IntegrationTests/IntegrationTests.csproj"
-timeout = "15m"
-
-[[suite]]
 name = "functional"
+kind = "api"
 adapter = "dotnet"
 service = []
 cmd = "dotnet test --project tests/FunctionalTests/FunctionalTests.csproj"
 timeout = "15m"
 
+# DependencyTests checks the package graph, not the API.
 [[suite]]
 name = "publicapi"
+kind = "api"
 adapter = "dotnet"
 service = []
-cmd = "dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj"
+cmd = "dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj --filter 'FullyQualifiedName!~PublicApiIntegrationTests.DependencyTests'"
 timeout = "15m"
 
 [[suite]]
-name = "smoke-http"
-adapter = "generic"
-service = ["web"]
-cmd = "curl -fsS ${web.url}/ | grep -qi 'catalog'"
-timeout = "2m"
-
-[run]
-stall_timeout = "5m"
-heartbeat = "30s"
-
-[[suite]]
 name = "e2e"
+kind = "ui"
 adapter = "dotnet"
 service = []
 cmd = "dotnet test --project tests/EndToEndTests/EndToEndTests.csproj"
 timeout = "15m"
 # browsers: tests/EndToEndTests/bin/Debug/net11.0/.playwright/node/<os>/node .../package/cli.js install chromium
+
+[run]
+stall_timeout = "5m"
+heartbeat = "30s"
