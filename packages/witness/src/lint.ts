@@ -4,7 +4,7 @@ import { type Plan, type PlanItem, splitId } from "./plan.ts";
 import { git, globFiles } from "./util.ts";
 
 export type Lang = "py" | "js" | "cs" | "java" | "go" | "rb" | "php";
-export type Rule = "no-assertion" | "swallowed-exception" | "long-sleep" | "error-status-only";
+export type Rule = "no-assertion" | "swallowed-exception" | "long-sleep" | "error-status-only" | "success-status-only";
 
 export interface Finding {
   file: string;
@@ -438,6 +438,28 @@ const ERR_STATUS = [
   /\b(ok|IsSuccessStatusCode|is_success|successful)\b[^\n]*\b(false|False|toBeFalsy|IsFalse|assertFalse)\b|\bassert\s+not\s+\w+\.ok\b|\b(IsFalse|assertFalse)\s*\([^\n]*\b(ok|IsSuccessStatusCode)\b/,
 ];
 
+const OK_STATUS = [
+  /\bEnsureSuccess\w*\s*\(|\braise_for_status\s*\(/,
+  /\b(status|code|statuscode|status_code)\w*\b[^\n]*\b2\d\d\b|\b2\d\d\b[^\n]*\b(status|code)/i,
+  /HttpStatusCode\.(OK|Created|Accepted|NoContent)\b|HttpStatus\.(OK|CREATED|ACCEPTED|NO_CONTENT)\b|\bstatus\.HTTP_2\d\d|\bis2xx\w*\(|\bisSuccessful\b/,
+  /\bhave_http_status\(\s*:(ok|success|created|accepted|no_content)/,
+  /\btoBeOK\(\)|\btoHaveStatus\(\s*2\d\d|\b(ok|IsSuccessStatusCode|is_success|successful)\b[^\n]*\b(true|True|toBeTruthy|IsTrue|assertTrue)\b|\bassert\s+\w+\.ok\b|\b(IsTrue|assertTrue)\s*\([^\n]*\b(ok|IsSuccessStatusCode)\b/,
+];
+
+/** The item asks for nothing beyond a success status, so a status-only test is enough. */
+const STATUS_ONLY_EXPECT = /^\s*(HTTP\s*)?(2\d\d|2xx)(\s+[A-Za-z ]{1,12})?\s*\.?\s*$|^\s*(ok|success(ful)?|succeeds)\s*\.?\s*$/i;
+
+const CLASS_LANGS = new Set<Lang>(["cs", "java", "php"]);
+
+/** Name of the last class declared before `at` (the test's class, ignoring nesting). */
+function enclosingClass(code: string, at: number): string | undefined {
+  let name: string | undefined;
+  const re = /\b(?:class|record|object)\s+(\w+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(code)) && m.index < at) name = m[1];
+  return name;
+}
+
 const EXPECTS_FAILURE = /\b[45]\d\d\b|\b[45]xx\b|error|fail|reject|refus|den(y|ied)|forbidden|unauthori[sz]ed|not found|invalid|conflict|bad request|throws?\b|exception|not allowed|blocked/i;
 
 export const expectsSuccess = (item: PlanItem) => !EXPECTS_FAILURE.test(`${item.expect}`);
@@ -526,11 +548,16 @@ export function lintSource(file: string, raw: string, opts: { plan?: Plan; rel?:
         const fileHint = id.includes("::") ? id.split("::")[0] : id.includes(" > ") ? id.split(" > ")[0] : undefined;
         if (fileHint && !rel.replace(/\\/g, "/").endsWith(fileHint.replace(/^\.\//, ""))) continue;
         const name = lastSegment(id);
-        for (const t of tests.filter((x) => x.name.trim() === name)) {
+        const cls = CLASS_LANGS.has(lang) && id.includes("#") ? id.split("#")[0].split(".").pop()!.split(/[+$]/).pop() : undefined;
+        for (const t of tests.filter((x) => x.name.trim() === name && (!cls || enclosingClass(code, x.start) === cls))) {
           const lines = code.slice(t.start, t.end).split("\n");
           const asserting = lines.filter((l) => hasAssert(l, lang));
-          if (asserting.length && asserting.every((l) => ERR_STATUS.some((re) => re.test(l))))
+          if (!asserting.length) continue;
+          const isErr = (l: string) => ERR_STATUS.some((re) => re.test(l));
+          if (asserting.every(isErr))
             push({ line: t.line, rule: "error-status-only", level: "error", test: t.name, message: `${item.id} expects "${item.expect}", but test "${t.name}" only asserts an error status: assert the success result` });
+          else if (!STATUS_ONLY_EXPECT.test(item.expect) && asserting.every((l) => isErr(l) || OK_STATUS.some((re) => re.test(l))))
+            push({ line: t.line, rule: "success-status-only", level: "error", test: t.name, message: `${item.id} expects "${item.expect}", but test "${t.name}" only checks the status code: assert what the item expects (body, rendered text, stored state)` });
         }
       }
     }
