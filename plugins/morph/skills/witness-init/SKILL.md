@@ -58,7 +58,7 @@ remove the suite.
 
 ## 3. Check until it passes
 
-Run `witness check`. It checks the config and dependencies, boots each service, then lists each
+Run `witness check`. It checks config and dependencies, boots the suites' services, then lists each
 suite's tests (or smoke-runs it). It can take minutes
 on the first build; follow the "Long commands" rules of the `test-change` skill.
 

@@ -15090,7 +15090,12 @@ async function checkCommand(cfg, o) {
       p.plain(color.green(`CHECK ok · up to deps${o.against ? ` · against ${o.against}` : ""}`));
       return done(0);
     }
-    const services = o.service ? [o.service] : cfg.services.filter((s) => s.role === "target").map((s) => s.name);
+    const targets = cfg.services.filter((s) => s.role === "target").map((s) => s.name);
+    const needed = neededServices(cfg, pickSuites(cfg, o.suites));
+    const unused = cfg.suites.length ? targets.filter((n) => !needed.includes(n)) : [];
+    const services = o.service ? [o.service] : targets.filter((n) => !unused.includes(n));
+    if (!o.service && unused.length)
+      p.line(color.yellow(`check  boot · not starting ${unused.join(", ")}: no suite checked here uses it (suites with service = [] start the app themselves); remove it, or name it in a suite's service`));
     for (const s of services)
       if (!cfg.services.some((x) => x.name === s))
         throw new Error(`unknown service "${s}"`);

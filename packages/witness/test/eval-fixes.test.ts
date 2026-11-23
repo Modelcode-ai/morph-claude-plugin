@@ -97,6 +97,15 @@ ${RUN}`);
     assert.match(by2.fake.note, /not run: service api service_died/);
   });
 
+  test("check starts only the services its suites use", async () => {
+    const dir = tmpRepo(`version = 1\n${service("never-ready")}\n[[suite]]\nkind = "api"\nname = "unit"\nservice = []\ncmd = "WITNESS_API_URL= node $APPS/suite.mjs pass"\n${RUN}`);
+    const r = await witness(dir, ["check"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /not starting api: no suite checked here uses it/);
+    const r2 = await witness(dir, ["check", "--stage", "boot", "--service", "api"]);
+    assert.match(r2.stderr, /cause: ready_timeout/);
+  });
+
   test("ready.cmd sees the service env; external services are probed at their URL", async () => {
     const h = await hold();
     try {
