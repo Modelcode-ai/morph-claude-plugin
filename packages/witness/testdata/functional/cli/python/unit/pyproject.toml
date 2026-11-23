@@ -1,0 +1,9 @@
+[project]
+name = "itemsctl"
+version = "0.1.0"
+
+[project.scripts]
+itemsctl = "itemsctl.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

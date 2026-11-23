@@ -1,0 +1,6 @@
+{
+  "name": "itemsctl",
+  "private": true,
+  "bin": { "itemsctl": "bin/itemsctl.js" },
+  "devDependencies": { "execa": "*", "jest": "*" }
+}

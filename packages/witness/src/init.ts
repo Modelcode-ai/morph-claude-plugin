@@ -2,8 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { type AdapterName, dotnetMode } from "./adapters.ts";
 import type { Kind } from "./config.ts";
-import { classify, describeFilter, type FileScan, filteredCmd, scanFile, type Verdict } from "./functional.ts";
-import { isTestPath, langOf } from "./lint.ts";
+import { classify, describeFilter, type Entries, type FileScan, fLangOf, filteredCmd, projectEntries, scanFile, type Verdict } from "./functional.ts";
+import { isTestPath } from "./lint.ts";
 import { globFiles } from "./util.ts";
 
 export interface ProposedSuite {
@@ -15,6 +15,8 @@ export interface ProposedSuite {
   why: string;
   hostsApp: boolean;
   report?: string;
+  /** A line for the config, such as what the tests need besides witness's services. */
+  note?: string;
 }
 
 export interface NotProposed {
@@ -64,22 +66,25 @@ interface Project {
   defaultKind?: Kind;
   xunitMtp?: boolean;
   report?: string;
+  note?: string;
+  /** The command narrowed to the functional files, when the adapter's own filter doesn't fit this project. */
+  filter?: (v: Verdict) => string | undefined;
 }
 
 const PY_TEST = /(^|\/)(test_[^/]*|[^/]*_test)\.py$/;
 const JS_TEST = /[._-](test|spec)\.[cm]?[jt]sx?$|(^|\/)__tests__\/.*\.[cm]?[jt]sx?$/;
 const MOCHA_TEST = /(^|\/)tests?\/.*\.[cm]?[jt]s$/;
 
-function scanProject(root: string, p: Project): FileScan[] {
+function scanProject(root: string, p: Project, entries: Entries): FileScan[] {
   const base = path.join(root, p.dir);
   const out: FileScan[] = [];
   for (const rel of globFiles(base, ["**/*"], { maxDepth: 12, skipDirs: SKIP })) {
     if (out.length >= MAX_FILES) break;
-    if (!langOf(rel)) continue;
+    if (!fLangOf(rel)) continue;
     const test = p.isTest?.(rel);
     if (test === false && !isTestPath(path.join(path.basename(base), rel)) && path.basename(rel) !== "conftest.py" && !p.helper?.(rel)) continue;
     if (p.include && !p.include(rel)) continue;
-    const f = scanFile(base, rel, test);
+    const f = scanFile(base, rel, test, entries);
     if (f) out.push(f);
   }
   return out;
@@ -156,7 +161,10 @@ export function guess(root: string): Guess {
     }
     const notPw = (r: string) => own(r) && !pwDirs.some((t) => t !== "." && r.startsWith(`${t}/`)) && !/@playwright\/test|playwright-bdd/.test(read(path.join(root, d, r)).slice(0, 4000));
     if (deps.vitest) projects.push({ label: d, adapter: "vitest", cwd: d, dir: d, cmd: "npx vitest run", nameBase: `${pre}vitest`, isTest: (r) => JS_TEST.test(r), include: notPw });
-    if (deps.jest) projects.push({ label: d, adapter: "jest", cwd: d, dir: d, cmd: "npx jest", nameBase: `${pre}jest`, isTest: (r) => JS_TEST.test(r), include: notPw });
+    const detox = deps.detox ? detoxDir(path.join(root, d)) : undefined;
+    const notDetox = (r: string) => !detox || !r.startsWith(`${detox}/`);
+    if (detox) projects.push({ label: `${d === "." ? "" : `${d}/`}${detox}`, adapter: "jest", cwd: d, dir: d, cmd: "npx detox test", nameBase: `${pre}detox`, isTest: (r) => JS_TEST.test(r), include: (r) => own(r) && !notDetox(r), defaultKind: "mobile" });
+    if (deps.jest) projects.push({ label: d, adapter: "jest", cwd: d, dir: d, cmd: "npx jest", nameBase: `${pre}jest`, isTest: (r) => JS_TEST.test(r), include: (r) => notPw(r) && notDetox(r) });
     if (deps.mocha) projects.push({ label: d, adapter: "mocha", cwd: d, dir: d, cmd: "npx mocha", nameBase: `${pre}mocha`, isTest: (r) => JS_TEST.test(r) || MOCHA_TEST.test(r), include: notPw });
     if (deps.cypress) projects.push({ label: `${d === "." ? "" : `${d}/`}cypress`, adapter: "generic", cwd: d, dir: d, cmd: 'npx cypress run --reporter junit --reporter-options "mochaFile=${WITNESS_REPORT_DIR}/cypress-[hash].xml"', nameBase: `${pre}cypress`, isTest: (r) => /\.cy\.[cm]?[jt]sx?$/.test(r), include: own, defaultKind: "ui", report: "${WITNESS_REPORT_DIR}/*.xml" });
     if (doc.scripts?.start) g.services.push({ name: name(`${pre}web`.replace(/-$/, "")), cwd: d, setup: fs.existsSync(path.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}` });
@@ -167,13 +175,81 @@ export function guess(root: string): Guess {
   if (gem) projects.push({ label: dirOf(gem), adapter: "rspec", cwd: dirOf(gem), dir: dirOf(gem), cmd: "bundle exec rspec", nameBase: "rspec", isTest: (r) => /_spec\.rb$/.test(r) });
   const php = has(/(^|\/)phpunit\.xml(\.dist)?$/)[0];
   if (php) projects.push({ label: dirOf(php), adapter: "phpunit", cwd: dirOf(php), dir: dirOf(php), cmd: "vendor/bin/phpunit", nameBase: "phpunit", isTest: (r) => /Test\.php$/.test(r) });
+  const cargo = has(/(^|\/)Cargo\.toml$/).sort((a, b) => a.length - b.length)[0];
+  if (cargo) {
+    const d = dirOf(cargo);
+    projects.push({ label: d, adapter: "generic", cwd: d, dir: d, cmd: "cargo test", nameBase: "cargo-tests", include: (r) => r.endsWith(".rs"), note: "cargo test writes no JUnit report, so witness records one row from the exit code; cargo-nextest's JUnit output gives per-test rows (docs/witness/APP-KINDS.md)", filter: cargoFilter });
+  }
+  const bats = has(/\.bats$/);
+  if (bats.length) {
+    const dirs = [...new Set(bats.map(dirOf))];
+    const d = commonDir(dirs);
+    const npx = pkgs.some((pj) => /"bats"\s*:/.test(read(path.join(root, pj))));
+    const cmd = `${npx ? "npx bats" : "bats"}${dirs.some((x) => x !== d) ? " -r" : ""} ${d}`;
+    projects.push({ label: d, adapter: "bats", cwd: ".", dir: d, cmd, nameBase: "bats", isTest: (r) => r.endsWith(".bats"), include: (r) => r.endsWith(".bats"), filter: (v) => batsFilter(cmd, d, v) });
+  }
+  const gradleRoot = gradle ? dirOf(gradle) : undefined;
+  const androidTest = has(/(^|\/)build\.gradle(\.kts)?$/).map(dirOf).filter((d) => fs.existsSync(path.join(root, d, "src", "androidTest")));
+  if (androidTest.length && gradleRoot) {
+    const gw = fs.existsSync(path.join(root, gradleRoot, "gradlew")) ? "./gradlew" : "gradle";
+    projects.push({ label: `${androidTest.join(", ")} (androidTest)`, adapter: "junit-gradle", cwd: gradleRoot, dir: gradleRoot, cmd: `${gw} connectedAndroidTest`, nameBase: "android-tests", include: (r) => /(^|\/)src\/androidTest\//.test(r), defaultKind: "mobile", report: "**/build/outputs/androidTest-results/connected/**/*.xml" });
+  }
+  for (const pub of has(/(^|\/)pubspec\.yaml$/).filter((f) => files.some((x) => x.startsWith(`${dirOf(f) === "." ? "" : `${dirOf(f)}/`}integration_test/`)))) {
+    const d = dirOf(pub);
+    projects.push({ label: `${d === "." ? "" : `${d}/`}integration_test`, adapter: "generic", cwd: d, dir: d, cmd: "flutter test integration_test", nameBase: "flutter-integration", include: (r) => r.startsWith("integration_test/"), defaultKind: "mobile", note: "flutter test writes no JUnit report: one row from the exit code" });
+  }
+  for (const ui of [...new Set(has(/(^|\/)[^/]*UITests\/.*\.swift$/).map((f) => f.slice(0, f.search(/[^/]*UITests\//) + f.slice(f.search(/[^/]*UITests\//)).indexOf("/"))))]) {
+    const d = dirOf(ui);
+    const proj = files.find((f) => dirOf(f) === d && f.endsWith(".xcodeproj/project.pbxproj"));
+    const scheme = proj ? path.basename(path.dirname(proj), ".xcodeproj") : path.basename(ui).replace(/UITests$/, "");
+    projects.push({ label: ui, adapter: "generic", cwd: d, dir: d, cmd: `xcodebuild test -scheme ${scheme} -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:${path.basename(ui)}`, nameBase: "xcuitest", include: (r) => r.startsWith(`${path.basename(ui)}/`), defaultKind: "mobile", note: "xcodebuild writes an .xcresult, not JUnit: one row from the exit code unless a converter such as xcbeautify --report junit writes into $WITNESS_REPORT_DIR" });
+  }
+  const flows = has(/\.ya?ml$/).filter((f) => /(^|\/)\.maestro\//.test(f) || /^appId:/m.test(read(path.join(root, f)).slice(0, 2000)));
+  const maestro = flows.filter((f) => /^\s*-\s*launchApp\b/m.test(read(path.join(root, f))));
+  if (maestro.length) {
+    const d = commonDir([...new Set(maestro.map(dirOf))]);
+    g.suites.push({ name: name("maestro"), adapter: "generic", kind: "mobile", cwd: ".", cmd: `maestro test --format junit --output \${WITNESS_REPORT_DIR}/maestro.xml ${d}`, why: `${d}: ${maestro.length} Maestro flow(s) launch the app`, hostsApp: false });
+  }
   if (fs.existsSync(path.join(root, "manage.py"))) g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py" });
 
   for (const p of projects) {
     if (p.label === ".") p.label = `. (${p.adapter})`;
-    decide(g, p, classify(scanProject(root, p), p.label), name);
+    decide(g, p, classify(scanProject(root, p, projectEntries(root, p.dir)), p.label), name);
   }
   return g;
+}
+
+function commonDir(dirs: string[]): string {
+  let parts = dirs[0].split("/");
+  for (const d of dirs) {
+    const q = d.split("/");
+    let i = 0;
+    while (i < parts.length && parts[i] === q[i]) i++;
+    parts = parts.slice(0, i);
+  }
+  return parts.join("/") || ".";
+}
+
+/** Detox's test folder: the folder of the jest config its config names, else e2e. */
+function detoxDir(dir: string): string {
+  for (const f of [".detoxrc.js", ".detoxrc.json", ".detoxrc", "detox.config.js", ".detoxrc.cjs"]) {
+    const m = /["']?config["']?\s*:\s*["'](?:\.\/)?([^"']+)\/[^/"']+["']/.exec(read(path.join(dir, f)));
+    if (m) return m[1];
+  }
+  return "e2e";
+}
+
+/** Rust integration tests are files under tests/: run only the functional ones with --test. */
+function cargoFilter(v: Verdict): string | undefined {
+  const stems = v.functional.map((f) => /^tests\/([^/]+?)(?:\.rs|\/main\.rs)$/.exec(f.rel)?.[1]);
+  return stems.every(Boolean) ? `cargo test ${stems.map((x) => `--test ${x}`).join(" ")}` : undefined;
+}
+
+function batsFilter(cmd: string, dir: string, v: Verdict): string | undefined {
+  const base = cmd.replace(/\s+-r\s+\S+$|\s+\S+$/, "");
+  const dirs = v.filter?.dirs;
+  if (dirs) return `${base} -r ${dirs.map((d) => path.posix.join(dir, d)).join(" ")}`;
+  return v.functional.length <= 8 ? `${base} ${v.functional.map((f) => path.posix.join(dir, f.rel)).join(" ")}` : undefined;
 }
 
 const pwName = (c: string, isDefault: boolean) => {
@@ -200,15 +276,16 @@ function configRegex(text: string, key: string): RegExp | undefined {
 function decide(g: Guess, p: Project, v: Verdict, name: (b: string) => string) {
   const kind = v.kind ?? p.defaultKind;
   const ev = v.evidence ? ` (${v.evidence})` : "";
-  const suite = (cmd: string, why: string) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind: kind!, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report });
+  const suite = (cmd: string, why: string) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind: kind!, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report, note: p.note });
   if (v.status === "functional") return suite(p.cmd, `${p.label}: ${v.reason}${ev}`);
   if (v.status === "excluded") {
     return g.excluded.push({ path: p.label, adapter: p.adapter, reason: v.reason });
   }
-  const filtered = filteredCmd(p.adapter, p.cmd, v, { xunitMtp: p.xunitMtp });
+  const own = p.filter?.(v);
+  const filtered = own ?? filteredCmd(p.adapter, p.cmd, v, { xunitMtp: p.xunitMtp });
   if (filtered) {
-    suite(filtered, `${p.label}: ${v.reason}; the command ${describeFilter(v)}${ev}`);
-    const why = "doesn't send a request to the app or drive a browser";
+    suite(filtered, `${p.label}: ${v.reason}; the command ${own && !v.filter?.dirs ? `runs only ${v.functional.map((f) => f.rel).join(", ")}` : describeFilter(v)}${ev}`);
+    const why = "doesn't drive the app (no request, browser, run of its command, window or device)";
     if (v.other.length <= 5) for (const o of v.other) g.excluded.push({ path: path.posix.join(p.dir, o.rel), adapter: p.adapter, reason: why });
     else g.excluded.push({ path: `${p.label} (the other ${v.other.length} test files)`, adapter: p.adapter, reason: why });
     return;
@@ -232,8 +309,9 @@ export function renderExample(g: Guess): string {
   const out: string[] = [
     "# Witness config (version 1). Generated by `witness init` from the files in this repo: review it,",
     "# then save it as .witness/witness.toml. Run `witness check` to try it.",
-    "# Witness runs functional tests only: tests that drive the app over HTTP (kind = \"api\") or in a",
-    "# browser (kind = \"ui\"). Unit and integration tests stay with the project's own build and test scripts.",
+    "# Witness runs functional tests only: tests that drive the app over HTTP (kind = \"api\"), in a browser",
+    "# (\"ui\"), through its built command (\"cli\"), its window (\"desktop\") or on a device (\"mobile\").",
+    "# Unit and integration tests stay with the project's own build and test scripts.",
     "version = 1",
     "",
     "[env]",
@@ -247,17 +325,22 @@ export function renderExample(g: Guess): string {
     '# timeout = "60s"',
     "",
   ];
+  const device = (k: Kind) => k === "desktop" || k === "mobile";
+  const noServices = (s: ProposedSuite) => s.hostsApp && !device(s.kind);
+  const used = g.suites.some((s) => !noServices(s));
   for (const s of g.services) {
-    out.push(`# ${s.why}`, "[[service]]", `name = ${q(s.name)}`, `cwd = ${q(s.cwd)}`);
-    if (s.setup) out.push(`setup = ${q(s.setup)}`);
-    out.push(`start = ${q(s.start)}`, `ready = { http = ${q(s.ready)}, timeout = "180s" }`, "");
+    const lines = [`name = ${q(s.name)}`, `cwd = ${q(s.cwd)}`, ...(s.setup ? [`setup = ${q(s.setup)}`] : []), `start = ${q(s.start)}`, `ready = { http = ${q(s.ready)}, timeout = "180s" }`];
+    if (used) out.push(`# ${s.why}`, "[[service]]", ...lines, "");
+    else out.push(`# ${s.why}; commented out: ${g.suites.length ? "every proposed suite starts the app itself" : "no suite is proposed"}, so nothing uses it`, "# [[service]]", ...lines.map((l) => `# ${l}`), "");
   }
   if (!g.services.length) out.push("# [[service]]", '# name = "api"', '# start = "npm start -- --port ${PORT}"', '# ready = { http = "${self.url}/health", timeout = "120s" }', "");
   for (const s of g.suites) {
     out.push(`# ${s.why}`, "[[suite]]", `name = ${q(s.name)}`, `kind = ${q(s.kind)}`, `adapter = ${q(s.adapter)}`, `cwd = ${q(s.cwd)}`, `cmd = ${q(s.cmd)}`);
     if (s.report) out.push(`report = ${q(s.report)}`);
-    if (s.hostsApp) out.push("service = []                 # the tests start the app themselves");
-    else if (g.services.length) out.push(`# no service key: every service is started; the tests get ${g.services.map((x) => svcEnv(x.name)).join(", ")}`);
+    if (s.note) out.push(`# ${s.note}`);
+    if (device(s.kind)) out.push(`# kind = "${s.kind}": model the ${s.kind === "mobile" ? "emulator or device and its driver (Appium server, adb)" : "driver (WinAppDriver, Appium)"} as a [[dependency]] or [[service]] with a ready check; see docs/witness/APP-KINDS.md`);
+    else if (s.hostsApp) out.push(`service = []                 # the tests ${s.kind === "cli" ? "run the app's command" : "start the app"} themselves`);
+    if (!noServices(s) && used && g.services.length) out.push(`# no service key: every service is started; the tests get ${g.services.map((x) => svcEnv(x.name)).join(", ")}`);
     out.push('timeout = "20m"', "");
   }
   if (!g.suites.length && !g.needsFilter.length) out.push("# No functional tests detected.", "# [[suite]]", '# name = "api"', '# kind = "api"', '# adapter = "generic"', '# cmd = "./run-api-tests.sh"', '# report = "reports/*.xml"', "");
@@ -268,7 +351,7 @@ export function renderExample(g: Guess): string {
     out.push("# [[suite]]", `# name = ${q(n.name)}`, `# kind = ${q(n.kind)}`, `# adapter = ${q(n.adapter)}`, `# cwd = ${q(n.cwd)}`, `# cmd = ${q(n.cmd)}`, "");
   }
   if (g.excluded.length) {
-    out.push("# Not proposed: these test projects don't drive the app through its HTTP API or UI.");
+    out.push("# Not proposed: these test projects don't drive the app through its HTTP API, UI, command line, window or device.");
     for (const e of g.excluded) out.push(`#   ${e.path}: ${e.reason}`);
     out.push("");
   }

@@ -95,7 +95,7 @@ describe("init proposes functional suites only", () => {
 
   test("the excluded list goes into the generated file as comments", () => {
     const toml = renderExample(guess(fx("dotnet/unit")));
-    assert.match(toml, /# Not proposed: .*\n# {3}tests\/Shop\.UnitTests: unit \(no app host, HTTP client or browser driver\)/);
+    assert.match(toml, /# Not proposed: .*\n# {3}tests\/Shop\.UnitTests: unit \(no app host, HTTP client, browser driver or run of the app's command\)/);
   });
 
   test("dotnet: a few stray unit tests are skipped by class; xunit v3 on MTP gets its own filter flags", () => {
@@ -195,7 +195,7 @@ cmd = "curl -fsS http://127.0.0.1:3000/"
 `);
     const w = functionalWarnings(cfg);
     assert.deepEqual(w.map((x) => x.suite), ["unit", "mixed"]);
-    assert.match(w[0].message, /^suite unit looks non-functional: unit \(no app host, HTTP client or browser driver\)\. Scanned 1 test file\(s\) under pytest\/unit\/tests \(pytest\/unit\/tests\/test_calc\.py\)\. Witness runs functional tests only: give the suite a filter .* or remove it\.$/);
+    assert.match(w[0].message, /^suite unit looks non-functional: unit \(no app host, HTTP client, browser driver or run of the app's command\)\. Scanned 1 test file\(s\) under pytest\/unit\/tests \(pytest\/unit\/tests\/test_calc\.py\)\. Witness runs functional tests only: give the suite a filter .* or remove it\.$/);
     assert.match(w[1].message, /^suite mixed: 1 of 2 test files under pytest\/mixed don't drive the app \(pytest\/mixed\/tests\/unit\/test_calc\.py\)/);
   });
 });
