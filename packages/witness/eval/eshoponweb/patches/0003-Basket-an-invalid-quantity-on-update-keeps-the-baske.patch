@@ -1,0 +1,49 @@
+From e9d3947938bd03f801587466501c9cf8e8c68c35 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 08:59:45 -0800
+Subject: [PATCH 3/7] Basket: an invalid quantity on update keeps the basket on
+ screen with the validation message
+
+Before, posting a negative quantity to /basket/update rendered 'Basket is empty' and the
+validation summary was never shown. The message also said 'bigger than 0' although 0 is allowed
+(it removes the line).
+---
+ src/Web/Pages/Basket/BasketItemViewModel.cs | 2 +-
+ src/Web/Pages/Basket/Index.cshtml.cs        | 3 ++-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/Web/Pages/Basket/BasketItemViewModel.cs b/src/Web/Pages/Basket/BasketItemViewModel.cs
+index c102dfb..61fcf10 100644
+--- a/src/Web/Pages/Basket/BasketItemViewModel.cs
++++ b/src/Web/Pages/Basket/BasketItemViewModel.cs
+@@ -10,7 +10,7 @@ public class BasketItemViewModel
+     public decimal UnitPrice { get; set; }
+     public decimal OldUnitPrice { get; set; }
+ 
+-    [Range(0, int.MaxValue, ErrorMessage = "Quantity must be bigger than 0")]
++    [Range(0, int.MaxValue, ErrorMessage = "Quantity must be 0 or more")]
+     public int Quantity { get; set; }
+ 
+     public string? PictureUrl { get; set; }
+diff --git a/src/Web/Pages/Basket/Index.cshtml.cs b/src/Web/Pages/Basket/Index.cshtml.cs
+index 11e7a69..298c8ca 100644
+--- a/src/Web/Pages/Basket/Index.cshtml.cs
++++ b/src/Web/Pages/Basket/Index.cshtml.cs
+@@ -54,12 +54,13 @@ public class IndexModel : PageModel
+ 
+     public async Task OnPostUpdate(IEnumerable<BasketItemViewModel> items)
+     {
++        var basketView = await _basketViewModelService.GetOrCreateBasketForUser(GetOrSetBasketCookieAndUserName());
+         if (!ModelState.IsValid)
+         {
++            BasketModel = basketView;
+             return;
+         }
+ 
+-        var basketView = await _basketViewModelService.GetOrCreateBasketForUser(GetOrSetBasketCookieAndUserName());
+         var updateModel = items.ToDictionary(b => b.Id.ToString(), b => b.Quantity);
+         var basket = await _basketService.SetQuantities(basketView.Id, updateModel);
+         BasketModel = await _basketViewModelService.Map(basket);
+-- 
+2.50.1 (Apple Git-155)
+

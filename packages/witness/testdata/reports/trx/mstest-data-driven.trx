@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestRun id="r2" name="MTP" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Results>
+    <UnitTestResult executionId="x1" testId="d1" testName="ParsesPrice" duration="00:00:00.0200000" outcome="Failed" resultType="DataDrivenTest">
+      <InnerResults>
+        <UnitTestResult executionId="x1a" testId="d1" testName="ParsesPrice (&quot;1.00&quot;)" duration="00:00:00.0100000" outcome="Passed" dataRowInfo="1" />
+        <UnitTestResult executionId="x1b" testId="d1" testName="ParsesPrice (&quot;abc&quot;)" duration="00:00:00.0100000" outcome="Failed" dataRowInfo="2"><Output><ErrorInfo><Message>FormatException: abc</Message></ErrorInfo></Output></UnitTestResult>
+      </InnerResults>
+    </UnitTestResult>
+    <UnitTestResult executionId="x2" testId="d2" testName="Crashes" duration="00:00:00.0010000" outcome="Error"><Output><ErrorInfo><Message>Test host process crashed</Message></ErrorInfo></Output></UnitTestResult>
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="ParsesPrice" id="d1"><TestMethod className="Shop.Tests.PriceTests, Shop.Tests, Version=1.0.0.0" name="ParsesPrice" /></UnitTest>
+    <UnitTest name="Crashes" id="d2"><TestMethod className="Shop.Tests.PriceTests" name="Crashes" /></UnitTest>
+  </TestDefinitions>
+</TestRun>

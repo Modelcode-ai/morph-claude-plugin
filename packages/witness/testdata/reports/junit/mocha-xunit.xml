@@ -1,0 +1,6 @@
+<testsuite name="Mocha Tests" tests="2" failures="1" errors="1" skipped="0" timestamp="Fri, 20 Nov 2026 10:00:00 GMT" time="0.05">
+<testcase classname="Users API" name="GET /users returns a list" file="/repo/test/users.spec.js" time="0.01"/>
+<testcase classname="Users API" name="POST /users validates email" file="/repo/test/users.spec.js" time="0.02"><failure>expected 201 to equal 400
+AssertionError: expected 201 to equal 400
+    at Context.&lt;anonymous&gt; (test/users.spec.js:22:30)</failure></testcase>
+</testsuite>

@@ -1,0 +1,17 @@
+{
+  "config": { "rootDir": "/repo/e2e", "version": "1.48.2", "projects": [{ "name": "chromium" }, { "name": "firefox" }] },
+  "suites": [
+    {
+      "title": "checkout.spec.ts",
+      "file": "checkout.spec.ts",
+      "line": 0,
+      "column": 0,
+      "specs": [
+        {
+          "title": "guest can open cart",
+          "ok": true,
+          "file": "checkout.spec.ts",
+          "line": 3,
+          "tests": [
+            { "projectName": "chromium", "expectedStatus": "passed", "status": "expected", "results": [{ "status": "passed", "duration": 812, "retry": 0, "attachments": [] }] },
+            { "projectName": "firefox", "expectedStatus": "passed", "status": "expected", "results": [

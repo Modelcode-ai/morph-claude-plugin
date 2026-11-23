@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="5c1b7b5e-1111-4b5e-9a4e-000000000001" name="runner@mac 2026-11-20 10:00:00" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-11-20T10:00:00.0000000+00:00" queuing="2026-11-20T10:00:00.0000000+00:00" start="2026-11-20T10:00:00.0000000+00:00" finish="2026-11-20T10:00:03.5000000+00:00" />
+  <TestSettings name="default" id="00000000-0000-0000-0000-000000000000"><Deployment runDeploymentRoot="runner_mac_2026-11-20_10_00_00" /></TestSettings>
+  <Results>
+    <UnitTestResult executionId="e1" testId="t1" testName="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem.AddsBasketItemIfNotPresent" computerName="mac" duration="00:00:00.0123450" startTime="2026-11-20T10:00:01.0000000+00:00" endTime="2026-11-20T10:00:01.0123450+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e1" />
+    <UnitTestResult executionId="e2" testId="t2" testName="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem.IncrementsQuantityOfItemIfPresent" computerName="mac" duration="00:00:00.0040000" startTime="2026-11-20T10:00:01.0000000+00:00" endTime="2026-11-20T10:00:01.0040000+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e2">
+      <Output>
+        <ErrorInfo>
+          <

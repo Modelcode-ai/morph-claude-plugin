@@ -1,0 +1,29 @@
+From b42d4239f9b95b51f59892ca5b5429db3a689dbf Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 09:07:09 -0800
+Subject: [PATCH 7/7] witness eval: plan P2 is parity (the base also leaves the
+ basket unchanged; found by reverting the fix)
+
+---
+ .witness/plan.yaml | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/.witness/plan.yaml b/.witness/plan.yaml
+index 9bda703..c0d4dc5 100644
+--- a/.witness/plan.yaml
++++ b/.witness/plan.yaml
+@@ -7,9 +7,9 @@ items:
+     kind: changed
+     tests: ["dotnet:Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket.IndexTest#OnPostUpdateNegativeQuantityShowsBasketAndValidationMessage"]
+   - id: P2
+-    behavior: "A rejected update does not change the stored basket"
++    behavior: "A rejected update still does not change the stored basket (the old code also returned before saving)"
+     expect: "GET /basket after the rejected update still shows the item with quantity 1 and the total 8.50"
+-    kind: new
++    kind: parity
+     tests: ["dotnet:Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket.IndexTest#OnPostUpdateNegativeQuantityLeavesBasketUnchanged"]
+   - id: P3
+     behavior: "Updating a quantity to 49 still recalculates the total"
+-- 
+2.50.1 (Apple Git-155)
+

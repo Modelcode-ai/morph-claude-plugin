@@ -1,0 +1,60 @@
+# Config used to evaluate witness on dotnet-architecture/eShopOnWeb (.NET 11, xunit v3 + MSTest on MTP).
+# publicapi needs Microsoft.Testing.Extensions.TrxReport added to its csproj (witness says so when it is missing).
+version = 1
+
+[env]
+file = ".witness/.env"
+
+[[service]]
+name = "web"
+setup = "dotnet build src/Web/Web.csproj"
+start = "dotnet run --no-build --no-launch-profile --project src/Web/Web.csproj --urls http://127.0.0.1:${PORT}"
+env = { UseOnlyInMemoryDatabase = "true", ASPNETCORE_ENVIRONMENT = "Development" }
+ready = { http = "${self.url}/home_page_health_check", timeout = "180s" }
+
+[[suite]]
+name = "unit"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/UnitTests/UnitTests.csproj"
+timeout = "15m"
+
+[[suite]]
+name = "integration"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/IntegrationTests/IntegrationTests.csproj"
+timeout = "15m"
+
+[[suite]]
+name = "functional"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/FunctionalTests/FunctionalTests.csproj"
+timeout = "15m"
+
+[[suite]]
+name = "publicapi"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj"
+timeout = "15m"
+
+[[suite]]
+name = "smoke-http"
+adapter = "generic"
+service = ["web"]
+cmd = "curl -fsS ${web.url}/ | grep -qi 'catalog'"
+timeout = "2m"
+
+[run]
+stall_timeout = "5m"
+heartbeat = "30s"
+
+[[suite]]
+name = "e2e"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/EndToEndTests/EndToEndTests.csproj"
+timeout = "15m"
+# browsers: tests/EndToEndTests/bin/Debug/net11.0/.playwright/node/<os>/node .../package/cli.js install chromium

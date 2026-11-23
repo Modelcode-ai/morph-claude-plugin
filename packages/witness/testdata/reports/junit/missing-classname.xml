@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<testsuites>
+  <testsuite name="smoke">
+    <testcase name="homepage loads" time="0.3"/>
+    <testcase name="login works" time="0.5"><failure>timeout waiting for #login</failure></testcase>
+    <testcase/>
+  </testsuite>
+</testsuites>

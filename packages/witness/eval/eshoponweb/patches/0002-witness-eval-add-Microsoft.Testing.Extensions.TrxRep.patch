@@ -1,0 +1,40 @@
+From 5f331db2bf9c34f2412004712ca3e97800bb3d68 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 08:44:15 -0800
+Subject: [PATCH 2/7] witness eval: add Microsoft.Testing.Extensions.TrxReport
+ to PublicApiIntegrationTests (witness asked for it; CPM also needs the
+ PackageVersion)
+
+---
+ Directory.Packages.props                                         | 1 +
+ tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/Directory.Packages.props b/Directory.Packages.props
+index 5e0d524..0423d40 100644
+--- a/Directory.Packages.props
++++ b/Directory.Packages.props
+@@ -80,6 +80,7 @@
+     </PackageVersion>
+     <PackageVersion Include="MSTest.TestAdapter" Version="$(MSTestVersion)" />
+     <PackageVersion Include="MSTest.TestFramework" Version="$(MSTestVersion)" />
++    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.2" />
+     <PackageVersion Include="coverlet.MTP" Version="10.1.0" />
+   </ItemGroup>
+ </Project>
+\ No newline at end of file
+diff --git a/tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj b/tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj
+index ad23d31..2276912 100644
+--- a/tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj
++++ b/tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj
+@@ -26,6 +26,7 @@
+     <PackageReference Include="MSTest.TestAdapter" />
+     <PackageReference Include="MSTest.TestFramework" />
+     <PackageReference Include="coverlet.MTP" />
++    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
+   </ItemGroup>
+ 
+   <ItemGroup>
+-- 
+2.50.1 (Apple Git-155)
+
