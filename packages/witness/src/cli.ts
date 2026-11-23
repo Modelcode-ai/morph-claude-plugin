@@ -6,7 +6,8 @@ import { type Config, ConfigError, findConfig, loadConfig, rootFor } from "./con
 import { VERSION } from "./ctrf.ts";
 import { diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { initCommand } from "./init.ts";
-import { planCheckCommand } from "./plan.ts";
+import { lintCommand } from "./lint.ts";
+import { type Plan, parsePlan, planCheckCommand } from "./plan.ts";
 import { EXIT } from "./reconcile.ts";
 import { runCommand, UsageError } from "./run.ts";
 
@@ -95,6 +96,20 @@ export async function main(argv: string[]): Promise<number> {
   const needsConfig = ["check", "run", "up", "down"].includes(cmd);
   try {
     if (cmd === "init") return initCommand(process.cwd(), json);
+    if (cmd === "lint") {
+      const cp = typeof flags.config === "string" ? path.resolve(flags.config) : findConfig(process.cwd());
+      const lintCfg = cp ? loadConfig(cp) : undefined;
+      const root = lintCfg?.root ?? process.cwd();
+      const dflt = path.join(root, ".witness", "plan.yaml");
+      const planFile = typeof flags.plan === "string" ? path.resolve(flags.plan) : fs.existsSync(dflt) ? dflt : undefined;
+      let plan: Plan | undefined;
+      if (planFile) {
+        const r = parsePlan(fs.readFileSync(planFile, "utf8"), { draft: true });
+        if (!r.plan) throw new UsageError(`${planFile} is not a valid plan; run \`witness plan check\``);
+        plan = r.plan;
+      }
+      return lintCommand({ files: pos, cwd: process.cwd(), root, plan, planFile, suiteCwds: lintCfg?.suites.map((s) => s.cwd), json, log: (s) => process.stderr.write(`witness  ${s}\n`) });
+    }
     if (cmd === "plan") {
       if (pos[0] !== "check") throw new UsageError(`usage: witness plan check [file]`);
       const cp = typeof flags.config === "string" ? path.resolve(flags.config) : findConfig(process.cwd());
