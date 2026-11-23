@@ -14,6 +14,7 @@ Needs Node 22.18+ (the sources use type stripping; the bundle is tested on the s
 ```bash
 bin/witness init                      # .witness/witness.example.toml guessed from the repo
 bin/witness check                     # config -> deps -> boot -> list tests (or a smoke run)
+bin/witness check --stage boot --against main   # does main boot? (temporary worktree, this .witness/)
 bin/witness run                       # everything; exit code is the outcome
 bin/witness run --suite api --select pytest:tests/e2e/test_a.py::test_b --retries 1
 bin/witness run --against main        # same suites on main too; per-test parity in the results
@@ -47,7 +48,7 @@ name = "api"
 setup = "npm ci"                         # skipped when nothing under cwd changed since it last passed
 start = "npm start -- --port ${PORT}"
 ports = "3000-3005"                      # optional pool; otherwise any free port
-ready = { http = "${self.url}/health", timeout = "120s" }
+ready = { http = "${self.url}/health", timeout = "120s" }   # required; { cmd = "true" } for a worker
 
 [[suite]]
 name = "api-e2e"
@@ -70,6 +71,15 @@ for adapters that can't select tests on their own), `service.origin_for` (which 
 `role = "origin"` service stands in for; defaults to the name minus `-origin`) and
 `run.kill_grace` (SIGTERM to SIGKILL delay, default 5s).
 
+Readiness: `ready` is required for every started service (an `external` service without one is
+probed at its URL; any HTTP answer below 500 counts). Before starting, witness fails with
+`port_in_use` when the ready URL names a fixed local port that something already answers on. A ready
+URL that keeps answering the same 4xx fails after min(30s, timeout/2) as a wrong URL (not retryable).
+`ready.cmd` probes get the service's `env`.
+
+`.witness/scratch/` is created with a `.gitignore` of `*`: a place for agents' temporary files
+(for example a redirected `witness run` output) that never shows up in `git status`.
+
 ## Test plans, lint and agent skills
 
 ```bash
@@ -90,11 +100,15 @@ names. Rules: `no-assertion` (a warning when the test says it only checks that n
 `swallowed-exception` (catch-all handlers in a test body that neither rethrow, assert, skip nor
 record), `long-sleep` (fixed waits over 5s in a test body; sleeps inside functions the test defines,
 such as fake hangs, are ignored) and, when a plan exists, `error-status-only` (a plan item that
-expects success whose test asserts only a 4xx/5xx status). Languages: Python, JS/TS, C#, Java/Kotlin,
+expects success whose test asserts only a 4xx/5xx status) and `status-only` (an item whose `expect`
+asks for more than a status code, whose test checks only status codes, e.g. only
+`EnsureSuccessStatusCode()`). Plan ids of the form `Class#method` match only tests in that class. Languages: Python, JS/TS, C#, Java/Kotlin,
 Go, Ruby, PHP. Silence one finding with `witness-lint: ignore[rule]` on that line or the line above.
 
 `--select` also accepts `<suite>:<adapter>:<id>` when several suites share an adapter; with
-`--select` and no `--suite`, only the suites that own the selected tests run.
+`--select` and no `--suite`, only the suites that own the selected tests run. The list is split on
+commas outside brackets and quotes, and a piece without an `adapter:` prefix continues the previous
+id, so `Method(a: 1, b: 2)` and titles with commas stay whole.
 
 The agent skills live in `skills/` (`test-change` is the entry point; then `init`, `plan`, `write`,
 `verify`, `triage`). They are plain procedures that name no agent-specific tool;
@@ -140,7 +154,18 @@ parity, origin_status).
 Reconciliation, in short: failures in the report are trusted; a clean report with a non-zero exit is
 `error` (report_incomplete); a test that was asked for but isn't in the report is `other/missing`; an
 unreadable or absent report makes witness rerun each known test alone (when the adapter can list and
-select), and otherwise records one suite-level result.
+select), and otherwise records one suite-level result. Never a pass without evidence: a suite whose
+tests were all skipped is `error`; a suite-level row with exit 0 but no report is `other/missing`; a
+test rerun alone that exits 0 but is not in its report is `other/missing`; a report file that was
+already on disk (unchanged) before the suite started is ignored. A suite whose only failures come from
+fixture setup, and a suite that fails to build or whose command is missing (exit 127) before any test
+ran, are `error` with cause `setup_failed` (no listing or reruns after a build failure).
+
+A service that fails to boot makes the run a `mistrial`, but suites that don't need it still run.
+`--against <ref>` and `check --against <ref>` copy this checkout's `.witness/` (minus runs, cache and
+scratch) into the temporary worktree, because the config is this checkout's. The VERDICT line counts
+failed, error (fixture errors, timeouts), missing and skipped tests per suite, and tests that exist
+only on the origin separately.
 
 Cause codes: missing_env, bad_config, dependency_unreachable, setup_failed, exited_before_ready,
 ready_timeout, port_in_use, auth_failed, network, service_died, suite_timeout, stalled,
