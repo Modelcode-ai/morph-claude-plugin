@@ -76,10 +76,11 @@ describe("config v1", () => {
     assert.equal(c.run.keepRuns, 10);
   });
 
-  test("a suite must say whether it drives the API or the UI", () => {
+  test("a suite must say how it drives the app", () => {
     const missing = err(`version = 1\n[[suite]]\nname = "unit"\ncmd = "x"`);
-    assert.match(missing, /^suite\.unit\.kind: is required: set kind = "api" .* or kind = "ui" .*Unit and integration tests don't belong in Witness/);
-    assert.match(err(`version = 1\n[[suite]]\nname = "s"\nkind = "unit"\ncmd = "x"`), /^suite\.s\.kind: expected "api" or "ui", got "unit"/);
+    assert.match(missing, /^suite\.unit\.kind: is required: set kind = "api" .* "ui" .* "cli" .* "desktop" .* "mobile" .*Unit and integration tests don't belong in Witness/);
+    assert.match(err(`version = 1\n[[suite]]\nname = "s"\nkind = "unit"\ncmd = "x"`), /^suite\.s\.kind: expected one of "api", "ui", "cli", "desktop", "mobile", got "unit"/);
+    for (const k of ["cli", "desktop", "mobile"]) assert.equal(cfg(`version = 1\n[[suite]]\nname = "s"\nkind = "${k}"\ncmd = "x"`).suites[0].kind, k);
   });
 
   test("errors name the offending key", () => {

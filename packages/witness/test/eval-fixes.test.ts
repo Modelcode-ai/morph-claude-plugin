@@ -79,6 +79,8 @@ ${RUN}`);
     assert.equal(by.fake.state, "skipped");
     assert.match(by.fake.note, /not run: service api ready_timeout/);
     assert.ok(ctrf(dir).results.tests.every((t: any) => t.extra.witness.suite === "unit" && t.extra.witness.services.length === 0));
+    assert.match((await witness(dir, ["status"])).stdout, /fake +api +skipped .* · not run: service api ready_timeout/);
+    assert.match((await witness(dir, ["report"])).stdout, /\| fake \| api \| api \| skipped: not run: service api ready_timeout \|/);
   });
 
   test("a service that dies skips only the suites that need it, whichever suite was running", async () => {

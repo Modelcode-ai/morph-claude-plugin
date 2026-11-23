@@ -36,9 +36,10 @@ export interface Service {
   originFor?: string;
 }
 
-export type Kind = "api" | "ui";
+export const KINDS = ["api", "ui", "cli", "desktop", "mobile"] as const;
+export type Kind = (typeof KINDS)[number];
 
-export const KIND_HELP = 'set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), or kind = "ui" for tests that drive it in a browser. Unit and integration tests don\'t belong in Witness: the project\'s own build and test scripts run them';
+export const KIND_HELP = 'set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), "ui" for tests that drive it in a browser, "cli" for tests that run its built binary or command and check the output, exit code or files, "desktop" for a desktop app driven through its window (Electron, WinAppDriver, pywinauto, TestFX), or "mobile" for an app on a device or emulator (Appium, Detox, Espresso, XCUITest, Maestro, Flutter integration_test). Unit and integration tests don\'t belong in Witness: the project\'s own build and test scripts run them';
 
 export interface Suite {
   name: string;
@@ -301,12 +302,12 @@ export function parseConfig(doc: Obj, file: string): Config {
     const adapter = str(s, "adapter", where) ?? "generic";
     if (!(adapter in ADAPTERS)) throw new ConfigError(`${where}.adapter`, `unknown adapter "${adapter}"; one of ${Object.keys(ADAPTERS).join(", ")}`);
     const kind = str(s, "kind", where);
-    if (kind !== "api" && kind !== "ui") throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected "api" or "ui", got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
+    if (!KINDS.includes(kind as Kind)) throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected one of ${KINDS.map((k) => `"${k}"`).join(", ")}, got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
     const pttArg = str(s, "per_test_timeout_arg", where);
     if (pttArg && !/\{s\}|\{ms\}/.test(pttArg)) throw new ConfigError(`${where}.per_test_timeout_arg`, 'needs {s} or {ms} where the timeout goes, e.g. "-timeout {s}s"');
     return {
       name,
-      kind,
+      kind: kind as Kind,
       perTestTimeoutArg: pttArg,
       list: parseList(s.list, `${where}.list`, adapter as AdapterName),
       services: s.service === undefined ? undefined : strList(s, "service", where),

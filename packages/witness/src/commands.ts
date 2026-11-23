@@ -267,7 +267,7 @@ export function statusCommand(runRoot: string, id: string | undefined, json: boo
   const lines = [`${st.run_id} · ${st.phase}${st.outcome ? ` · ${outcomeColor(o)(o)}` : ""} · ${st.branch} @ ${st.commit.slice(0, 10)}${st.dirty ? " (dirty)" : ""}`];
   lines.push(`last event: ${st.last_event}`);
   if (st.phase !== "finished" && !pidAlive(st.pid)) lines.push(color.yellow(`witness (pid ${st.pid}) is gone; the next run will reap this one`));
-  for (const s of st.suites) lines.push(`  ${s.name.padEnd(20)} ${(s.kind ?? "").padEnd(4)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}`);
+  for (const s of st.suites) lines.push(`  ${s.name.padEnd(20)} ${(s.kind ?? "").padEnd(7)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}${s.state === "skipped" && s.note ? ` · ${s.note}` : ""}`);
   if (st.summary) lines.push(verdictSummary(st));
   if (st.diagnosis) lines.push(...formatDiagnosis(st.diagnosis).map((l) => `  ${l}`));
   process.stdout.write(lines.join("\n") + "\n");
@@ -307,7 +307,7 @@ export function reportCommand(runRoot: string, id: string | undefined, format: s
   md.push("");
   md.push("| Suite | Kind | App | State | Passed | Failed | Error | Missing | Skipped |");
   md.push("| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |");
-  for (const s of st.suites) md.push(`| ${s.name} | ${s.kind ?? "-"} | ${appCell(s.services)} | ${s.state}${s.cause ? ` (${s.cause})` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
+  for (const s of st.suites) md.push(`| ${s.name} | ${s.kind ?? "-"} | ${appCell(s.services)} | ${s.state}${s.cause ? ` (${s.cause})` : ""}${s.state === "skipped" && s.note ? `: ${s.note}` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
   if (st.suites.some((s) => s.services && !s.services.length)) md.push("", "App: the services witness started for the suite, or \"in the tests\" when the tests start the app themselves (those suites don't exercise witness's services, and `--against` with origin services doesn't change what they test).");
   if (st.diagnosis) {
     md.push("", "## Diagnosis", "");
