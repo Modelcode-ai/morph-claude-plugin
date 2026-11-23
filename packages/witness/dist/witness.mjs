@@ -12490,9 +12490,12 @@ class Stack {
     return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split(`
 `).pop() || `exit code ${res.code}` };
   }
-  async watch() {
+  async watch(names) {
     const now = Date.now();
+    const only = names && new Set([...names, ...topoOrder(this.o.cfg.services, names.filter((n) => this.o.cfg.services.some((x) => x.name === n))).map((x) => x.name)]);
     for (const ls of this.live.values()) {
+      if (only && !only.has(ls.name) && !only.has(ls.svc.name))
+        continue;
       let dead = "";
       if (ls.ownedByUs && ls.proc && !ls.svc.pidfile && ls.proc.exited)
         dead = `exited with code ${ls.proc.code}`;
@@ -14436,7 +14439,7 @@ async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeou
       end = "stalled";
     else if (now - lastWatch >= 1000) {
       lastWatch = now;
-      const d = await ctx.stack.watch();
+      const d = await ctx.stack.watch(suite.services ?? ctx.cfg.services.filter((x) => x.role === "target").map((x) => x.name));
       if (d) {
         died = d;
         end = "service_died";
@@ -14894,10 +14897,19 @@ async function runSide(cfg, o) {
     if (isTarget)
       o.run.setPhase("suite", "running suites");
     const ctx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
+    const died = (d) => {
+      bootFailed.set(d.service, d);
+      side.outcome = worst(side.outcome, "mistrial");
+      side.diagnosis ??= d;
+    };
     for (const s of o.suites) {
       if (o.abort.aborted)
         break;
-      const blocked = blocker(neededServices(cfg, [s]));
+      const needed = neededServices(cfg, [s]);
+      const dead = !blocker(needed) && needed.length ? await stack.watch(needed) : null;
+      if (dead)
+        died(dead);
+      const blocked = blocker(needed);
       if (blocked) {
         side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, s), note: `not run: service ${blocked} ${bootFailed.get(blocked).cause}` });
         continue;
@@ -14915,11 +14927,8 @@ async function runSide(cfg, o) {
         o.run.status.suites = side.suites;
         o.run.saveStatus();
       }
-      if (r.serviceDied) {
-        for (const rest of o.suites.slice(o.suites.indexOf(s) + 1))
-          side.suites.push({ name: rest.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, rest), note: "not run: a service died" });
-        break;
-      }
+      if (r.serviceDied)
+        died(r.serviceDied);
     }
   } catch (e) {
     if (!(e instanceof Failure))

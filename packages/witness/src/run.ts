@@ -306,9 +306,18 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
     }
     if (isTarget) o.run.setPhase("suite", "running suites");
     const ctx: SuiteCtx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
+    const died = (d: Diagnosis) => {
+      bootFailed.set(d.service!, d);
+      side.outcome = worst(side.outcome, "mistrial");
+      side.diagnosis ??= d;
+    };
     for (const s of o.suites) {
       if (o.abort.aborted) break;
-      const blocked = blocker(neededServices(cfg, [s]));
+      const needed = neededServices(cfg, [s]);
+      // a service can die while a suite that doesn't use it runs
+      const dead = !blocker(needed) && needed.length ? await stack.watch(needed) : null;
+      if (dead) died(dead);
+      const blocked = blocker(needed);
       if (blocked) {
         side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, s), note: `not run: service ${blocked} ${bootFailed.get(blocked)!.cause}` });
         continue;
@@ -325,10 +334,7 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
         o.run.status.suites = side.suites;
         o.run.saveStatus();
       }
-      if (r.serviceDied) {
-        for (const rest of o.suites.slice(o.suites.indexOf(s) + 1)) side.suites.push({ name: rest.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, ...suiteMeta(cfg, rest), note: "not run: a service died" });
-        break;
-      }
+      if (r.serviceDied) died(r.serviceDied);
     }
   } catch (e) {
     if (!(e instanceof Failure)) throw e;

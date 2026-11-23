@@ -307,7 +307,7 @@ async function execWatched(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cmd: s
     else if (now - lastProgress > ctx.cfg.run.stallMs) end = "stalled";
     else if (now - lastWatch >= 1000) {
       lastWatch = now;
-      const d = await ctx.stack.watch();
+      const d = await ctx.stack.watch(suite.services ?? ctx.cfg.services.filter((x) => x.role === "target").map((x) => x.name));
       if (d) {
         died = d;
         end = "service_died";

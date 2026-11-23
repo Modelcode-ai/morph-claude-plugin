@@ -196,7 +196,7 @@ already on disk (unchanged) before the suite started is ignored. A suite whose o
 fixture setup, and a suite that fails to build or whose command is missing (exit 127) before any test
 ran, are `error` with cause `setup_failed` (no listing or reruns after a build failure).
 
-A service that fails to boot makes the run a `mistrial`, but suites that don't need it still run.
+A service that fails to boot or dies makes the run a `mistrial`, but suites that don't need it still run.
 `--against <ref>` and `check --against <ref>` copy this checkout's `.witness/` (minus runs, cache and
 scratch) into the temporary worktree, because the config is this checkout's. The VERDICT line counts
 failed, error (fixture errors, timeouts), missing and skipped tests per suite, and tests that exist

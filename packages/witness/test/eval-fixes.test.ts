@@ -81,6 +81,22 @@ ${RUN}`);
     assert.ok(ctrf(dir).results.tests.every((t: any) => t.extra.witness.suite === "unit" && t.extra.witness.services.length === 0));
   });
 
+  test("a service that dies skips only the suites that need it, whichever suite was running", async () => {
+    const hosted = (name: string, cmd: string) => `\n[[suite]]\nkind = "api"\nname = "${name}"\nservice = []\ncmd = "${cmd}"\n`;
+    const during = tmpRepo(`version = 1\n${service("crash-after-ready")}${suite("slow")}${hosted("unit", "WITNESS_API_URL= node $APPS/suite.mjs pass")}${RUN}`);
+    const r1 = await witness(during, ["run", "--json"]);
+    assert.equal(r1.code, 3, r1.stderr);
+    const by1 = Object.fromEntries(r1.json?.suites.map((s: any) => [s.name, s]));
+    assert.deepEqual([by1.fake.state, by1.unit.state, by1.unit.passed], ["error", "passed", 3]);
+    const before = tmpRepo(`version = 1\n${service("crash-after-ready")}${hosted("unit", "sleep 3 && WITNESS_API_URL= node $APPS/suite.mjs pass")}${suite("pass")}${RUN}`);
+    const r2 = await witness(before, ["run", "--json"]);
+    assert.equal(r2.code, 3, r2.stderr);
+    assert.equal(r2.json?.diagnosis.cause, "service_died");
+    const by2 = Object.fromEntries(r2.json?.suites.map((s: any) => [s.name, s]));
+    assert.deepEqual([by2.unit.state, by2.unit.passed, by2.fake.state], ["passed", 3, "skipped"]);
+    assert.match(by2.fake.note, /not run: service api service_died/);
+  });
+
   test("ready.cmd sees the service env; external services are probed at their URL", async () => {
     const h = await hold();
     try {

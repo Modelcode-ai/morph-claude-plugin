@@ -282,10 +282,12 @@ export class Stack {
     return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split("\n").pop() || `exit code ${res.code}` };
   }
 
-  /** Called while suites run: a service that exits or keeps failing its probe is dead. */
-  async watch(): Promise<Diagnosis | null> {
+  /** Called while suites run: a service that exits or keeps failing its probe is dead. `names` limits it to those services and their dependencies. */
+  async watch(names?: string[]): Promise<Diagnosis | null> {
     const now = Date.now();
+    const only = names && new Set([...names, ...topoOrder(this.o.cfg.services, names.filter((n) => this.o.cfg.services.some((x) => x.name === n))).map((x) => x.name)]);
     for (const ls of this.live.values()) {
+      if (only && !only.has(ls.name) && !only.has(ls.svc.name)) continue;
       let dead = "";
       if (ls.ownedByUs && ls.proc && !ls.svc.pidfile && ls.proc.exited) dead = `exited with code ${ls.proc.code}`;
       else if (ls.pid && !pidAlive(ls.pid)) dead = `pid ${ls.pid} is gone`;
