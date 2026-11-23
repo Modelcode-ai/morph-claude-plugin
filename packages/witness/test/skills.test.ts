@@ -4,12 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { generatedDirs, PLUGIN_SKILLS, pluginFiles } from "../scripts/build-plugin.ts";
-import { BANNED, checkSkills, WORD_BUDGET } from "../scripts/check-skills.ts";
+import { BANNED, checkSkills, REFERENCE_BUDGET, WORD_BUDGET } from "../scripts/check-skills.ts";
 import { frontmatter, installSkills, listSkills, PROFILES, renderSkill, renderSkillFiles, skillsDir, TemplateError } from "../src/skills.ts";
 import { PKG, witness } from "./helpers.ts";
 
 const SKILLS = path.join(PKG, "skills");
 const NAMES = ["init", "plan", "test-change", "triage", "verify", "write"];
+const REFS = ["init/interview.md"];
+const FILES = [...NAMES.map((n) => `${n}/SKILL.md`), ...REFS].sort();
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-skills-")));
 const MARKERS = /<!--\s*(if|else|endif)\b/;
 const cacheEnv = () => ({ XDG_CACHE_HOME: tmp() });
@@ -19,8 +21,8 @@ test("skills: every SKILL.md is within budget and names no harness-specific tool
   assert.deepEqual(problems, []);
   assert.deepEqual(Object.keys(counts).sort(), [...PROFILES].sort());
   for (const p of PROFILES) {
-    assert.deepEqual(Object.keys(counts[p]).sort(), NAMES);
-    for (const c of Object.values(counts[p])) assert.ok(c <= WORD_BUDGET);
+    assert.deepEqual(Object.keys(counts[p]).sort(), [...NAMES, ...REFS].sort());
+    for (const [k, c] of Object.entries(counts[p])) assert.ok(c <= (k.endsWith(".md") ? REFERENCE_BUDGET : WORD_BUDGET), `${p} ${k}: ${c}`);
   }
 });
 
@@ -55,7 +57,7 @@ test("skills render: bad markers are errors with the file and line", () => {
 test("skills render: every profile of the real skills renders with no markers left", () => {
   for (const p of PROFILES) {
     const files = renderSkillFiles(SKILLS, p, "witness-");
-    assert.deepEqual(Object.keys(files).sort(), NAMES.map((n) => `witness-${n}/SKILL.md`));
+    assert.deepEqual(Object.keys(files).sort(), FILES.map((f) => `witness-${f}`));
     for (const [f, text] of Object.entries(files)) {
       assert.doesNotMatch(text, MARKERS, `${p} ${f}`);
       assert.doesNotMatch(text, /\n\n\n/, `${p} ${f} has a doubled blank line`);
@@ -69,6 +71,31 @@ test("skills render: every profile of the real skills renders with no markers le
   assert.match(morph["plan/SKILL.md"], /milestone spec/);
   assert.match(morph["verify/SKILL.md"], /--against origin/);
   assert.doesNotMatch(morph["triage/SKILL.md"], /\.witness\/\.env/);
+  assert.match(standalone["init/interview.md"], /Ask the user and wait for the answer/);
+  assert.doesNotMatch(standalone["init/interview.md"], /blocker/);
+  assert.match(morph["init/interview.md"], /add a blocker to your report/);
+  assert.doesNotMatch(morph["init/interview.md"], /\.witness\/\.env|Ask the user/);
+  assert.match(standalone["init/SKILL.md"], /use your defaults/);
+  assert.match(morph["init/SKILL.md"], /No one answers here/);
+  for (const p of [standalone, morph]) assert.match(p["init/SKILL.md"], /read `interview\.md`/);
+});
+
+test("skills check: reference files get their own budget, the same checks and every profile's markers", () => {
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, "ok"));
+  fs.writeFileSync(path.join(dir, "ok", "SKILL.md"), "---\nname: ok\ndescription: a skill whose detail lives in a reference file that it names below\n---\n\nRead `steps.md` at step 2.\n");
+  fs.writeFileSync(path.join(dir, "ok", "steps.md"), `<!-- if morph -->\n${"word ".repeat(REFERENCE_BUDGET)}\n<!-- endif -->\nUse the Grep tool.\n`);
+  fs.writeFileSync(path.join(dir, "ok", "unnamed.md"), "---\nname: x\n---\n<!-- if cloud -->\n<!-- endif -->\n");
+  const { problems, counts } = checkSkills(dir);
+  const msgs = problems.map((p) => `${path.basename(p.file)}:${p.line ?? "-"} ${p.message}`);
+  assert.ok(msgs.some((m) => /^steps\.md:- \d+ words in the morph profile, over the reference budget of 1500/.test(m)), msgs.join("\n"));
+  assert.ok(!msgs.some((m) => /standalone profile, over the reference budget/.test(m)), "only the morph profile renders the long block");
+  assert.ok(msgs.some((m) => m === 'steps.md:4 names an agent tool: "Grep tool"'));
+  assert.ok(msgs.some((m) => m === 'unnamed.md:4 unknown profile "cloud"; profiles: standalone, morph'));
+  assert.ok(msgs.some((m) => m === "unnamed.md:1 a reference file has no frontmatter; only SKILL.md does"));
+  assert.ok(msgs.some((m) => /^SKILL\.md:- the standalone profile never names its reference file unnamed\.md/.test(m)));
+  assert.ok(!msgs.some((m) => /never names its reference file steps\.md/.test(m)));
+  assert.equal(counts.standalone["ok/steps.md"], 4);
 });
 
 test("skills check: catches tool names, a missing description, a wrong name and the word budget", () => {
@@ -136,6 +163,11 @@ test("skills install: renders a profile with a prefix and renamed frontmatter, l
       assert.equal(text, want[`witness-${n}/SKILL.md`]);
       assert.ok(fs.existsSync(path.join(dest, `witness-${n}`, ".installed-by-witness")));
     }
+    for (const r of REFS) {
+      const text = fs.readFileSync(path.join(dest, `witness-${r}`), "utf8");
+      assert.equal(text, want[`witness-${r}`], `${r} is rendered for ${profile ?? "standalone"}`);
+      assert.doesNotMatch(text, MARKERS);
+    }
     assert.equal((await witness(PKG, ["skills", "install", "--dir", dest, ...(profile ? ["--profile", profile] : [])], { env })).code, 0, "reinstall replaces its own copies");
   }
   assert.equal((await witness(PKG, ["skills", "install", "--dir", tmp(), "--profile", "cloud"], { env })).code, 64);
@@ -173,4 +205,5 @@ test("plugins/morph/skills/witness-* are generated from the skills and up to dat
   assert.deepEqual(Object.keys(have).sort(), Object.keys(want).sort());
   for (const [k, v] of Object.entries(want)) assert.equal(have[k], v, `${k} is stale; run npm run build:plugin`);
   assert.match(want["witness-test-change/SKILL.md"], /^name: witness-test-change$/m);
+  assert.equal(want["witness-init/interview.md"], renderSkillFiles(SKILLS, "standalone")["init/interview.md"], "reference files are rendered too");
 });

@@ -1,105 +1,87 @@
 ---
 name: init
-description: Set up witness in a repo that has no .witness/witness.toml - detect the functional test suites and services, complete the config, and make witness check pass with one smoke run per suite. Use when witness says there is no config, or before the first witness run in a repo.
+description: Set up witness in a repo that has no .witness/witness.toml, or whose config no longer fits - gather the repo's facts, settle each setup decision (with the user, one question at a time), write the config and make witness check pass with one run per suite. Use when witness says there is no config, or before the first witness run in a repo.
 ---
 
 # Set up witness in a repo
 
-Output: a `.witness/witness.toml` that passes `witness check`, plus one run per suite.
-<!-- if morph -->
-
-If morph rendered `.witness/witness.toml`, keep it and start at step 3.
-<!-- endif -->
-
-## 1. Detect
+Output: a `.witness/witness.toml` that records the choices made below and passes `witness check`,
+plus one run per suite on the unchanged code.
 
 Witness runs functional tests only: tests that drive the app through its HTTP API (`kind =
 "api"`), a browser (`"ui"`), built command (`"cli"`), window (`"desktop"`) or device (`"mobile"`).
 Unit and integration tests belong to the project's own build and test scripts.
 
-Run `witness init`. It writes `.witness/witness.example.toml` and `.witness/.gitignore`, and
-proposes a suite only for test projects whose tests drive the app. It prints, and writes into the
-file as comments:
+## Facts first
 
-- excluded: each project left out, with the reason (for example `tests/UnitTests: unit (no app
-  host, HTTP client, ...)`). Do not add these back.
-- needs a filter: a project mixing functional and other tests with no folder or tag between them.
-  Narrow its commented-out `cmd` to the functional files listed, then uncomment it.
+Run `witness init --scan`. It writes nothing and prints JSON facts, each with a `confidence` and
+its `evidence` (file:line or manifest):
 
-If a guess looks wrong, read the project's tests and say so in your report.
+- `testProjects`: functional, needs-filter or excluded, with the reason and the proposed suite;
+- `commands` (setup, build, start, test, migrate, seed) from CI, package scripts, Makefiles,
+  Dockerfiles and compose files; `containers`, `urls` and `health` routes;
+- `infrastructure`: compose services with candidate commands, database URLs in env examples;
+- `env`: the names the app, tests, CI and compose read, secrets flagged (values never printed);
+- `data`: seeds, fixtures, migrations, test users; `frameworks` and `adapters`;
+- `config`: what an existing `.witness/witness.toml` covers, and what is `missing` or `unmatched`.
 
-Copy the file to `.witness/witness.toml` and complete it. Read the README, CI workflows, Makefile,
-package scripts and compose files for how the app is built, started and tested; prefer CI's commands.
+Open the evidence a decision rests on before you rely on it. Prefer CI's commands.
 
-## 2. Complete the config
-
-For each service the tests need (an API, a web front end, a worker):
-
-- `setup`: install and build (for example `npm ci && npm run build`). Witness skips it when
-  nothing changed.
-- `start`: runs the app in the foreground on the free port `${PORT}` (pass it as a flag or in `env`).
-- `ready`: `{ http = "${self.url}/health", timeout = "120s" }` with a URL that answers only when
-  the app is ready to serve, or `{ cmd = "..." }`.
-- `env`: what the app needs, including URLs of services it calls (`"${api.url}"`).
-- `depends_on`: services that must be up first.
-
-For databases and other infrastructure, add a `[[dependency]]` with a `check` command and, when it
-can be started locally, `start` and `stop` (for example `docker compose up -d db`).
+## Deciding
 
 <!-- if morph -->
-Morph supplies the project's variables and secrets. List the names the app needs in
-`[env] required`; never write a secret into a file.
+No one answers here. When morph rendered `.witness/witness.toml`, it has made stages 1 to 4: keep
+it, and edit it only to fix what `witness check` or a diagnosis shows is wrong. For any other
+decision:
+
+- A high-confidence fact that nothing contradicts settles it.
+- Otherwise take the recommendation in `interview.md`, and record a blocker for your report: the
+  question you would have asked, your choice and its evidence.
+- When it needs something only the user has (a secret, a URL, a paid service), record a blocker
+  and go on with the work that does not depend on it.
 <!-- else -->
-Put secrets and machine-specific values in `.witness/.env` (git-ignored) and list required names in
-`[env] required`.
+Settle each decision with the user, one at a time, at the stage where it matters:
+
+- Never ask what the repo answers. A high-confidence fact that nothing contradicts settles it: say
+  in one line what you chose and why.
+- Otherwise ask one question: your recommendation, its evidence, and the other options. Ask the
+  user and wait for the answer before you act on that decision.
+- If the user tells you to use your defaults, at any point, ask nothing more: take every
+  recommendation in `interview.md` and list them in your report.
+- With an existing config, ask only about what `config.missing` and `config.unmatched` name, or
+  what changed since.
 <!-- endif -->
 
-For each suite:
+The config is the record: each choice shows in `witness.toml`. Where a value alone would not say
+why (a project left out, an in-memory store instead of a database), add a one-line comment that
+names it; `--scan` counts a comment naming a project, dependency or variable as a decision made.
+Keep no other notes file.
 
-- `adapter`: the framework, so witness can read its reports and select single tests.
-- `kind` (required). For `desktop` and `mobile`, model the driver or emulator as a service.
-- `cmd`: the repo's own test command for that suite. Witness adds the report flags itself.
-- `service`: which services must be up; `[]` when the tests start the app themselves.
-- `timeout` and, when the framework supports it, `per_test_timeout`.
+## Stages
 
-Keep API and browser tests in separate suites, one per test project. `witness check` warns when a suite's tests don't drive the app; fix that with a filter or
-remove the suite.
+When you reach stage 1, read `interview.md` in this skill's folder: for each stage, what to look
+at, when it is already decided, the question and its default, and how to record the answer.
 
-## 3. Check until it passes
+1. Scope: which test projects become suites; the excluded ones; the ones that need a filter.
+2. How the app runs: a local process, Docker or compose, or an existing URL.
+3. Infrastructure: start it with compose, or use an existing database or queue.
+4. Secrets, test users and test data.
+5. Check until it passes: `witness check`, and boot failures that need a choice.
+6. Baseline: one run per suite on the unchanged code, and tests that already fail there.
+7. Commit: whether the config goes into the repo.
 
-Run `witness check`: config, dependencies, the suites' services, then each suite's test listing
-(or a smoke run). The first build can take minutes; follow the "Long commands" rules of the
-`test-change` skill.
+Builds and runs can take minutes: follow the "Long commands" rules of the `test-change` skill.
 
-It also prints each suite's capabilities (`report`, `list`, `select`, per-test timeout) and what a
-missing one costs. Fix what you can: when `select` is `none` because the
-command is compound (`cd x && ...`), put `${WITNESS_SELECT}` where the runner's arguments go; when
-`list` is `none`, add `list = "<command printing one test id per line>"` or let one full run fill it.
+Never add back an excluded project, mark a suite `generic` without a report, or drop a service's
+readiness check just to make `witness check` pass.
 
-When a stage fails, follow its diagnosis (cause, evidence, `try` commands; the `triage` skill
-explains each cause). Use `witness check --stage boot --service <name>` to work on
-one service at a time. After five rounds, stop and report what blocks you.
+## Report
 
-## 4. One run per suite
-
-Run each suite once on the unchanged code: `witness run --suite <name> --label init-<name>`.
-
-- `passed`: done with that suite.
-- `failed`: the tests themselves fail on the unchanged code. Don't fix or skip them; note them
-  so later runs can tell old failures from new.
-- `mistrial`, `error`, `stalled`: fix the setup (the `triage` skill), then run again.
-
-## 5. Finish
-
+- The services and suites configured, the check result and each suite's first VERDICT.
+- Tests that already fail on the unchanged code.
+- Anything left out, with the reason.
 <!-- if morph -->
-- Commit `.witness/witness.toml` and `.witness/.gitignore` with your tests.
+- Each blocker: the question, what you chose or what is needed, and the evidence.
 <!-- else -->
-- Commit `.witness/witness.toml` and `.witness/.gitignore` only if the user wants the config in
-  the repo. Never commit `.witness/.env` or `.witness/runs/`.
+- Each decision and who made it: the user, your default, or the repo's facts.
 <!-- endif -->
-- Report: the services and suites configured, the check result, each suite's first VERDICT, tests
-  that already fail on the unchanged code, and anything left out (with the reason, for example a
-  suite needing a paid service).
-
-Do not mark a suite as `generic` without a report, or drop a service's readiness check, just to
-make `witness check` pass.

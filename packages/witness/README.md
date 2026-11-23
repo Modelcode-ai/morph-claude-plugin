@@ -22,6 +22,7 @@ Needs Node 22.18+ (the sources use type stripping; the bundle is tested on the s
 
 ```bash
 bin/witness init                      # .witness/witness.example.toml: functional suites guessed from the repo
+bin/witness init --scan               # the repo's facts as JSON, each with confidence and evidence; writes nothing
 bin/witness check                     # config -> deps -> boot -> list tests (or a smoke run)
 bin/witness check --stage boot --against main   # does main boot? (temporary worktree, this .witness/)
 bin/witness run                       # everything; exit code is the outcome
@@ -116,6 +117,23 @@ separate the functional tests; otherwise it is listed as "needs a filter" with i
 out. Every project left out is printed with its reason and written into the file as a comment.
 `witness check` warns (it does not fail) when a configured suite's test files don't drive the app.
 
+`witness init --scan` never prompts and writes nothing: it prints JSON facts for the `init` skill to
+decide from. Every fact has `confidence` (`high`, `medium`, `low`) and `evidence` (`file:line`, a
+file or a manifest):
+
+| key | what |
+| --- | --- |
+| `testProjects` | each test project as `functional`, `needs-filter` or `excluded`, with the reason, `kind` and the proposed `suite` (`cmd`, `cwd`, `hostsApp`, `filtered`) |
+| `services` | the services `init` guesses (start, setup, ready) |
+| `commands` | `setup`, `build`, `start`, `test`, `migrate` and `seed` candidates from CI workflows (`${{ env.X }}` resolved), package scripts (`runs` holds the script), Makefiles, justfiles, Procfiles, Dockerfiles, compose and the README |
+| `containers` | compose services built from the repo: `docker compose up --build <name>`, ports, `depends_on` |
+| `infrastructure` | compose services by image (postgres, redis, ...) with candidate `start`, `stop` and `check` (the compose healthcheck run in the container when there is one); CI service containers; database URLs in env examples and `appsettings*.json` (type and host, never the value); database drivers, low confidence |
+| `urls`, `health` | URLs from launch profiles and published compose ports; health and readiness routes in the app's code, with the guessed service |
+| `env` | names the app, the tests, CI (`secrets.X`), compose and env examples read: `secret`, `testUser`, `readBy`, `exampleValue` (an example file sets a real value), `envName` for .NET and Spring config keys. Values are never printed |
+| `data` | seeds, fixtures, migrations, compose init scripts, and test users (logins from seeds, constants and functional tests) |
+| `frameworks`, `adapters` | app and test frameworks and toolchain versions; the witness adapters of the candidate suites |
+| `config` | when `.witness/witness.toml` exists: its suites, services, dependencies and required names, what the scan found that it does not cover (`missing`), and entries the scan can't tie to the repo (`unmatched`). Covered facts carry `configured`: the entry's name, or `"comment"` when only a comment in the config names it (a recorded choice). `rendered` is true when morph wrote it |
+
 Readiness: `ready` is required for every started service (an `external` service without one is
 probed at its URL; any HTTP answer below 500 counts). Before starting, witness fails with
 `port_in_use` when the ready URL names a fixed local port that something already answers on. A ready
@@ -157,6 +175,14 @@ id, so `Method(a: 1, b: 2)` and titles with commas stay whole.
 
 The agent skills live in `skills/` (`test-change` is the entry point; then `init`, `plan`, `write`,
 `verify`, `triage`). They are plain procedures that name no agent-specific tool.
+
+`init` is an interview: it reads `witness init --scan`, then settles one decision at a time, at the
+stage where it matters (scope, how the app runs, infrastructure, secrets and test data, boot
+failures, the baseline run, the commit). Each question carries a recommendation and its evidence;
+what the repo already answers is never asked, and "use your defaults" skips every question. The
+choices live in `witness.toml` itself (a one-line comment where a value doesn't explain itself), so a
+later `init` asks only about what the config doesn't cover. In the morph profile the questions
+become blockers in the report.
 
 ### Skill profiles
 
@@ -201,6 +227,12 @@ and line. Rendering drops every marker and the blank line a dropped block would 
   `plugins/morph/skills/witness-<name>`; commit the result (a test fails when it is stale).
 - `npm run check:skills` (also part of `npm test`) checks each skill as every profile renders it:
   the markers, the frontmatter, no agent-specific tool names and the 800-word budget.
+
+A skill can keep detail the agent needs only at one step in reference files: other `.md` files in
+its folder (`init/interview.md`), which `SKILL.md` names and tells the agent when to read. They take
+the same markers and are rendered per profile by `skills install`, `skills path` and
+`build:plugin`. `check:skills` gives each one a budget of 1500 words per profile, runs the same
+tool-name check, rejects frontmatter in them, and fails when a profile of `SKILL.md` never names one.
 
 ## Adapters
 
@@ -268,7 +300,7 @@ npm test                 # node --test, about 20s
 npm run typecheck
 npm run build            # bun -> dist/witness.mjs (commit it)
 npm run build:plugin     # skills (standalone profile) -> plugins/morph/skills/witness-* (commit it)
-npm run check:skills     # every profile: markers, word budget, no harness-specific tool names
+npm run check:skills     # every profile, reference files too: markers, word budgets, no harness-specific tool names
 npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario s,...]
 ```
 
