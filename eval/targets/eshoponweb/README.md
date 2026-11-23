@@ -99,3 +99,30 @@ These held up and need no change:
 - `--select` with suite-qualified ids.
 - Per-test reruns after a corrupt TRX.
 - Exit codes 0, 1, 2, 3, 4 and 5, each as the contract says.
+
+## Re-run after the review fixes (2026-11-23)
+
+Witness at the tip of `eng-10541` after the review pass (see `NOTES.md`, "Review and fix pass"), same
+eval worktree, same Docker setup. Each fault was injected, run, and reverted; `git status` in the eval
+worktree was clean afterwards and no `witness-dn-*` container was left running after any step.
+
+| Step (bug # above) | Command | Before | After | Time |
+| --- | --- | --- | --- | --- |
+| baseline | `witness run --label fix-baseline` | passed, 289 | `VERDICT passed · 291 passed, 0 failed · 5 suite(s)` (291 = 289 + the 2 new plan tests) | 35s |
+| app port taken (1) | start and ready URL fixed to 5199, `python3 -m http.server 5199` holding it | `ready_timeout` after 181s | `mistrial`, `port_in_use`, evidence `port 5199 (in ready.http ...) already accepts connections before web started`, `try: lsof -nP -iTCP:5199` | 1s |
+| wrong ready URL (2) | `/home_page_health_chek`, timeout 180s | `ready_timeout`, retryable, "raise ready.timeout" | `ready_timeout`, not retryable, evidence `... answered HTTP 404 for 30s: the app is up but this URL is not its health check`, `try: ... fix ready.http` | 34s |
+| compile error (9) | `int broken = ;` in `Basket.cs` | `report_missing` + report advice, listing attempted | `error`, `setup_failed`, evidence `Basket.cs(13,72): error CS1525`, no listing, no reruns | 4s |
+| `--against main` (3, 6) | `witness run --suite unit --against main` | origin `error` (`.witness/dotnet: No such file or directory`), target summary `1 other` | `copied the target's .witness/ (config helpers) into the worktree`; origin passed, parity 87 same; `VERDICT passed · 87 passed, 0 failed` | 20s |
+| no TRX reporter (7, 8) | `witness check --against main --suite publicapi` | `CHECK ok` | `CHECK failed`: `report_missing` with the hint to add the `PackageReference` and a `<PackageVersion ...>` to `Directory.Packages.props` (CPM detected) | 16s |
+| wrong start project (11) | `--project src/Web/Wbe.csproj` | every suite skipped | `VERDICT mistrial · 290 passed`: unit 87, integration 3, functional 56, publicapi 144 ran; only smoke-http skipped (`not run: service web exited_before_ready`) | 28s |
+| hanging test (10) | `Thread.Sleep(10 min)` test, `stall_timeout = "45s"` | `stalled`, `0 passed, 1 failed`, `try: set per_test_timeout` | `stalled`, `0 passed, 0 failed · 1 error`; try: HangDump (`--hangdump --hangdump-timeout 5m`) and `--select` to narrow down; no per_test_timeout advice | 52s |
+| e2e fixture errors (12) | `tests/EndToEndTests` suite | `failed`, `2 failed`, no diagnosis | `error`, `setup_failed`, evidence `Class fixture type '...BrowserFixture' threw in InitializeAsync · System.TimeoutException : Web app did not start within 90 seconds.`; VERDICT `0 failed · 2 error · 1 skipped` | 97s |
+| weak draft lint (13, 14) | `witness lint WeakDraftTest.cs` (a `WeakDraftTest` class reusing P1's method name, and an `IndexTest` test for P2 with only `EnsureSuccessStatusCode()`) | P1 matched in the wrong class; status-only test passed | `WeakDraftTest` no longer matched to P1; `status-only: P2 expects "GET /basket ... shows the item with quantity 1 ..." but ... only checks the status code` | <1s |
+| verify | `witness run --label fix-verify --against witness-eval-base` | passed, 289 same, 2 target_only | same result: `VERDICT passed · 291 passed · against witness-eval-base: origin passed, 0 differ` | 80s |
+| plan | `witness plan check`, then the printed `--select` run | `PLAN ok · 5 found`; 5 passed | same | 21s + 6s |
+| SIGINT | Ctrl-C during functional | interrupted, exit 5 | same; no container left | 4s |
+
+Still open from the list above: 4 is improved only when the framework names the report path in its
+log (dotnet does); 5 (new tests always `target_only` in worktree mode); 10 (the hung test is still not
+named without HangDump); 15 (display names, `filePath` for dotnet, escaped quotes in xunit v3 ids,
+rerun cost).
