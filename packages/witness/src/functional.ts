@@ -279,7 +279,7 @@ function batsTarget(code: string, e: Entries | undefined): string | undefined {
   for (const line of code.split("\n").filter((l) => !/^\s*#/.test(l))) {
     const m = /^\s*(?:run\s+(?:-\d+\s+|--[\w-]+\s+|!\s+)*|!\s+)?(\S+)/.exec(line);
     const w = m?.[1].replace(/^["']|["']$/g, "");
-    if (!w || w.startsWith("@") || w.startsWith("#") || /^\w+=/.test(w) || /^(assert|refute)\w*$/.test(w) || SH_NOT_APP.has(w) || defined.has(w)) continue;
+    if (!w || /[(){}]/.test(w) || w.startsWith("@") || w.startsWith("#") || /^\w+=/.test(w) || /^(assert|refute)\w*$/.test(w) || SH_NOT_APP.has(w) || defined.has(w)) continue;
     if (/^\$\{?(output|status|lines|BATS_\w*OUTPUT|stderr|[0-9@*#?])\b/.test(w) || /^\$\{?[0-9@*#?]/.test(w)) continue;
     if (w.includes("/") || w.startsWith("$") || e?.names.includes(w) || pathChanged) return w;
   }

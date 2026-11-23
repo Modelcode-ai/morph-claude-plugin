@@ -84,6 +84,12 @@ describe("CLI tests: the app's built binary or command, not its functions", () =
     for (const [f, src] of unit) assert.equal(kindOf(f, src), null, f);
   });
 
+  test("the kit's bats project: the CLI goes on PATH in setup() and runs by name", () => {
+    const g = guess(path.join(PKG, "conformance", "projects", "cli-bats"));
+    assert.deepEqual(g.suites.map((s) => [s.adapter, s.kind, s.cmd]), [["bats", "cli", "npx bats test"]]);
+    assert.match(g.suites[0].why, /runs kit-items/);
+  });
+
   test("check warns about a CLI suite whose files only call functions", () => {
     const cfg = parseConfig(parse(`version = 1\n[[suite]]\nname = "u"\nkind = "cli"\nadapter = "bats"\ncwd = "bats/unit"\ncmd = "bats test"\n[[suite]]\nname = "c"\nkind = "cli"\nadapter = "bats"\ncwd = "bats/cli"\ncmd = "bats test"\n`) as Record<string, unknown>, path.join(CLI, ".witness", "witness.toml"));
     assert.deepEqual(functionalWarnings(cfg).map((w) => w.suite), ["u"]);
