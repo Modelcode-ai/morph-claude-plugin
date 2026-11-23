@@ -13,13 +13,14 @@ Witness `1.0.0-mvp` (branch `eng-10541`, commit 6bacb7e) was run on a clean upst
 
 | File | What it is |
 | --- | --- |
-| `witness/witness.toml` | The config. `witness init` produced it, then I edited it by following the `init` skill. It has 1 service (`web`, in-memory DB, ready on `/home_page_health_check`) and 5 suites (`unit`, `integration`, `functional`, `publicapi`, `smoke-http`). |
+| `witness/witness.toml` | The config since ENG-10574: 1 service (`web`) and the 3 functional suites (`functional`, `publicapi`, `e2e`). See [Functional scope and Playwright e2e](#functional-scope-and-playwright-e2e-eng-10574-phase-1). The earlier 5-suite config, which `witness init` produced and I edited by following the `init` skill, is in `patches/0001`. |
 | `witness/dotnet` | A wrapper that runs `dotnet` in the SDK 11 image. It mounts the checkout at its own path, so the host paths witness passes (`--results-directory`) also work inside the container. It also forwards `WITNESS_*` and app env vars, publishes `${PORT}`, and removes the container on SIGTERM. |
+| `witness/dotnet-host` | A wrapper that runs `dotnet` from a host SDK 11 at `$DOTNET_HOST_ROOT`, with `--artifacts-path .witness/cache/host-artifacts`, so host builds never share `bin/` or `obj/` with container builds. The `e2e` suite uses it. |
 | `witness/plan.yaml` | The test plan for the change in step 4. |
 | `compare.py` | Compares a run's CTRF counts with its TRX files and with dotnet's `total:` line: `python3 compare.py <run dir>`. |
-| `patches/` | The 7 local commits on branch `witness-eval` in `~/work/witness-targets/eShopOnWeb-witness-eval`: config, TrxReport package, the change, plan, tests, wrapper fix, plan fix. |
+| `patches/` | The local commits in `~/work/witness-targets/eShopOnWeb-witness-eval`. 0001-0007 are on branch `witness-eval`: config, TrxReport package, the change, plan, tests, wrapper fix, plan fix. 0008-0009 are on branch `eng-10574`: the `BrowserFixture` change and the functional-scope config. |
 
-To reproduce: `git am patches/*.patch` on a clone of eShopOnWeb at `aed6281`, then `witness check` and `witness run`. This needs Docker, the SDK 11 image and the `eshop-nuget` volume.
+To reproduce: `git am patches/*.patch` on a clone of eShopOnWeb at `aed6281`, then `witness check` and `witness run`. This needs Docker, the SDK 11 image and the `eshop-nuget` volume. Since 0009 it also needs a host SDK 11 named in `.witness/.env` (`DOTNET_HOST_ROOT=...`) and Chromium 1248 (see the e2e section).
 
 ## Results
 
@@ -126,3 +127,83 @@ Still open from the list above: 4 is improved only when the framework names the 
 log (dotnet does); 5 (new tests always `target_only` in worktree mode); 10 (the hung test is still not
 named without HangDump); 15 (display names, `filePath` for dotnet, escaped quotes in xunit v3 ids,
 rerun cost).
+
+## Functional scope and Playwright e2e (ENG-10574, phase 1)
+
+### Summary
+
+- **Scope.** The earlier runs counted 291 tests, but `unit` and `integration` are not functional tests, and `smoke-http` repeated the `web` ready check. The config now has only the functional suites: `functional` (56, in-process WebApplicationFactory), `publicapi` (144, in-process API) and `e2e` (3, Playwright .NET).
+- **e2e runs and passes.** `witness run`: `VERDICT passed · 202 passed, 0 failed · 1 skipped · 3 suite(s) · 24s` (run `r-20261123-105002-ede6`). The skipped test is the repo's intentional failure demo.
+- **The app runs in Docker; Playwright and Chromium run on the host.** The `web` container publishes its port on `127.0.0.1`. The e2e suite builds with a host SDK 11 and gets `E2E_BASE_URL = "${web.url}"`.
+- **Failure artifacts are captured.** With the demo's `Skip` removed, `artifacts.json` lists the screenshot, trace and video under the failing test's id (run `r-20261123-104806-533e`). This needed one Witness fix (commit `426711c`).
+
+### How e2e runs
+
+```toml
+[[suite]]
+name = "e2e"
+adapter = "dotnet"
+cwd = "."
+cmd = ".witness/dotnet-host test --project tests/EndToEndTests/EndToEndTests.csproj"
+service = ["web"]
+env = { E2E_BASE_URL = "${web.url}" }
+timeout = "10m"
+```
+
+The `web` service is unchanged: `.witness/dotnet run ... --urls http://0.0.0.0:${PORT}` in the SDK 11 image, published on `127.0.0.1:${PORT}`, ready on `/home_page_health_check`. `[env] required = ["DOTNET_HOST_ROOT"]`; `.witness/.env` (gitignored) sets it to the host SDK 11 root. Without it the run stops at once: `mistrial · missing_env · missing: DOTNET_HOST_ROOT`.
+
+One-time host setup:
+
+```bash
+export DOTNET_HOST_ROOT=<sdk 11 root>
+.witness/dotnet-host build tests/EndToEndTests/EndToEndTests.csproj
+# Microsoft.Playwright 1.64.1 wants chromium 1248 (.playwright/package/browsers.json); no pwsh needed
+B=.witness/cache/host-artifacts/bin/EndToEndTests/debug/.playwright
+$B/node/darwin-arm64/node $B/package/cli.js install chromium
+```
+
+The install took 10s and put `chromium-1248` and `chromium_headless_shell-1248` in `~/Library/Caches/ms-playwright`. The cached revisions (1208, 1217, 1223) did not match.
+
+`BrowserFixture` change (patch 0008), kept minimal:
+
+- `E2E_BASE_URL` set: `BaseUrl` is that URL and the fixture does not start the app. Unset: it runs `dotnet run` at `https://localhost:5001` as before.
+- `WITNESS_ARTIFACTS` set: the artifacts root is that folder, and each test writes to `<root>/<Class>#<method>/` (`failure.png`, `trace.zip`, `video/*.webm`), using xunit's `TestContext.Current.TestClass.TestClassName`. Unset: `TestResults/PlaywrightArtifacts/<test>-<timestamp>/` as before.
+
+### HTTP, HTTPS and the Secure cookie
+
+The app is served over plain HTTP at `http://127.0.0.1:<port>`. Nothing broke:
+
+- `UseHttpsRedirection` does not redirect. With no HTTPS endpoint it logs `Failed to determine the https port for redirect.` and passes the request through.
+- The basket cookie (`eShop`) and the antiforgery cookie have no `Secure` flag. The demo test added an item, and the basket page showed it with the cart count at 1 (`failure.png` in the artifact run).
+- The identity cookie `EshopIdentifier` has `SecurePolicy = Always`. No e2e test logs in, so I checked it separately with the same Chromium 1248 against `witness up`. Logging in as `demouser@eshop.test` got `Set-Cookie: EshopIdentifier=…; path=/; secure; samesite=strict; httponly`. Chromium stored it (`secure=true`), and the header showed the user, on both `http://127.0.0.1` and `http://localhost`. Chromium treats loopback as a trustworthy origin. The same cookie would be dropped on a non-loopback HTTP host, for example a Docker network name, so keep the published port on `127.0.0.1`.
+
+### Results
+
+| Step | Command | Result | Time | Run id |
+| --- | --- | --- | --- | --- |
+| manual | web via `.witness/dotnet run` on 5188; `E2E_BASE_URL=http://127.0.0.1:5188 .witness/dotnet-host test --project tests/EndToEndTests/...` | `total: 3, succeeded: 2, skipped: 1` | 6s | - |
+| check | `witness check` | `CHECK ok`. Listed functional 56, publicapi 107 (data rows are counted at run time: 144), e2e 3. | 20s | - |
+| run | `witness run --label eng-10574-functional` (config uncommitted, same content) | `VERDICT passed · 202 passed, 0 failed · 1 skipped · 3 suite(s)` | 26s | `r-20261123-104606-dc7b` |
+| demo failure, before the fix | `Skip` removed; `witness run --suite e2e` | `failed · 2 passed, 1 failed`. Screenshot, trace and video in `artifacts.json`, each with `test_id: null` | 45s | `r-20261123-104642-8bac` |
+| demo failure, after the fix | same | `failed · 2 passed, 1 failed`, exit 1. Screenshot (533 KB), trace (2.8 MB) and video (2.2 MB), each with `test_id: dotnet:Microsoft.eShopWeb.EndToEndTests.Playwright.BasketTests#Cart_AddItem_ShowsExpectedTotal` | 39s | `r-20261123-104806-533e` |
+| select | `witness run --select 'e2e:dotnet:...CatalogTests#HomePage_ShowsCatalog'` | `--filter FullyQualifiedName=...` passed through the wrapper; `1 passed` | 6s | `r-20261123-104950-1368` |
+| missing host SDK | `.witness/.env` moved away; `witness run` | `mistrial · missing_env · missing: DOTNET_HOST_ROOT` | 0s | `r-20261123-104956-a4ec` |
+| final | `witness run --label eng-10574-final` (clean tree, `Skip` restored) | `VERDICT passed · 202 passed, 0 failed · 1 skipped · 3 suite(s)` | 24s | `r-20261123-105002-ede6` |
+| counts | `compare.py` on the final run | CTRF, TRX and dotnet's `total:` agree: e2e 2+1 skipped, functional 56, publicapi 144 | - | - |
+
+No `witness-dn-*` container was left after any step, including `witness up` / `witness down`.
+
+### Findings
+
+1. **Witness bug, fixed: artifacts in a folder named with the raw test id were not linked to the test.** `collectArtifacts` (`src/suite.ts`) looked the folder name up against sanitized ids only (`safeId`: `Class_method`). A folder named `Class#method`, the id Witness itself shows, was listed with `"test_id": null` (run `r-20261123-104642-8bac`):
+
+   ```json
+   { "file": "artifacts/Microsoft.eShopWeb.EndToEndTests.Playwright.BasketTests#Cart_AddItem_ShowsExpectedTotal/failure.png",
+     "artifact_type": "screenshot",
+     "test_name": "Microsoft.eShopWeb.EndToEndTests.Playwright.BasketTests#Cart_AddItem_ShowsExpectedTotal",
+     "test_id": null, ... }
+   ```
+
+   The fix sanitizes the folder name before the lookup, so both forms match. There is a regression test in `test/eval-fixes.test.ts`.
+2. **The repo's failure demo fails one step early.** `Cart_AddItem_ShowsExpectedTotal` should fail on `Expect(page.GetByText("$999.99"))`. It times out after 30s on `GetByRole(AriaRole.Link, new() { Name = "Basket" })`, because clicking "Add to Basket" already opens the basket page and the cart icon has no accessible name "Basket". The artifacts are produced either way. This is in the upstream test, so I left it.
+3. **Rough edge: `witness check` lists 107 publicapi tests while the run counts 144.** `--list-tests` lists each theory once, and the run reports each data row. Known; not new.

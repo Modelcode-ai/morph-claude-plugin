@@ -1,0 +1,9 @@
+#!/bin/sh
+# dotnet from a host SDK 11 at $DOTNET_HOST_ROOT, for suites whose browser runs on the host (the app stays in .witness/dotnet).
+# Its own artifacts path keeps host builds out of the bin/ and obj/ that the container builds use.
+root=$(cd "$(dirname "$0")/.." && pwd)
+: "${DOTNET_HOST_ROOT:?set DOTNET_HOST_ROOT to an SDK 11 install, in .witness/.env}"
+export DOTNET_ROOT="$DOTNET_HOST_ROOT" DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+verb=$1
+shift
+exec "$DOTNET_HOST_ROOT/dotnet" "$verb" --artifacts-path "$root/.witness/cache/host-artifacts" "$@"
