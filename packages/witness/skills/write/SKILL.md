@@ -64,15 +64,16 @@ is wrong.
 
 ## 5. Run only the new tests
 
-Run the new and changed tests once:
+Run the new and changed tests once. `witness plan check` ends with the exact command, for
+example:
 
 ```
-witness run --suite <suite> --select <id>,<id>
+witness run --select 'api:pytest:tests/e2e/test_invoices.py::test_update_due_date,unit:dotnet:Ns.InvoiceTests#RejectsPastDates'
 ```
 
-Use the ids exactly as in the plan. Add `--suite` whenever more than one suite uses the same
-adapter. This can take minutes (it boots the app); follow the "Long commands" rules of the
-`test-change` skill and act on the VERDICT line.
+Each id there is prefixed with the suite that owns it, so only those suites run. This can take
+minutes (it builds and may boot the app); follow the "Long commands" rules of the `test-change`
+skill and act on the VERDICT line.
 
 - `passed`: go on to the `verify` skill.
 - `failed`: read each failure's message in the output or in
