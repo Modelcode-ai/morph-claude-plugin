@@ -488,7 +488,7 @@ export function collectArtifacts(runDir: string, outDir: string, tests: TestReco
   };
   try {
     for (const e of fs.readdirSync(artDir, { withFileTypes: true })) {
-      if (e.isDirectory()) walk(path.join(artDir, e.name), bySafe.get(e.name), e.name);
+      if (e.isDirectory()) walk(path.join(artDir, e.name), bySafe.get(safeId(e.name)), e.name);
     }
   } catch {
     /* none */

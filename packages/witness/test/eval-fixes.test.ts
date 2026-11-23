@@ -2,8 +2,11 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as net from "node:net";
+import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
+import type { TestRecord } from "../src/reconcile.ts";
+import { collectArtifacts } from "../src/suite.ts";
 import { alive, APPS, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
@@ -249,5 +252,18 @@ ${suite("slow")}${RUN}`);
     const r2 = await witness(dir, ["run", "--suite", "fake"], { env: {} });
     assert.match(r2.stderr, /reaped stale run r-\S+ \(killed \d+ leftover/);
     assert.equal(alive(daemon), false);
+  });
+});
+
+describe("eShopOnWeb eval fixes: artifacts", () => {
+  test("a folder named with the raw test id (Class#method) is linked to its test", () => {
+    const run = fs.mkdtempSync(path.join(os.tmpdir(), "witness-arts-"));
+    const dir = path.join(run, "artifacts", "Ns.BasketTests#AddItem");
+    fs.mkdirSync(path.join(dir, "video"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "failure.png"), "x");
+    fs.writeFileSync(path.join(dir, "video", "page.webm"), "x");
+    const t = { id: "dotnet:Ns.BasketTests#AddItem", name: "Ns.BasketTests#AddItem", suite: "e2e", adapter: "dotnet", status: "failed", durationMs: 1, obtained: "report" } as TestRecord;
+    const arts = collectArtifacts(run, run, [t]);
+    assert.deepEqual(arts.map((a) => [a.artifact_type, a.test_id]).sort(), [["screenshot", t.id], ["video", t.id]]);
   });
 });
