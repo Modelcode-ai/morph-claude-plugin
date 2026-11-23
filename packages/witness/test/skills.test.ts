@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { pluginFiles } from "../scripts/build-plugin.ts";
+import { generatedDirs, PLUGIN_SKILLS, pluginFiles } from "../scripts/build-plugin.ts";
 import { BANNED, checkSkills, WORD_BUDGET } from "../scripts/check-skills.ts";
 import { frontmatter, installSkills, listSkills, skillsDir } from "../src/skills.ts";
 import { PKG, witness } from "./helpers.ts";
@@ -88,21 +88,14 @@ test("skills install: copies with a prefix and renamed frontmatter, links, refus
   assert.equal((await witness(PKG, ["skills"])).code, 64);
 });
 
-test("harness/claude is generated from the skills and up to date (npm run build:plugin)", () => {
-  const out = path.join(PKG, "harness", "claude");
+test("plugins/morph/skills/witness-* are generated from the skills and up to date (npm run build:plugin)", () => {
   const want = pluginFiles();
   const have: Record<string, string> = {};
-  const walk = (d: string) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const f = path.join(d, e.name);
-      if (e.isDirectory()) walk(f);
-      else have[path.relative(out, f)] = fs.readFileSync(f, "utf8");
-    }
-  };
-  walk(out);
+  for (const d of generatedDirs()) {
+    const dir = path.join(PLUGIN_SKILLS, d);
+    for (const f of fs.readdirSync(dir)) have[`${d}/${f}`] = fs.readFileSync(path.join(dir, f), "utf8");
+  }
   assert.deepEqual(Object.keys(have).sort(), Object.keys(want).sort());
   for (const [k, v] of Object.entries(want)) assert.equal(have[k], v, `${k} is stale; run npm run build:plugin`);
-  const manifest = JSON.parse(want[".claude-plugin/plugin.json"]);
-  assert.equal(manifest.name, "witness");
-  assert.equal(manifest.version, JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version);
+  assert.match(want["witness-test-change/SKILL.md"], /^name: witness-test-change$/m);
 });

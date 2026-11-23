@@ -59,6 +59,12 @@ Claude Code asks before each call to Morph. You can allow the read-only ones for
 
 In auto mode, Claude Code doesn't ask before each call. It makes the changes you ask for, such as starting a run when you say "start milestone 1", and can refuse a change in Morph that you didn't ask for. To let a refused call through, switch out of auto mode (Shift+Tab) and ask again, then approve it when Claude Code asks. Or allow it for good with `/permissions`, for example `mcp__plugin_morph_morph__start_milestone_execution` to start runs. To keep Claude Code from making a change, deny its tool with `/permissions`. On a billed plan, Claude Code still shows the price and waits for your yes before starting a run.
 
+## Test changes with Witness
+
+The plugin also has the Witness skills (`witness-test-change` and the steps it runs: `witness-init`, `witness-plan`, `witness-write`, `witness-verify`, `witness-triage`). They work without a Morph account. Ask "Test this change with Witness." Claude Code plans the expected behaviour, writes functional tests in the repo's own framework, and runs them through the `witness` command, which starts the app, waits until it's ready and records each test's result.
+
+The skills need `witness` on your PATH. Until it's published, link it from a clone of this repo: `npm --prefix packages/witness ci && ln -s "$PWD/packages/witness/bin/witness" /usr/local/bin/witness` (Node 22.18 or later). See [packages/witness/README.md](packages/witness/README.md).
+
 ## What it can't do yet
 
 Pausing or steering a running agent, approving a project spec, changing a rule's status (draft, published or archived), planning a roadmap, adding an ad-hoc milestone or an upstream sync, and adding, removing or renaming a project's repositories still happen in the Morph UI. Claude Code gives you the link.
@@ -72,3 +78,11 @@ Pausing or steering a running agent, approving a project spec, changing a rule's
 - **"Morph can't confirm your Claude Code sign-in right now".** Morph couldn't check your sign-in before a change. Try again in a minute.
 - **"Project N not found".** The project isn't in your organization. Ask "What are my Morph projects?" to see the ones you can open.
 - **"You don't have the … permission".** Your role in Morph doesn't allow that action. Ask an admin of your organization.
+
+## Repository layout
+
+| Path | What |
+| --- | --- |
+| `plugins/morph/` | The Claude Code plugin. `skills/witness-*` are generated from `packages/witness/skills` (`npm --prefix packages/witness run build:plugin`); don't edit them by hand. |
+| `packages/witness/` | The Witness CLI (TypeScript), its agent skills, tests and evaluations. |
+| `docs/witness/` | Witness plans, status and build notes. |

@@ -1,7 +1,7 @@
 {
   "name": "morph",
-  "version": "0.6.0",
-  "description": "Run your Morph projects from Claude Code: see where every milestone stands, start and retry milestone runs, follow them, review them, and read and edit the project's wiki, rules and spec.",
+  "version": "0.7.0",
+  "description": "Run your Morph projects from Claude Code: see where every milestone stands, start and retry milestone runs, follow them, review them, and read and edit the project's wiki, rules and spec, and test code changes with Witness.",
   "author": {
     "name": "Modelcode"
   },

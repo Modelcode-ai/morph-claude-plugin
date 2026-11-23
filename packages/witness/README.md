@@ -113,9 +113,8 @@ id, so `Method(a: 1, b: 2)` and titles with commas stay whole.
 The agent skills live in `skills/` (`test-change` is the entry point; then `init`, `plan`, `write`,
 `verify`, `triage`). They are plain procedures that name no agent-specific tool;
 `npm run check:skills` (also part of `npm test`) enforces that and an 800-word budget.
-`npm run build:plugin` generates `harness/claude/`, a Claude Code plugin and local marketplace with
-the same skills (`claude plugin marketplace add packages/witness/harness/claude`, then
-`claude plugin install witness@witness-local`). For other agents, `witness skills install --dir <dir>`
+`npm run build:plugin` copies them into the repo's `morph` Claude Code plugin as
+`plugins/morph/skills/witness-<name>`; commit the result (a test fails when it is stale). For other agents, `witness skills install --dir <dir>`
 copies them as `witness-<name>` (or links them with `--link`, keeping their own names).
 
 ## Adapters
@@ -178,7 +177,7 @@ npm install
 npm test                 # node --test, about 20s
 npm run typecheck
 npm run build            # bun -> dist/witness.mjs (commit it)
-npm run build:plugin     # skills -> harness/claude (commit it)
+npm run build:plugin     # skills -> plugins/morph/skills/witness-* (commit it)
 npm run check:skills     # word budget and no harness-specific tool names
 ```
 

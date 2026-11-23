@@ -19,3 +19,21 @@ jobs:
         run: claude plugin validate .
       - name: Validate the plugin
         run: claude plugin validate plugins/morph
+
+  witness:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/witness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check:skills
+      - name: The bundle is up to date
+        run: npm run build && git diff --exit-code dist/
