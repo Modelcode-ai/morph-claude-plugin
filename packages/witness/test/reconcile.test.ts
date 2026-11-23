@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { ADAPTERS } from "../src/adapters.ts";
 import { buildCtrf } from "../src/ctrf.ts";
 import type { ParsedFile, RawCase } from "../src/parsers/types.ts";
-import { applyParity, dedupe, fromReruns, reconcile, type TestRecord, toRecord, worst } from "../src/reconcile.ts";
+import { applyParity, dedupe, fromReruns, reconcile, summarize, type TestRecord, toRecord, worst } from "../src/reconcile.ts";
 import { verdictSummary } from "../src/run.ts";
 
 const A = ADAPTERS["junit-maven"];
@@ -69,6 +69,8 @@ describe("reconciliation rules", () => {
     assert.equal(s.cause, "stalled");
     assert.equal(s.tests.find((t) => t.id.endsWith("#b"))?.statusDetail, "timeout");
     assert.equal(run([], null, { end: "timeout" }).cause, "suite_timeout");
+    const hung = run([], null, { end: "stalled" });
+    assert.deepEqual([summarize("s", hung.state, hung.tests).failed, summarize("s", hung.state, hung.tests).error], [0, 1], "a hung suite is an error row, not a failed test");
     assert.equal(run([], null, { end: "service_died" }).cause, "service_died");
   });
 

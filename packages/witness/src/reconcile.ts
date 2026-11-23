@@ -107,7 +107,7 @@ export function summarize(name: string, state: SuiteState, tests: TestRecord[]):
   for (const t of tests) {
     if (t.status === "passed") s.passed++;
     else if (t.status === "skipped" || t.status === "pending") s.skipped++;
-    else if (t.status === "failed" && t.statusDetail !== "error") s.failed++;
+    else if (t.status === "failed" && !t.statusDetail) s.failed++;
     else if (t.statusDetail === "missing") s.missing++;
     else s.error++;
   }
