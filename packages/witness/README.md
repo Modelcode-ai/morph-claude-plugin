@@ -1,18 +1,24 @@
 # witness
 
-`witness` boots the services a repo needs, runs the repo's own test suites, and decides pass or fail
-from the reports and exit codes that it collected itself. Every run gets a directory with live status,
+`witness` boots the services a repo needs, runs the repo's own functional test suites, and decides
+pass or fail from the reports and exit codes that it collected itself. Every run gets a directory with live status,
 logs, raw reports, a CTRF results file and an artifacts manifest. When something goes wrong before
 the tests could say anything, the output is a cause code plus the log line behind it, not a guess.
 
 No AI model calls happen inside the CLI.
+
+Functional tests only: a suite's tests drive the app through its HTTP API (`kind = "api"`, with the
+app in the test process, such as `WebApplicationFactory`, FastAPI `TestClient`, supertest or
+`MockMvc`, or at a URL) or in a browser (`kind = "ui"`: Playwright, Cypress, Selenium, Capybara).
+Unit tests, and integration tests that call a repository or database directly, are left to the
+project's own build and test scripts.
 
 ## Run it
 
 Needs Node 22.18+ (the sources use type stripping; the bundle is tested on the same version).
 
 ```bash
-bin/witness init                      # .witness/witness.example.toml guessed from the repo
+bin/witness init                      # .witness/witness.example.toml: functional suites guessed from the repo
 bin/witness check                     # config -> deps -> boot -> list tests (or a smoke run)
 bin/witness check --stage boot --against main   # does main boot? (temporary worktree, this .witness/)
 bin/witness run                       # everything; exit code is the outcome
@@ -52,7 +58,8 @@ ready = { http = "${self.url}/health", timeout = "120s" }   # required; { cmd = 
 
 [[suite]]
 name = "api-e2e"
-service = "api"                          # omit: all target services; [] : none
+kind = "api"                             # required: "api" (HTTP) or "ui" (browser)
+service = "api"                          # omit: all target services; [] : none (tests host the app)
 adapter = "pytest"
 cmd = "pytest tests/e2e"
 per_test_timeout = "120s"
@@ -70,6 +77,15 @@ Additions beyond the shared contract: `suite.select` (a command template with `{
 for adapters that can't select tests on their own), `service.origin_for` (which target an
 `role = "origin"` service stands in for; defaults to the name minus `-origin`) and
 `run.kill_grace` (SIGTERM to SIGKILL delay, default 5s).
+
+`witness init` reads each test project (per csproj, pytest root, package.json, Maven/Gradle
+build, go module, Gemfile, phpunit.xml) and classifies its test files from imports, package
+references and calls (`src/functional.ts`). It proposes a suite only for projects whose tests drive
+the app, sets `kind` (`ui` when a browser driver is used) and `service = []` when the tests start the
+app themselves. A mixed project gets a filtered command when a folder, tag or a few test classes
+separate the functional tests; otherwise it is listed as "needs a filter" with its suite commented
+out. Every project left out is printed with its reason and written into the file as a comment.
+`witness check` warns (it does not fail) when a configured suite's test files don't drive the app.
 
 Readiness: `ready` is required for every started service (an `external` service without one is
 probed at its URL; any HTTP answer below 500 counts). Before starting, witness fails with
@@ -147,8 +163,10 @@ reads it through `report = "<glob>"`. Stable test ids are `<adapter>:<id>`: a py
 ```
 
 The CTRF file carries `results.extra.witness` (run id, outcome, commit, branch, dirty, source,
-against, diagnosis) and per-test `extra.witness` (id, suite, adapter, obtained, status_detail,
-parity, origin_status).
+against, diagnosis) and per-test `extra.witness` (id, suite, kind, adapter, obtained, status_detail,
+parity, origin_status). Each suite in `status.json` has `kind` and `services`: the services witness
+started for it, empty when the tests host the app themselves (they don't exercise those services,
+and `--against` with origin services tests the same code twice). `witness report` shows both.
 
 Reconciliation, in short: failures in the report are trusted; a clean report with a non-zero exit is
 `error` (report_incomplete); a test that was asked for but isn't in the report is `other/missing`; an
@@ -182,4 +200,5 @@ npm run check:skills     # word budget and no harness-specific tool names
 ```
 
 Fixtures live in `testdata/`: report corpus per framework (including broken files) under
-`testdata/reports/`, and small node apps for the integration tests under `testdata/apps/`.
+`testdata/reports/`, small node apps for the integration tests under `testdata/apps/`, and one
+unit, functional and mixed repo per stack for the `init` classifier under `testdata/functional/`.

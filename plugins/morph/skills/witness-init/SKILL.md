@@ -1,6 +1,6 @@
 ---
 name: witness-init
-description: Set up witness in a repo that has no .witness/witness.toml - detect the test frameworks and services, complete the config, and make witness check pass with one smoke run per suite. Use when witness says there is no config, or before the first witness run in a repo.
+description: Set up witness in a repo that has no .witness/witness.toml - detect the functional test suites and services, complete the config, and make witness check pass with one smoke run per suite. Use when witness says there is no config, or before the first witness run in a repo.
 ---
 
 # Set up witness in a repo
@@ -9,11 +9,22 @@ Output: `.witness/witness.toml` that passes `witness check`, and one run per sui
 
 ## 1. Detect
 
-Run `witness init`. It writes `.witness/witness.example.toml` with the suites and services it
-could guess from the repo (pytest, Maven, Gradle, .NET, jest, vitest, Playwright, go, mocha,
-RSpec, PHPUnit, and web apps it recognises), and `.witness/.gitignore`.
+Witness runs functional tests only: tests that drive the app through its HTTP API (`kind =
+"api"`, with the app in the test process or at a URL) or in a browser (`kind = "ui"`). Unit and
+integration tests belong to the project's own build and test scripts.
 
-Copy it to `.witness/witness.toml` and complete it. Read the repo's README, CI workflow files,
+Run `witness init`. It writes `.witness/witness.example.toml` and `.witness/.gitignore`, and
+proposes a suite only for test projects whose tests drive the app. It prints, and writes into the
+file as comments:
+
+- excluded: each project left out, with the reason (for example `tests/UnitTests: unit (no app
+  host, HTTP client or browser driver)`). Do not add these back.
+- needs a filter: a project mixing functional and other tests with no folder or tag between them.
+  Narrow its commented-out `cmd` to the functional files listed, then uncomment it.
+
+If a guess looks wrong, read that project's tests, decide, and say so in your report.
+
+Copy the file to `.witness/witness.toml` and complete it. Read the repo's README, CI workflow files,
 Makefile, package scripts, Dockerfile and compose files: they show how the app is built, started
 and tested. Prefer the commands CI uses.
 
@@ -39,12 +50,14 @@ Put secrets and machine-specific values in `.witness/.env` (git-ignored) and lis
 For each suite:
 
 - `adapter`: the framework, so witness can read its reports and select single tests.
+- `kind`: `api` or `ui` (required).
 - `cmd`: the repo's own test command for that suite. Witness adds the report flags itself.
-- `service`: which services must be up (`[]` for unit tests that need none).
+- `service`: which services must be up; `[]` when the tests start the app themselves.
 - `timeout` and, when the framework supports it, `per_test_timeout`.
 
-Keep unit, integration and end-to-end tests in separate suites, one per test project where the
-framework works per project.
+Keep API and browser tests in separate suites, one per test project where the framework works per
+project. `witness check` warns when a suite's tests don't drive the app; fix that with a filter or
+remove the suite.
 
 ## 3. Check until it passes
 

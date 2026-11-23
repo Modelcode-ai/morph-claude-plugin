@@ -11,6 +11,9 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 ## Rules for every step
 
+- Witness runs functional tests only: tests that drive the app through its HTTP API or in a
+  browser. Unit and integration tests stay with the project's own build and test scripts; do not
+  add them to the witness config, the plan or the tests you write.
 - Pass or fail comes only from `witness run`. Never write, edit or delete anything under
   `.witness/runs/`, and never report a result that witness did not print.
 - Never make a test pass by weakening it: do not delete or loosen assertions, add skips, catch and

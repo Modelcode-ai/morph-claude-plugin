@@ -1,6 +1,6 @@
 ---
 name: witness-write
-description: Write or update the tests named in .witness/plan.yaml, in the repo's own test framework and style, then lint them and run just those tests with witness. Use after the plan skill, or when a change needs new or updated tests.
+description: Write or update the functional tests named in .witness/plan.yaml, in the repo's own test framework and style, then lint them and run just those tests with witness. Use after the plan skill, or when a change needs new or updated tests.
 ---
 
 # Write the tests in the plan
@@ -10,16 +10,21 @@ Input: `.witness/plan.yaml`. Output: the plan's tests exist, `witness lint` is c
 
 ## 1. Learn the local style
 
+Write functional tests only: each test drives the app through its HTTP API or in a browser. No
+unit tests, and no tests that read the database directly.
+
 For each suite your plan uses (see `.witness/witness.toml`):
 
-- Open two or three existing tests in the same folder that test similar behavior (same API,
-  page or module). Imitate them: file naming, fixtures, helpers, how they get the app's URL, test
-  data setup and cleanup, assertion library.
-- Suites that test a running app get its address from witness in environment variables:
-  `WITNESS_<SERVICE>_URL` (for example `WITNESS_API_URL`). Use the variable the existing tests use,
-  or that one. Never hard-code a host or port.
+- Open two or three existing tests in the same folder that test similar behavior (same API or
+  page). Imitate them: file naming, fixtures, helpers, how they reach the app, test data setup
+  and cleanup, assertion library.
+- Prefer tests that call the app witness started. Witness gives every suite each running
+  service's URL as `WITNESS_<SERVICE>_URL` (`WITNESS_WEB_URL` for a service named `web`), and
+  `${web.url}` works in the suite's `cmd` and `env`. Such tests exercise the configured app, and
+  `--against` with an origin service runs them against both apps; tests that start their own
+  copy (`service = []`) test the same code twice. Never hard-code a host or port.
 - Use the framework the repo already uses for that kind of test. Add a new framework only if the
-  repo has no test of that kind at all, and say so in your report.
+  repo has none for that kind of test, and say so in your report.
 
 ## 2. Write each test
 
@@ -29,9 +34,8 @@ to the new expected behavior.
 
 Each test must:
 
-- Assert on observable behavior from the item's `expect`: the response body or fields, the stored
-  record read back, the text or state on the page, the command output. Not only on internals or
-  mocks when the plan is about behavior the user sees.
+- Assert on observable behavior from the item's `expect`: the response body or fields, the record
+  read back through the API, the text or state on the page. Not on internals or mocks.
 - Check the success result for success behaviors. A test of a success behavior must never pass by
   asserting only an error status (4xx/5xx) or only that nothing crashed.
 - For error behaviors, assert the status and the message or the unchanged state.
@@ -40,7 +44,7 @@ Each test must:
   No fixed sleep longer than a few seconds.
 - Not catch exceptions just to carry on. Catch only a specific exception you then assert on.
 
-Keep tests small: one behavior each, with a name that says what it proves.
+Keep tests small: one behavior each, named for what it proves.
 
 ## 3. Lint
 
@@ -69,7 +73,7 @@ Run the new and changed tests once. `witness plan check` ends with the exact com
 example:
 
 ```
-witness run --select 'api:pytest:tests/e2e/test_invoices.py::test_update_due_date,unit:dotnet:Ns.InvoiceTests#RejectsPastDates'
+witness run --select 'api:pytest:tests/e2e/test_invoices.py::test_update_due_date,web:dotnet:Ns.InvoicePageTests#RejectsPastDates'
 ```
 
 Each id there is prefixed with the suite that owns it, so only those suites run. This can take

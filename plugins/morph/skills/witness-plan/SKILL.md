@@ -17,15 +17,18 @@ order:
 3. In morph: the spec and task you were given.
 4. Commit messages on the branch: `git log --oneline <base>..HEAD`.
 
-Turn each expectation into one sentence about behavior someone can observe: an HTTP response, a
-page, a stored record, a command's output. Note which source it came from; the plan's `source`
-field names them.
+Turn each expectation into one sentence about behavior someone outside the app can observe
+through its HTTP API or UI: a response, a page, data read back through the API. Witness runs
+functional tests only, so internal logic, a function's return value or a database row read
+directly are not plan items; the project's unit and integration tests cover those. Note which
+source each expectation came from; the plan's `source` field names them.
 
 ## 2. Read the change
 
 - `git diff --stat <base>...HEAD`, then the diff of each changed file. Include uncommitted work
   (`git status`, `git diff`).
-- List each behavior the code changes: endpoints, pages, commands, jobs, validation rules.
+- List each externally visible behavior the code changes: endpoints, pages, validation rules
+  and the effects of jobs as the API or UI shows them.
 - If the code changes a behavior that no expectation mentions, still plan it, and say so in the
   behavior text ("not in the request").
 
