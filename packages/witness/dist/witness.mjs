@@ -15955,9 +15955,17 @@ scratch/
 
 // src/skills.ts
 import * as fs16 from "node:fs";
+import * as os2 from "node:os";
 import * as path16 from "node:path";
 import { fileURLToPath } from "node:url";
+var PROFILES = ["standalone", "morph"];
+var isProfile = (p) => PROFILES.includes(p);
+
+class TemplateError extends Error {
+}
 var MARKER = ".installed-by-witness";
+var ANY_MARKER = /<!--\s*(if|else|endif)\b/;
+var MARKER_LINE = /^\s*<!--\s*(?:if\s+(\S+)|(else)|(endif))\s*-->\s*$/;
 function skillsDir() {
   const here = path16.dirname(fileURLToPath(import.meta.url));
   const candidates = [process.env.WITNESS_SKILLS_DIR, path16.resolve(here, "..", "skills"), path16.resolve(here, "skills")].filter(Boolean);
@@ -15981,18 +15989,104 @@ function listSkills(dir) {
     return { name: fm.name ?? e.name, description: fm.description ?? "", dir: path16.join(dir, e.name) };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
-function copyDir(src, dst) {
-  fs16.mkdirSync(dst, { recursive: true });
-  for (const e of fs16.readdirSync(src, { withFileTypes: true })) {
-    const s = path16.join(src, e.name);
-    const d = path16.join(dst, e.name);
-    if (e.isDirectory())
-      copyDir(s, d);
-    else
-      fs16.copyFileSync(s, d);
+function renderLines(text, profile, file = "SKILL.md") {
+  const lines = text.split(`
+`);
+  const fmEnd = lines[0]?.trim() === "---" ? lines.findIndex((l, i) => i > 0 && l.trim() === "---") : -1;
+  const out = [];
+  let block = null;
+  let dropped = false;
+  for (let i = 0;i < lines.length; i++) {
+    const raw = lines[i];
+    const fail = (msg) => {
+      throw new TemplateError(`${file}:${i + 1}: ${msg}`);
+    };
+    if (ANY_MARKER.test(raw)) {
+      const m = MARKER_LINE.exec(raw) ?? fail(`a template marker must be alone on its line: ${raw.trim()}`);
+      if (i <= fmEnd)
+        fail("template markers are not allowed in the frontmatter");
+      if (m[1] !== undefined) {
+        if (block)
+          fail(`"if" inside the block opened on line ${block.line}; blocks do not nest`);
+        if (!isProfile(m[1]))
+          fail(`unknown profile "${m[1]}"; profiles: ${PROFILES.join(", ")}`);
+        block = { profile: m[1], line: i + 1, inElse: false };
+      } else if (m[2]) {
+        if (!block)
+          fail(`"else" without an "if"`);
+        else if (block.inElse)
+          fail(`second "else" in the block opened on line ${block.line}`);
+        else
+          block.inElse = true;
+      } else {
+        if (!block)
+          fail(`"endif" without an "if"`);
+        block = null;
+      }
+      dropped = true;
+      continue;
+    }
+    if (block && block.profile === profile === block.inElse) {
+      dropped = true;
+      continue;
+    }
+    const prev = out[out.length - 1];
+    if (dropped && raw.trim() === "" && (!prev || prev.text.trim() === ""))
+      continue;
+    dropped = false;
+    out.push({ text: raw, line: i + 1 });
+  }
+  if (block)
+    throw new TemplateError(`${file}:${block.line}: "if ${block.profile}" is never closed with "endif"`);
+  return out;
+}
+function renderSkill(text, profile, file) {
+  return renderLines(text, profile, file).map((l) => l.text).join(`
+`);
+}
+function walk(dir, rel = "") {
+  return fs16.readdirSync(path16.join(dir, rel), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(dir, path16.join(rel, e.name)) : [path16.join(rel, e.name)]);
+}
+function renderSkillFiles(src, profile, prefix = "") {
+  const files = {};
+  for (const s of listSkills(src)) {
+    const dir = `${prefix}${path16.basename(s.dir)}`;
+    for (const f of walk(s.dir)) {
+      const file = path16.join(s.dir, f);
+      let text = fs16.readFileSync(file, "utf8");
+      if (f.endsWith(".md"))
+        text = renderSkill(text, profile, path16.relative(process.cwd(), file));
+      if (f === "SKILL.md" && prefix)
+        text = text.replace(/^(---\r?\n[\s\S]*?^name:\s*).*$/m, `$1${prefix}${s.name}`);
+      files[path16.join(dir, f)] = text;
+    }
+  }
+  return files;
+}
+function writeFiles(dest, files) {
+  for (const [rel, content] of Object.entries(files)) {
+    const file = path16.join(dest, rel);
+    fs16.mkdirSync(path16.dirname(file), { recursive: true });
+    fs16.writeFileSync(file, content);
   }
 }
+function renderedDir(profile) {
+  const cache = process.env.XDG_CACHE_HOME || path16.join(os2.homedir(), ".cache");
+  return path16.join(cache, "witness", "skills", profile);
+}
+function renderToCache(src, profile) {
+  const out = renderedDir(profile);
+  const files = renderSkillFiles(src, profile);
+  fs16.rmSync(out, { recursive: true, force: true });
+  writeFiles(out, files);
+  return out;
+}
 function installSkills(src, dest, o) {
+  const profile = o.profile ?? "standalone";
+  if (o.link && profile !== "standalone")
+    throw new Error(`--link installs the standalone skills only; copy the ${profile} profile instead`);
+  const files = o.link ? {} : renderSkillFiles(src, profile, o.prefix);
+  const linkFrom = o.link ? renderToCache(src, profile) : "";
   fs16.mkdirSync(dest, { recursive: true });
   const skills = listSkills(src);
   for (const s of skills) {
@@ -16007,59 +16101,75 @@ function installSkills(src, dest, o) {
     const target = path16.join(dest, `${o.prefix}${base}`);
     fs16.rmSync(target, { recursive: true, force: true });
     if (o.link) {
-      fs16.symlinkSync(s.dir, target, "dir");
+      fs16.symlinkSync(path16.join(linkFrom, base), target, "dir");
       out.push({ name: s.name, path: target });
       continue;
     }
-    copyDir(s.dir, target);
-    const file = path16.join(target, "SKILL.md");
-    const name = `${o.prefix}${s.name}`;
-    fs16.writeFileSync(file, fs16.readFileSync(file, "utf8").replace(/^(---\r?\n[\s\S]*?^name:\s*).*$/m, `$1${name}`));
+    fs16.mkdirSync(target);
     fs16.writeFileSync(path16.join(target, MARKER), "");
-    out.push({ name, path: target });
+    out.push({ name: `${o.prefix}${s.name}`, path: target });
   }
+  writeFiles(dest, files);
   return out;
 }
+var USAGE = "usage: witness skills path [--profile p] | list | install --dir <path> [--profile standalone|morph] [--link] [--prefix witness-]";
 function skillsCommand(sub, o) {
   const src = skillsDir();
   if (!src) {
     o.log("skills  can't find the skills folder next to this witness; set WITNESS_SKILLS_DIR");
     return 2;
   }
-  if (sub === "path") {
-    process.stdout.write(o.json ? JSON.stringify({ path: src }) + `
-` : `${src}
-`);
-    return 0;
+  const profile = o.profile ?? "standalone";
+  if (!isProfile(profile)) {
+    o.log(`skills  unknown --profile "${profile}"; profiles: ${PROFILES.join(", ")}`);
+    return 64;
   }
-  if (sub === "list") {
-    const list = listSkills(src);
-    if (o.json)
-      process.stdout.write(JSON.stringify(list, null, 2) + `
+  try {
+    if (sub === "path") {
+      const dir = renderToCache(src, profile);
+      process.stdout.write(o.json ? JSON.stringify({ path: dir, profile, source: src }) + `
+` : `${dir}
 `);
-    else
-      for (const s of list)
-        process.stdout.write(`${s.name.padEnd(12)} ${s.description}
-`);
-    return 0;
-  }
-  if (sub === "install") {
-    if (!o.dir) {
-      o.log("skills  install needs --dir <path>, e.g. --dir .claude/skills or --dir ~/.agents/skills");
-      return 64;
+      return 0;
     }
-    const prefix = o.prefix ?? "witness-";
-    const done = installSkills(src, path16.resolve(o.dir), { link: o.link, prefix });
-    for (const d of done)
-      o.log(`skills  ${o.link ? "linked" : "installed"} ${d.name} -> ${d.path}`);
-    if (o.link && prefix)
-      o.log(`skills  note: linked skills keep their own names (${done.map((d) => d.name).join(", ")})`);
-    if (o.json)
-      process.stdout.write(JSON.stringify({ installed: done }, null, 2) + `
+    if (sub === "list") {
+      const list = listSkills(src);
+      if (o.json)
+        process.stdout.write(JSON.stringify(list, null, 2) + `
 `);
-    return 0;
+      else
+        for (const s of list)
+          process.stdout.write(`${s.name.padEnd(12)} ${s.description}
+`);
+      return 0;
+    }
+    if (sub === "install") {
+      if (!o.dir) {
+        o.log("skills  install needs --dir <path>, e.g. --dir .claude/skills or --dir ~/.agents/skills");
+        return 64;
+      }
+      if (o.link && profile !== "standalone") {
+        o.log(`skills  --link installs the standalone skills only; drop --link to copy the ${profile} profile`);
+        return 64;
+      }
+      const prefix = o.prefix ?? "witness-";
+      const done = installSkills(src, path16.resolve(o.dir), { link: o.link, prefix, profile });
+      for (const d of done)
+        o.log(`skills  ${o.link ? "linked" : "installed"} ${d.name} (${profile}) -> ${d.path}`);
+      if (o.link && prefix)
+        o.log(`skills  note: linked skills keep their own names (${done.map((d) => d.name).join(", ")})`);
+      if (o.json)
+        process.stdout.write(JSON.stringify({ profile, installed: done }, null, 2) + `
+`);
+      return 0;
+    }
+  } catch (e) {
+    if (!(e instanceof TemplateError))
+      throw e;
+    o.log(`skills  ${e.message}`);
+    return 2;
   }
-  o.log("usage: witness skills path | list | install --dir <path> [--link] [--prefix witness-]");
+  o.log(USAGE);
   return 64;
 }
 
@@ -16076,14 +16186,14 @@ Usage:
   witness init                                    write .witness/witness.example.toml guessed from the repo
   witness plan check [file] [--draft] [--no-list] validate a test plan (default .witness/plan.yaml)
   witness lint [files...] [--plan file]           static checks on test files (default: changed test files)
-  witness skills path | list                      where the agent skills are / what they are
-  witness skills install --dir <path> [--link] [--prefix witness-]
-                                                  copy (or link) the skills into an agent's skills folder
+  witness skills path [--profile p] | list        render the agent skills and print where / what they are
+  witness skills install --dir <path> [--profile standalone|morph] [--link] [--prefix witness-]
+                                                  render (or link) the skills into an agent's skills folder
 
 Common: --json (machine output on stdout) · --config <path> (default .witness/witness.toml)
         --run-dir-root <path> (default .witness/runs)
 Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout · 5 interrupted · 64 usage`;
-var VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix"]);
+var VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix", "profile"]);
 var BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link"]);
 var REPEAT = new Set(["suite", "select"]);
 function splitIds(v) {
@@ -16190,7 +16300,7 @@ ${HELP}
     if (cmd === "init")
       return initCommand(process.cwd(), json);
     if (cmd === "skills")
-      return skillsCommand(pos[0], { dir: flags.dir, link: !!flags.link, prefix: flags.prefix, json, log: (s) => process.stderr.write(`witness  ${s}
+      return skillsCommand(pos[0], { dir: flags.dir, link: !!flags.link, prefix: flags.prefix, profile: flags.profile, json, log: (s) => process.stderr.write(`witness  ${s}
 `) });
     if (cmd === "lint") {
       const cp = typeof flags.config === "string" ? path17.resolve(flags.config) : findConfig(process.cwd());

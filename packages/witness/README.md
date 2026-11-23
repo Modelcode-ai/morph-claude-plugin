@@ -130,8 +130,8 @@ URL that keeps answering the same 4xx fails after min(30s, timeout/2) as a wrong
 ```bash
 bin/witness plan check [.witness/plan.yaml] [--draft] [--no-list]
 bin/witness lint [files or folders...] [--plan file]
-bin/witness skills path | list
-bin/witness skills install --dir .claude/skills [--link] [--prefix witness-]
+bin/witness skills path [--profile standalone|morph] | list
+bin/witness skills install --dir .claude/skills [--profile standalone|morph] [--link] [--prefix witness-]
 ```
 
 `plan check` validates `.witness/plan.yaml` (schema, unique item ids, `<adapter>:<id>` test ids) and
@@ -156,11 +156,51 @@ commas outside brackets and quotes, and a piece without an `adapter:` prefix con
 id, so `Method(a: 1, b: 2)` and titles with commas stay whole.
 
 The agent skills live in `skills/` (`test-change` is the entry point; then `init`, `plan`, `write`,
-`verify`, `triage`). They are plain procedures that name no agent-specific tool;
-`npm run check:skills` (also part of `npm test`) enforces that and an 800-word budget.
-`npm run build:plugin` copies them into the repo's `morph` Claude Code plugin as
-`plugins/morph/skills/witness-<name>`; commit the result (a test fails when it is stale). For other agents, `witness skills install --dir <dir>`
-copies them as `witness-<name>` (or links them with `--link`, keeping their own names).
+`verify`, `triage`). They are plain procedures that name no agent-specific tool.
+
+### Skill profiles
+
+The same skills run in two settings, and each skill source is rendered for one of them:
+
+- `standalone` (the default): a developer's coding agent with the user present. The user answers
+  questions and owns the config, the secrets in `.witness/.env` and the commits.
+- `morph`: an agent in a morph sandbox with no one to ask. Questions become blockers in the final
+  report; morph renders `.witness/witness.toml` and supplies the secrets; expectations come from the
+  milestone spec; `node "$WITNESS"` stands in for `witness` when it is not on the PATH; temporary
+  files go in `$MCODE_DIR/scratch/`; the final run is full and, when morph asks for parity,
+  `--against origin`.
+
+Text for one profile sits between markers, each alone on its line (indenting it is fine):
+
+```markdown
+Shared text.
+
+<!-- if morph -->
+Only in the morph profile.
+<!-- else -->
+Only in the standalone profile.
+<!-- endif -->
+
+<!-- if standalone -->
+Only in the standalone profile.
+<!-- endif -->
+```
+
+`else` is optional; blocks do not nest. An unknown profile, a marker sharing its line with text, a
+marker in the frontmatter, a stray `else`/`endif` or an unclosed `if` is an error naming the file
+and line. Rendering drops every marker and the blank line a dropped block would leave doubled.
+
+- `witness skills install --dir <dir> [--profile p]` writes the rendered skills as
+  `witness-<name>` (`--prefix` changes that). Morph's vendoring script uses `--profile morph`.
+- `witness skills path [--profile p]` renders into `$XDG_CACHE_HOME/witness/skills/<profile>`
+  (default `~/.cache/...`) and prints that folder.
+- `--link` links each skill to its rendered standalone copy in that folder, keeping its own name.
+  It refuses another profile: a sandbox gets copies, and the links refresh whenever witness renders
+  again (`skills path` or `install --link`), not when a source file changes.
+- `npm run build:plugin` renders the standalone profile into the repo's `morph` Claude Code plugin as
+  `plugins/morph/skills/witness-<name>`; commit the result (a test fails when it is stale).
+- `npm run check:skills` (also part of `npm test`) checks each skill as every profile renders it:
+  the markers, the frontmatter, no agent-specific tool names and the 800-word budget.
 
 ## Adapters
 
@@ -227,8 +267,8 @@ npm install
 npm test                 # node --test, about 20s
 npm run typecheck
 npm run build            # bun -> dist/witness.mjs (commit it)
-npm run build:plugin     # skills -> plugins/morph/skills/witness-* (commit it)
-npm run check:skills     # word budget and no harness-specific tool names
+npm run build:plugin     # skills (standalone profile) -> plugins/morph/skills/witness-* (commit it)
+npm run check:skills     # every profile: markers, word budget, no harness-specific tool names
 npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario s,...]
 ```
 
