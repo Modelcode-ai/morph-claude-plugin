@@ -156,3 +156,18 @@ test("init --scan prints JSON, writes nothing, and plain init still writes the e
   assert.equal(w.code, 0, w.stderr);
   assert.ok(fs.existsSync(path.join(dir, ".witness", "witness.example.toml")));
 });
+
+test("scan: agent instruction files (CLAUDE.md, AGENTS.md, Copilot, Cursor) give commands at medium confidence, with trailing comments dropped", () => {
+  const r = scan(path.join(FIX, "agent-docs"));
+  const find = (cmd: string) => r.commands.find((c) => c.cmd === cmd);
+  const dev = find(".venv/bin/python scripts/dev.py server start");
+  assert.ok(dev, JSON.stringify(r.commands.map((c) => c.cmd)));
+  assert.equal(dev.source, "agent-docs");
+  assert.equal(dev.confidence, "medium");
+  assert.deepEqual(dev.evidence, ["CLAUDE.md:6"]);
+  assert.ok(find("pytest tests/e2e"));
+  assert.equal(find("npm run dev")?.cwd, "services/api", "a nested AGENTS.md speaks for its own folder");
+  assert.equal(find("make test")?.cwd, ".");
+  assert.ok(find("docker compose up -d"));
+  assert.ok(!r.commands.some((c) => c.cmd === "install"));
+});

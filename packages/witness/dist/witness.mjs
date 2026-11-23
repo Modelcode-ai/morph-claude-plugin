@@ -15977,7 +15977,7 @@ scratch/
 import * as fs16 from "node:fs";
 import * as path16 from "node:path";
 var SKIP2 = new Set([".git", "node_modules", ".witness", ".venv", "venv", "bin", "obj", "target", "build", "dist", "vendor", ".gradle", "__pycache__", ".next", ".nuxt", "coverage", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "out", ".turbo", ".cache", "site-packages"]);
-var KEEP_DOT_DIRS = new Set([".github", ".devcontainer", ".circleci", ".gitlab", ".config"]);
+var KEEP_DOT_DIRS = new Set([".github", ".devcontainer", ".circleci", ".gitlab", ".config", ".cursor"]);
 var MAX_SOURCES = 6000;
 var MAX_BYTES = 256 * 1024;
 var read2 = (f) => {
@@ -16008,7 +16008,7 @@ var ROLE = [
   ["build", /\b(build|compile|publish|package|tsc|webpack|assemble|bundle exec rake assets)\b/i],
   ["start", /(^|\s)(start|serve|server|runserver|dev|up|start:\S+|dev:\S+)(\s|$)|\bdocker run\b|\b(uvicorn|gunicorn|hypercorn|flask run|rails s|dotnet run|spring-boot:run|bootRun|quarkus:dev|php artisan serve|go run|cargo run)\b|^node \S+\.[cm]?js\b/i]
 ];
-var NOT_A_COMMAND = /^(echo|printf|cat|if|then|else|elif|fi|for|while|do|done|case|esac|export|set|cd|source|\.|test|\[|\[\[|exit|return|true|false|sleep|mkdir|rm|cp|mv|ln|chmod|grep|sed|awk|jq|tee|curl|wget|gh|git|ls|find|xargs|read|local|trap|wait|unset|shift|eval|pre-commit|ruff|eslint|prettier|pylint|pyright|mypy|black|isort|flake8|out=)\b|^[^\w./$]|^(npm|pnpm|yarn|bun) (run )?(lint|format|check-format|typecheck|prepare)\b/;
+var NOT_A_COMMAND = /^(echo|printf|cat|if|then|else|elif|fi|for|while|do|done|case|esac|export|set|cd|source|test|\[|\[\[|exit|return|true|false|sleep|mkdir|rm|cp|mv|ln|chmod|grep|sed|awk|jq|tee|curl|wget|gh|git|ls|find|xargs|read|local|trap|wait|unset|shift|eval|pre-commit|ruff|eslint|prettier|pylint|pyright|mypy|black|isort|flake8|out=)\b|^[^\w./$]|^\.\s|^(npm|pnpm|yarn|bun) (run )?(lint|format|check-format|typecheck|prepare)\b/;
 var roleOf = (cmd) => NOT_A_COMMAND.test(cmd) ? undefined : ROLE.find(([, re]) => re.test(cmd))?.[0];
 var SECRET_HI = /SECRET|PASSWORD|PASSWD|TOKEN|API_?KEY|APIKEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|CLIENT_?SECRET/i;
 var SECRET_MID = /(^|_)KEY$|AUTH|DSN$|CONNECTION_?STRING|ConnectionStrings|(^|_)PASS$|SALT|SIGNING|LICENSE/i;
@@ -16128,6 +16128,7 @@ function scan(root) {
   scanDocker(root, w, out);
   scanCompose(root, w, out);
   scanReadme(root, w, out);
+  scanAgentDocs(root, w, out);
   scanEnvExamples(root, w, out);
   scanAppSettings(root, w, out);
   scanSources(root, w, out);
@@ -16413,22 +16414,35 @@ function scanCompose(root, w, out) {
       out.urls.push({ url: `http://localhost:${p}`, for: `compose service ${c2.name}`, confidence: "medium", evidence: c2.evidence.slice(-1) });
   }
 }
+var DOC_CMD = /^(npm|pnpm|yarn|bun|npx|pip|poetry|uv|python3?|dotnet|docker|docker-compose|make|go|cargo|mvn|\.\/mvnw|gradle|\.\/gradlew|bundle|rails|php|composer|flask|uvicorn|pytest|ruff|\.?venv\/bin\/\S+|\.\/\S+|scripts\/\S+)(\s|$)/;
+var AGENT_DOC = /(^|\/)(CLAUDE|AGENTS|GEMINI)\.md$|^\.github\/copilot-instructions\.md$|^\.(cursorrules|windsurfrules)$|^\.cursor\/rules\/[^/]+\.mdc?$/;
+function docCommands(out, f, text, o) {
+  let inBlock = false;
+  text.split(`
+`).forEach((l, i) => {
+    if (/^\s*(```|~~~)/.test(l)) {
+      inBlock = !inBlock;
+      return;
+    }
+    const found = inBlock ? [l.replace(/^\s*[$>]\s*/, "").replace(/\s+#\s.*$/, "").trim()] : o.inline ? [...l.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim()) : [];
+    for (const cmd of found)
+      if (DOC_CMD.test(cmd))
+        addCommand(out, { cmd, cwd: o.cwd, source: o.source, confidence: o.confidence, evidence: [at(f, i + 1)] });
+  });
+}
 function scanReadme(root, w, out) {
   for (const f of w.files.filter((x) => /^(README|CONTRIBUTING|DEVELOPMENT)\.(md|rst)$|^docs\/development\.md$/i.test(x))) {
     const text = read2(path16.join(root, f));
-    if (!text)
-      continue;
-    let inBlock = false;
-    text.split(`
-`).forEach((l, i) => {
-      if (/^\s*(```|~~~)/.test(l))
-        inBlock = !inBlock;
-      else if (inBlock) {
-        const cmd = l.replace(/^\s*[$>]\s*/, "").trim();
-        if (/^(npm|pnpm|yarn|bun|npx|pip|poetry|uv|python3?|dotnet|docker|docker-compose|make|go|cargo|mvn|\.\/mvnw|gradle|\.\/gradlew|bundle|rails|php|composer|flask|uvicorn)\b/.test(cmd))
-          addCommand(out, { cmd, cwd: ".", source: "readme", confidence: "low", evidence: [at(f, i + 1)] });
-      }
-    });
+    if (text)
+      docCommands(out, f, text, { source: "readme", confidence: "low", cwd: ".", inline: false });
+  }
+}
+function scanAgentDocs(root, w, out) {
+  for (const f of w.files.filter((x) => AGENT_DOC.test(x))) {
+    const text = read2(path16.join(root, f));
+    const dir = path16.dirname(f);
+    if (text)
+      docCommands(out, f, text, { source: "agent-docs", confidence: "medium", cwd: /^\.(github|cursor)/.test(dir) ? "." : dir, inline: true });
   }
 }
 function addEnv(out, name, by, ev, secret = false, envName) {

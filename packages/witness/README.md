@@ -125,7 +125,7 @@ file or a manifest):
 | --- | --- |
 | `testProjects` | each test project as `functional`, `needs-filter` or `excluded`, with the reason, `kind` and the proposed `suite` (`cmd`, `cwd`, `hostsApp`, `filtered`) |
 | `services` | the services `init` guesses (start, setup, ready) |
-| `commands` | `setup`, `build`, `start`, `test`, `migrate` and `seed` candidates from CI workflows (`${{ env.X }}` resolved), package scripts (`runs` holds the script), Makefiles, justfiles, Procfiles, Dockerfiles, compose and the README |
+| `commands` | `setup`, `build`, `start`, `test`, `migrate` and `seed` candidates from CI workflows (`${{ env.X }}` resolved), package scripts (`runs` holds the script), Makefiles, justfiles, Procfiles, Dockerfiles, compose, the README and agent instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, Copilot and Cursor rules; medium confidence, `cwd` is the file's folder) |
 | `containers` | compose services built from the repo: `docker compose up --build <name>`, ports, `depends_on` |
 | `infrastructure` | compose services by image (postgres, redis, ...) with candidate `start`, `stop` and `check` (the compose healthcheck run in the container when there is one); CI service containers; database URLs in env examples and `appsettings*.json` (type and host, never the value); database drivers, low confidence |
 | `urls`, `health` | URLs from launch profiles and published compose ports; health and readiness routes in the app's code, with the guessed service |

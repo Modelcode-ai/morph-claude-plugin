@@ -25,7 +25,7 @@ export interface TestProjectFact extends Fact {
 }
 
 export type CommandRole = "setup" | "build" | "start" | "test" | "migrate" | "seed";
-export type CommandSource = "ci" | "package" | "make" | "procfile" | "dockerfile" | "compose" | "readme";
+export type CommandSource = "ci" | "package" | "make" | "procfile" | "dockerfile" | "compose" | "readme" | "agent-docs";
 
 export interface CommandFact extends Fact {
   role: CommandRole;
@@ -126,7 +126,7 @@ export interface ScanResult {
 }
 
 const SKIP = new Set([".git", "node_modules", ".witness", ".venv", "venv", "bin", "obj", "target", "build", "dist", "vendor", ".gradle", "__pycache__", ".next", ".nuxt", "coverage", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "out", ".turbo", ".cache", "site-packages"]);
-const KEEP_DOT_DIRS = new Set([".github", ".devcontainer", ".circleci", ".gitlab", ".config"]);
+const KEEP_DOT_DIRS = new Set([".github", ".devcontainer", ".circleci", ".gitlab", ".config", ".cursor"]);
 const MAX_SOURCES = 6000;
 const MAX_BYTES = 256 * 1024;
 
@@ -156,7 +156,7 @@ const ROLE: [CommandRole, RegExp][] = [
   ["build", /\b(build|compile|publish|package|tsc|webpack|assemble|bundle exec rake assets)\b/i],
   ["start", /(^|\s)(start|serve|server|runserver|dev|up|start:\S+|dev:\S+)(\s|$)|\bdocker run\b|\b(uvicorn|gunicorn|hypercorn|flask run|rails s|dotnet run|spring-boot:run|bootRun|quarkus:dev|php artisan serve|go run|cargo run)\b|^node \S+\.[cm]?js\b/i],
 ];
-const NOT_A_COMMAND = /^(echo|printf|cat|if|then|else|elif|fi|for|while|do|done|case|esac|export|set|cd|source|\.|test|\[|\[\[|exit|return|true|false|sleep|mkdir|rm|cp|mv|ln|chmod|grep|sed|awk|jq|tee|curl|wget|gh|git|ls|find|xargs|read|local|trap|wait|unset|shift|eval|pre-commit|ruff|eslint|prettier|pylint|pyright|mypy|black|isort|flake8|out=)\b|^[^\w./$]|^(npm|pnpm|yarn|bun) (run )?(lint|format|check-format|typecheck|prepare)\b/;
+const NOT_A_COMMAND = /^(echo|printf|cat|if|then|else|elif|fi|for|while|do|done|case|esac|export|set|cd|source|test|\[|\[\[|exit|return|true|false|sleep|mkdir|rm|cp|mv|ln|chmod|grep|sed|awk|jq|tee|curl|wget|gh|git|ls|find|xargs|read|local|trap|wait|unset|shift|eval|pre-commit|ruff|eslint|prettier|pylint|pyright|mypy|black|isort|flake8|out=)\b|^[^\w./$]|^\.\s|^(npm|pnpm|yarn|bun) (run )?(lint|format|check-format|typecheck|prepare)\b/;
 const roleOf = (cmd: string): CommandRole | undefined => (NOT_A_COMMAND.test(cmd) ? undefined : ROLE.find(([, re]) => re.test(cmd))?.[0]);
 
 const SECRET_HI = /SECRET|PASSWORD|PASSWD|TOKEN|API_?KEY|APIKEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|CLIENT_?SECRET/i;
@@ -283,6 +283,7 @@ export function scan(root: string): ScanResult {
   scanDocker(root, w, out);
   scanCompose(root, w, out);
   scanReadme(root, w, out);
+  scanAgentDocs(root, w, out);
   scanEnvExamples(root, w, out);
   scanAppSettings(root, w, out);
   scanSources(root, w, out);
@@ -548,18 +549,34 @@ function scanCompose(root: string, w: Walk, out: ScanResult) {
   }
 }
 
+const DOC_CMD = /^(npm|pnpm|yarn|bun|npx|pip|poetry|uv|python3?|dotnet|docker|docker-compose|make|go|cargo|mvn|\.\/mvnw|gradle|\.\/gradlew|bundle|rails|php|composer|flask|uvicorn|pytest|ruff|\.?venv\/bin\/\S+|\.\/\S+|scripts\/\S+)(\s|$)/;
+const AGENT_DOC = /(^|\/)(CLAUDE|AGENTS|GEMINI)\.md$|^\.github\/copilot-instructions\.md$|^\.(cursorrules|windsurfrules)$|^\.cursor\/rules\/[^/]+\.mdc?$/;
+
+function docCommands(out: ScanResult, f: string, text: string, o: { source: CommandSource; confidence: Confidence; cwd: string; inline: boolean }) {
+  let inBlock = false;
+  text.split("\n").forEach((l, i) => {
+    if (/^\s*(```|~~~)/.test(l)) {
+      inBlock = !inBlock;
+      return;
+    }
+    const found = inBlock ? [l.replace(/^\s*[$>]\s*/, "").replace(/\s+#\s.*$/, "").trim()] : o.inline ? [...l.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim()) : [];
+    for (const cmd of found) if (DOC_CMD.test(cmd)) addCommand(out, { cmd, cwd: o.cwd, source: o.source, confidence: o.confidence, evidence: [at(f, i + 1)] });
+  });
+}
+
 function scanReadme(root: string, w: Walk, out: ScanResult) {
   for (const f of w.files.filter((x) => /^(README|CONTRIBUTING|DEVELOPMENT)\.(md|rst)$|^docs\/development\.md$/i.test(x))) {
     const text = read(path.join(root, f));
-    if (!text) continue;
-    let inBlock = false;
-    text.split("\n").forEach((l, i) => {
-      if (/^\s*(```|~~~)/.test(l)) inBlock = !inBlock;
-      else if (inBlock) {
-        const cmd = l.replace(/^\s*[$>]\s*/, "").trim();
-        if (/^(npm|pnpm|yarn|bun|npx|pip|poetry|uv|python3?|dotnet|docker|docker-compose|make|go|cargo|mvn|\.\/mvnw|gradle|\.\/gradlew|bundle|rails|php|composer|flask|uvicorn)\b/.test(cmd)) addCommand(out, { cmd, cwd: ".", source: "readme", confidence: "low", evidence: [at(f, i + 1)] });
-      }
-    });
+    if (text) docCommands(out, f, text, { source: "readme", confidence: "low", cwd: ".", inline: false });
+  }
+}
+
+/** Instruction files written for coding agents (CLAUDE.md, AGENTS.md, ...): usually the most current run and test commands. */
+function scanAgentDocs(root: string, w: Walk, out: ScanResult) {
+  for (const f of w.files.filter((x) => AGENT_DOC.test(x))) {
+    const text = read(path.join(root, f));
+    const dir = path.dirname(f);
+    if (text) docCommands(out, f, text, { source: "agent-docs", confidence: "medium", cwd: /^\.(github|cursor)/.test(dir) ? "." : dir, inline: true });
   }
 }
 

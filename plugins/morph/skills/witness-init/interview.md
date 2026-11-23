@@ -45,7 +45,9 @@ out gets a comment: `# tests/AppHostTests: left out, needs Docker inside Docker 
 Skip when every chosen suite has `service = []`.
 
 Look at: `services`; `commands` with role `start`, `build` and `setup`; `containers`; `urls`;
-`health`; `frameworks` with role `toolchain` (the SDK or runtime version).
+`health`; `frameworks` with role `toolchain` (the SDK or runtime version). Commands from
+`agent-docs` (`CLAUDE.md`, `AGENTS.md`) are usually the team's current way to run the app; read
+those files too.
 
 Settled: only one way to run the app is found, and this machine has what it needs.
 
