@@ -6,6 +6,7 @@ import { type Config, ConfigError, findConfig, loadConfig, rootFor } from "./con
 import { VERSION } from "./ctrf.ts";
 import { diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { initCommand } from "./init.ts";
+import { scanCommand } from "./scan.ts";
 import { lintCommand } from "./lint.ts";
 import { skillsCommand } from "./skills.ts";
 import { type Plan, parsePlan, planCheckCommand } from "./plan.ts";
@@ -22,6 +23,7 @@ Usage:
   witness status [run-id|latest]
   witness report [run-id|latest] [--format md|json]
   witness init                                    write .witness/witness.example.toml guessed from the repo
+  witness init --scan                             print the repo's facts as JSON (confidence, evidence); writes nothing
   witness plan check [file] [--draft] [--no-list] validate a test plan (default .witness/plan.yaml)
   witness lint [files...] [--plan file]           static checks on test files (default: changed test files)
   witness skills path [--profile p] | list        render the agent skills and print where / what they are
@@ -33,7 +35,7 @@ Common: --json (machine output on stdout) · --config <path> (default .witness/w
 Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout · 5 interrupted · 64 usage`;
 
 const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix", "profile"]);
-const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link"]);
+const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link", "scan"]);
 const REPEAT = new Set(["suite", "select"]);
 
 /** Split a --select list on commas outside brackets and quotes; a piece without an `adapter:` prefix continues the previous id (a title with a comma). */
@@ -125,7 +127,7 @@ export async function main(argv: string[]): Promise<number> {
   let cfg: Config | undefined;
   const needsConfig = ["check", "run", "up", "down"].includes(cmd);
   try {
-    if (cmd === "init") return initCommand(process.cwd(), json);
+    if (cmd === "init") return flags.scan ? scanCommand(process.cwd()) : initCommand(process.cwd(), json);
     if (cmd === "skills")
       return skillsCommand(pos[0], { dir: flags.dir as string | undefined, link: !!flags.link, prefix: flags.prefix as string | undefined, profile: flags.profile as string | undefined, json, log: (s) => process.stderr.write(`witness  ${s}\n`) });
     if (cmd === "lint") {

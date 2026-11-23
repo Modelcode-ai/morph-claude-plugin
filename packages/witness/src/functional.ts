@@ -290,6 +290,8 @@ export interface FileScan {
   rel: string;
   isTest: boolean;
   sigs: Map<SigType, Set<string>>;
+  /** 1-based line where each signal label first matched. */
+  lines?: Map<string, number>;
   tags: string[];
   namespace?: string;
   classes: string[];
@@ -375,22 +377,29 @@ export function scanSource(rel: string, raw: string, opts: { isTest?: boolean; e
   const code = mask(raw, fl.as);
   const mods = importsOf(raw, code, lang);
   const sigs = new Map<SigType, Set<string>>();
-  const hit = (r: Rule) => (sigs.get(r.type) ?? sigs.set(r.type, new Set()).get(r.type)!).add(r.label);
+  const lines = new Map<string, number>();
+  const lineAt = (i: number) => code.slice(0, i).split("\n").length;
+  const hit = (r: Rule, line?: number) => {
+    (sigs.get(r.type) ?? sigs.set(r.type, new Set()).get(r.type)!).add(r.label);
+    if (line && !lines.has(r.label)) lines.set(r.label, line);
+  };
   const rawLines = raw.split("\n");
   const codeLines = code.split("\n");
   for (const r of RULES) {
     if (!r.langs.includes(lang)) continue;
-    if (r.mod && mods.some((m) => r.mod!.test(m))) hit(r);
+    const mod = r.mod && mods.find((m) => r.mod!.test(m));
+    if (mod) hit(r, rawLines.findIndex((l) => l.includes(mod)) + 1);
     if (r.code) {
       const re = new RegExp(r.code.source, r.code.flags.includes("g") ? r.code.flags : `${r.code.flags}g`);
       for (const m of code.matchAll(re)) {
         if (!r.arg || r.arg.test(rawString(raw, m.index! + m[0].length - 1))) {
-          hit(r);
+          hit(r, lineAt(m.index!));
           break;
         }
       }
     }
-    if (r.lit && rawLines.some((l, i) => /["'`]/.test(codeLines[i] ?? "") && r.lit!.test(l))) hit(r);
+    const li = r.lit ? rawLines.findIndex((l, i) => /["'`]/.test(codeLines[i] ?? "") && r.lit!.test(l)) : -1;
+    if (li >= 0) hit(r, li + 1);
   }
   const lits = [...code.matchAll(/(["'`])[ ]*\1/g)].map((m) => rawString(raw, m.index!));
   const mark = (type: SigType, label: string) => (sigs.get(type) ?? sigs.set(type, new Set()).get(type)!).add(label);
@@ -410,7 +419,7 @@ export function scanSource(rel: string, raw: string, opts: { isTest?: boolean; e
   const isTest = opts.isTest ?? (extra ? extra.test(code) : findTests(raw, code, lang as Lang).length > 0);
   const ns = lang === "cs" || lang === "java" ? /^\s*(?:namespace|package)\s+([\w.]+)/m.exec(code)?.[1] : undefined;
   const classes = lang === "cs" || lang === "java" ? [...code.matchAll(/\bclass\s+(\w+)/g)].map((m) => m[1]) : [];
-  return { rel, isTest, sigs, tags: tagsOf(raw, code, lang), namespace: ns, classes };
+  return { rel, isTest, sigs, lines, tags: tagsOf(raw, code, lang), namespace: ns, classes };
 }
 
 export function scanFile(root: string, rel: string, isTest?: boolean, entries?: Entries): FileScan | null {
