@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import type { AdapterName } from "../src/adapters.ts";
+import { ADAPTERS, type AdapterName } from "../src/adapters.ts";
 import type { Kind } from "../src/config.ts";
 
 export const KIT = import.meta.dirname;
@@ -45,6 +45,7 @@ const dotnet = () => process.env.KIT_DOTNET ?? "dotnet";
 const dotnetEnv = (t: Tool): Record<string, string> => ({
   DOTNET_CLI_TELEMETRY_OPTOUT: "1",
   DOTNET_NOLOGO: "1",
+  ...ADAPTERS.dotnet.env,
   ...(t.docker ? { KIT_DOCKER_ARGS: "-v witness-kit-nuget:/root/.nuget/packages" } : process.env.KIT_DOTNET ? { DOTNET_ROOT: path.dirname(process.env.KIT_DOTNET) } : {}),
 });
 const dotnetLocal = () => `${dotnet()} --list-sdks | grep -Eq '^1[1-9]\\.'`;
