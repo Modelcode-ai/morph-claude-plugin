@@ -1,5 +1,5 @@
 setup() {
-  PATH="$BATS_TEST_DIRNAME/../bin:$PATH"
+  PATH="$BATS_TEST_DIRNAME/../cli:$PATH"
 }
 
 @test "lists items" {

@@ -1,0 +1,16 @@
+#!/usr/bin/env node
+// kit-items list | get <id> | hang: a tiny CLI over the kit app at $WITNESS_APP_URL.
+const app = process.env.WITNESS_APP_URL ?? "http://127.0.0.1:8080";
+const [cmd, id] = process.argv.slice(2);
+const path = { list: "/api/items", get: `/api/items/${id}`, hang: "/api/hang" }[cmd];
+if (!path) {
+  console.error("usage: kit-items list | get <id> | hang");
+  process.exit(64);
+}
+const r = await fetch(app + path);
+if (!r.ok) {
+  console.error(`kit-items: HTTP ${r.status}`);
+  process.exit(1);
+}
+const body = await r.json();
+console.log(Array.isArray(body) ? body.map((i) => i.name).join("\n") : body.name);

@@ -2,7 +2,7 @@
   "name": "witness-kit-cli-bats",
   "private": true,
   "bin": {
-    "kit-items": "bin/kit-items"
+    "kit-items": "cli/kit-items"
   },
   "devDependencies": {
     "bats": "1.13.0"
