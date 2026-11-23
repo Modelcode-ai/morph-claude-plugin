@@ -1,0 +1,337 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { ADAPTERS } from "./adapters.ts";
+import { type Config, loadEnv, type Service, type Suite } from "./config.ts";
+import { buildCtrf } from "./ctrf.ts";
+import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
+import { color, outcomeColor, Progress } from "./output.ts";
+import { killGroup } from "./proc.ts";
+import { applyParity, EXIT, type Outcome, type Parity, type SuiteSummary, suiteOutcome, type TestRecord, worst } from "./reconcile.ts";
+import { acquireLock, LockError, newRunId, pruneRuns, reapStale, RunDir, type Status } from "./rundir.ts";
+import { Failure, readUp, Stack } from "./stack.ts";
+import { type ArtifactEntry, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
+import { fmtDuration, git, gitInfo, writeJson } from "./util.ts";
+
+export interface RunOptions {
+  suites?: string[];
+  select?: string[];
+  retries: number;
+  noSetup: boolean;
+  against?: string;
+  label?: string;
+  json: boolean;
+  runDirRoot: string;
+}
+
+export class UsageError extends Error {}
+
+export function pickSuites(cfg: Config, names?: string[]): Suite[] {
+  if (!names?.length) return cfg.suites;
+  const out: Suite[] = [];
+  for (const n of names) {
+    const s = cfg.suites.find((x) => x.name === n);
+    if (!s) throw new UsageError(`unknown suite "${n}"; suites: ${cfg.suites.map((x) => x.name).join(", ") || "(none)"}`);
+    out.push(s);
+  }
+  return out;
+}
+
+/** --select ids per suite: an id `adapter:x` belongs to the suites with that adapter. */
+export function splitSelect(suites: Suite[], select?: string[]): Map<string, string[]> | undefined {
+  if (!select?.length) return undefined;
+  const m = new Map<string, string[]>();
+  for (const raw of select) {
+    const colon = raw.indexOf(":");
+    const pre = colon > 0 ? raw.slice(0, colon) : "";
+    const owners = pre in ADAPTERS ? suites.filter((s) => s.adapter === pre) : suites;
+    const id = pre in ADAPTERS ? raw.slice(colon + 1) : raw;
+    if (!owners.length) throw new UsageError(`--select ${raw}: no selected suite uses adapter ${pre}`);
+    if (owners.length > 1) throw new UsageError(`--select ${raw}: suites ${owners.map((s) => s.name).join(", ")} could all own it; add --suite`);
+    m.set(owners[0].name, [...(m.get(owners[0].name) ?? []), id]);
+  }
+  return m;
+}
+
+export function neededServices(cfg: Config, suites: Suite[], role: Service["role"] = "target"): string[] {
+  const all = cfg.services.filter((s) => s.role === role).map((s) => s.name);
+  return [...new Set(suites.flatMap((s) => s.services ?? all))];
+}
+
+export function originMap(cfg: Config): Map<string, Service> {
+  const m = new Map<string, Service>();
+  for (const o of cfg.services.filter((s) => s.role === "origin")) {
+    const target = o.originFor ?? o.name.replace(/[-_]origin$/, "");
+    if (cfg.services.some((s) => s.name === target && s.role === "target")) m.set(target, o);
+  }
+  return m;
+}
+
+interface Side {
+  outcome: Outcome;
+  suites: SuiteSummary[];
+  tests: TestRecord[];
+  diagnosis?: Diagnosis;
+  artifacts: ArtifactEntry[];
+}
+
+export async function runCommand(cfg: Config, opts: RunOptions): Promise<number> {
+  const suites = pickSuites(cfg, opts.suites);
+  const select = splitSelect(suites, opts.select);
+  if (!suites.length) throw new UsageError("no [[suite]] in the config");
+  const progress = new Progress(Date.now(), false);
+  let release: () => void;
+  try {
+    release = acquireLock(path.join(cfg.root, ".witness", "run.lock"));
+  } catch (e) {
+    if (e instanceof LockError) {
+      progress.plain(color.red(e.message));
+      return EXIT.error;
+    }
+    throw e;
+  }
+  await reapStale(opts.runDirRoot, cfg.run.graceMs, (m) => progress.line(m));
+  const g = gitInfo(cfg.root);
+  const run = new RunDir(opts.runDirRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: opts.label });
+  run.linkLatest();
+  const abort = { aborted: false };
+  const activity = { text: "" };
+  const t0 = Date.now();
+  progress.line(`run ${run.runId} · ${g.branch || "(no branch)"} @ ${g.commit.slice(0, 10) || "(no commit)"}${g.dirty ? " (dirty)" : ""} · ${suites.length} suite(s)`);
+
+  let sigints = 0;
+  const onSignal = (sig: NodeJS.Signals) => {
+    sigints++;
+    abort.aborted = true;
+    run.event("signal", { signal: sig }, `interrupted by ${sig}`);
+    if (sigints === 1) progress.line(`${sig}: stopping (press Ctrl-C again to kill everything now)`);
+    else {
+      for (const p of run.state.procs) void killGroup(p.pgid, 0);
+      run.status.phase = "finished";
+      run.status.outcome = "interrupted";
+      run.status.finished_at = new Date().toISOString();
+      run.saveStatus();
+      release();
+      process.exit(EXIT.interrupted);
+    }
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  const hb = setInterval(() => {
+    if (Date.now() - progress.lastAt >= cfg.run.heartbeatMs) progress.line(`… ${activity.text || run.status.last_event}`);
+  }, Math.min(cfg.run.heartbeatMs, 1000));
+
+  const { env: baseEnv, missing } = loadEnv(cfg);
+  let target: Side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
+  let against: { ref: string; outcome: Outcome; parity?: Record<Parity, number>; diagnosis?: Diagnosis } | undefined;
+
+  try {
+    if (missing.length) {
+      target = { ...target, outcome: "mistrial", diagnosis: diagnose({ stage: "config", cause: "missing_env", envMissing: missing }) };
+    } else {
+      target = await runSide(cfg, {
+        root: cfg.root,
+        run,
+        outDir: run.dir,
+        progress,
+        abort,
+        activity,
+        baseEnv,
+        suites,
+        select,
+        retries: opts.retries,
+        noSetup: opts.noSetup,
+        setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup"),
+        reuseUp: true,
+      });
+      if (opts.against && !abort.aborted && target.outcome !== "mistrial") {
+        run.setPhase("against", `running against ${opts.against}`);
+        const origin = await runAgainst(cfg, opts, { run, progress, abort, activity, baseEnv, suites, select });
+        const { tests, counts } = applyParity(target.tests, origin.tests);
+        target.tests = tests;
+        against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis };
+        target.artifacts.push(...origin.artifacts);
+        progress.line(`against ${opts.against} · origin ${origin.outcome} · parity: ${counts.same} same, ${counts.differs} differ, ${counts.target_only} only on target, ${counts.origin_only} only on origin`);
+      }
+    }
+  } finally {
+    clearInterval(hb);
+  }
+  if (abort.aborted) target.outcome = "interrupted";
+
+  run.setPhase("report", "writing results");
+  const finishedAt = Date.now();
+  const status: Status = run.status;
+  status.suites = target.suites;
+  status.outcome = target.outcome;
+  if (target.diagnosis) status.diagnosis = target.diagnosis;
+  if (against) status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity };
+  const ctrf = buildCtrf(
+    {
+      runId: run.runId,
+      outcome: target.outcome,
+      commit: g.commit,
+      branch: g.branch,
+      dirty: g.dirty,
+      label: opts.label,
+      startedAt: t0,
+      finishedAt,
+      diagnosis: target.diagnosis,
+      against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity } : undefined,
+      adapters: [...new Set(suites.map((s) => s.adapter))],
+    },
+    target.tests,
+  );
+  writeJson(run.file("results.ctrf.json"), ctrf);
+  writeJson(run.file("artifacts.json"), target.artifacts);
+  status.summary = { tests: ctrf.results.summary.tests, passed: ctrf.results.summary.passed, failed: ctrf.results.summary.failed, skipped: ctrf.results.summary.skipped, pending: ctrf.results.summary.pending, other: ctrf.results.summary.other };
+  status.finished_at = new Date(finishedAt).toISOString();
+  status.phase = "finished";
+  status.last_event = `finished: ${target.outcome}`;
+  run.saveStatus();
+  run.event("run_finished", { outcome: target.outcome, summary: status.summary });
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
+  pruneRuns(opts.runDirRoot, cfg.run.keepRuns);
+  release();
+
+  printVerdict(progress, status, finishedAt - t0, run.dir);
+  if (opts.json) process.stdout.write(JSON.stringify(status, null, 2) + "\n");
+  return EXIT[target.outcome];
+}
+
+export function verdictSummary(status: Status, ms?: number): string {
+  const s = status.summary;
+  const parts: string[] = [];
+  if (s) {
+    parts.push(`${s.passed} passed, ${s.failed} failed`);
+    if (s.skipped) parts.push(`${s.skipped} skipped`);
+    if (s.other) parts.push(`${s.other} other`);
+  }
+  parts.push(`${status.suites.length} suite(s)`);
+  if (status.against) parts.push(`against ${status.against.ref}: origin ${status.against.outcome}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
+  if (ms != null) parts.push(fmtDuration(ms));
+  return parts.join(" · ");
+}
+
+export function printVerdict(progress: Progress, status: Status, ms: number, dir: string) {
+  const o = status.outcome ?? "error";
+  progress.plain(`${color.bold(outcomeColor(o)(`VERDICT ${o}`))} · ${verdictSummary(status, ms)}`);
+  if (status.diagnosis && o !== "passed" && o !== "failed") for (const l of formatDiagnosis(status.diagnosis)) progress.plain(`  ${l}`);
+  for (const s of status.suites) if (s.state !== "passed") progress.plain(`  suite ${s.name}: ${s.state}${s.cause ? ` (${s.cause})` : ""}${s.note ? ` · ${s.note}` : ""}`);
+  progress.plain(`  run dir: ${dir}`);
+}
+
+interface SideOpts {
+  root: string;
+  run: RunDir;
+  outDir: string;
+  progress: Progress;
+  abort: { aborted: boolean };
+  activity: { text: string };
+  baseEnv: Record<string, string>;
+  suites: Suite[];
+  select?: Map<string, string[]>;
+  retries: number;
+  noSetup: boolean;
+  setupCacheDir: string | null;
+  reuseUp: boolean;
+  prefix?: string;
+  origin?: Map<string, Service>;
+}
+
+/** Deps, boot, suites and teardown for one side (target, or origin for --against). */
+async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
+  const side: Side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
+  const logDir = path.join(o.outDir, "logs");
+  fs.mkdirSync(logDir, { recursive: true });
+  const stack = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp(cfg.root) : null });
+  const isTarget = !o.prefix;
+  try {
+    if (isTarget) o.run.setPhase("deps", "checking dependencies");
+    await stack.checkDeps();
+    if (isTarget) o.run.setPhase("boot", "booting services");
+    const wanted = neededServices(cfg, o.suites);
+    if (o.origin?.size) {
+      const alias = new Map<string, string>();
+      const names = wanted.map((n) => {
+        const org = o.origin!.get(n);
+        if (org) alias.set(org.name, n);
+        return org?.name ?? n;
+      });
+      await stack.boot(names, alias);
+    } else await stack.boot(wanted);
+    if (isTarget) o.run.setPhase("suite", "running suites");
+    const ctx: SuiteCtx = { cfg, root: o.root, outDir: o.outDir, stack, run: o.run, progress: o.progress, abort: o.abort, baseEnv: o.baseEnv, prefix: o.prefix, activity: o.activity };
+    for (const s of o.suites) {
+      if (o.abort.aborted) break;
+      const r = await runSuite(ctx, s, o.select?.get(s.name), o.retries);
+      side.suites.push(r.summary);
+      side.tests.push(...r.tests);
+      const so = suiteOutcome(r.summary);
+      if (worst(side.outcome, so) !== side.outcome) {
+        side.outcome = worst(side.outcome, so);
+        if (r.diagnosis) side.diagnosis = r.diagnosis;
+      }
+      if (isTarget) {
+        o.run.status.suites = side.suites;
+        o.run.saveStatus();
+      }
+      if (r.serviceDied) {
+        for (const rest of o.suites.slice(o.suites.indexOf(s) + 1)) side.suites.push({ name: rest.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: "not run: a service died" });
+        break;
+      }
+    }
+  } catch (e) {
+    if (!(e instanceof Failure)) throw e;
+    side.outcome = "mistrial";
+    side.diagnosis = e.diagnosis;
+    o.run.event("mistrial", { diagnosis: e.diagnosis }, `mistrial: ${e.diagnosis.cause}`);
+    for (const s of o.suites) if (!side.suites.some((x) => x.name === s.name)) side.suites.push({ name: s.name, state: "skipped", passed: 0, failed: 0, skipped: 0, error: 0, missing: 0, note: `not run: ${e.diagnosis.cause}` });
+  } finally {
+    await stack.teardown();
+  }
+  side.artifacts = collectArtifacts(o.run.dir, o.outDir, side.tests);
+  return side;
+}
+
+/** Run the same suites on `ref`: origin services when the config has them, else a temporary git worktree. */
+async function runAgainst(cfg: Config, opts: RunOptions, o: Omit<SideOpts, "root" | "outDir" | "retries" | "noSetup" | "setupCacheDir" | "reuseUp">): Promise<Side> {
+  const outDir = path.join(o.run.dir, "against");
+  const origin = originMap(cfg);
+  if (origin.size) {
+    o.progress.line(`against ${opts.against} · using role = "origin" services: ${[...origin.values()].map((s) => s.name).join(", ")}`);
+    return runSide(cfg, { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup, setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin });
+  }
+  const ref = opts.against!;
+  const resolved = git(cfg.root, ["rev-parse", "--verify", `${ref}^{commit}`]);
+  if (!resolved.ok) {
+    const d = diagnose({ stage: "config", cause: "bad_config", evidence: `--against ${ref}: not a commit in this repo (${resolved.err})` });
+    return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
+  }
+  const wt = fs.mkdtempSync(path.join(os.tmpdir(), "witness-against-"));
+  const add = git(cfg.root, ["worktree", "add", "--detach", wt, resolved.out]);
+  if (!add.ok) {
+    fs.rmSync(wt, { recursive: true, force: true });
+    const d = diagnose({ stage: "config", cause: "bad_config", evidence: `git worktree add failed: ${add.err}` });
+    return { outcome: "mistrial", suites: [], tests: [], diagnosis: d, artifacts: [] };
+  }
+  o.run.state.worktrees.push(wt);
+  o.run.saveState();
+  o.progress.line(`against ${ref} · checked out ${resolved.out.slice(0, 10)} in ${wt}`);
+  try {
+    const sub = path.relative(gitTop(cfg.root), fs.realpathSync(cfg.root));
+    return await runSide(cfg, { ...o, root: path.join(wt, sub), outDir, retries: 0, noSetup: false, setupCacheDir: null, reuseUp: false, prefix: "origin " });
+  } finally {
+    git(cfg.root, ["worktree", "remove", "--force", wt]);
+    fs.rmSync(wt, { recursive: true, force: true });
+    git(cfg.root, ["worktree", "prune"]);
+    o.run.state.worktrees = o.run.state.worktrees.filter((w) => w !== wt);
+    o.run.saveState();
+  }
+}
+
+function gitTop(dir: string): string {
+  const r = git(dir, ["rev-parse", "--show-toplevel"]);
+  return r.ok ? fs.realpathSync(r.out) : dir;
+}

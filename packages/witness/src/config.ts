@@ -7,7 +7,7 @@ import { parseDuration } from "./util.ts";
 export interface Ready {
   http?: string;
   cmd?: string;
-  status: number;
+  status?: number;
   timeoutMs: number;
 }
 
@@ -38,7 +38,8 @@ export interface Service {
 
 export interface Suite {
   name: string;
-  services: string[];
+  /** undefined: every target service must be up. */
+  services?: string[];
   adapter: AdapterName;
   cwd: string;
   cmd: string;
@@ -244,7 +245,7 @@ export function parseConfig(doc: Obj, file: string): Config {
       ready = {
         http: str(r, "http", `${where}.ready`),
         cmd: str(r, "cmd", `${where}.ready`),
-        status: typeof r.status === "number" ? r.status : 200,
+        status: typeof r.status === "number" ? r.status : undefined,
         timeoutMs: dur(r, "timeout", `${where}.ready`, 120_000)!,
       };
       if (!ready.http === !ready.cmd) throw new ConfigError(`${where}.ready`, "set exactly one of http or cmd");
@@ -282,7 +283,7 @@ export function parseConfig(doc: Obj, file: string): Config {
     if (!(adapter in ADAPTERS)) throw new ConfigError(`${where}.adapter`, `unknown adapter "${adapter}"; one of ${Object.keys(ADAPTERS).join(", ")}`);
     return {
       name,
-      services: strList(s, "service", where),
+      services: s.service === undefined ? undefined : strList(s, "service", where),
       adapter: adapter as AdapterName,
       cwd: str(s, "cwd", where) ?? ".",
       cmd: str(s, "cmd", where, true)!,
@@ -335,7 +336,7 @@ function validateRefs(cfg: Config) {
   for (const s of cfg.suites) {
     if (suites.has(s.name)) throw new ConfigError(`suite.${s.name}`, "duplicate suite name");
     suites.add(s.name);
-    for (const svc of s.services) if (!names.has(svc)) throw new ConfigError(`suite.${s.name}.service`, `unknown service "${svc}"`);
+    for (const svc of s.services ?? []) if (!names.has(svc)) throw new ConfigError(`suite.${s.name}.service`, `unknown service "${svc}"`);
   }
   const refs = (where: string, text: string | undefined) => {
     for (const m of (text ?? "").matchAll(/\$\{([A-Za-z][\w-]*)\.url\}/g)) {

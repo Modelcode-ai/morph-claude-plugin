@@ -1,0 +1,354 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { type Config, type Dependency, type Service, substitute, topoOrder, type Vars } from "./config.ts";
+import { type Cause, type Diagnosis, diagnose, type Stage } from "./diagnosis.ts";
+import type { Progress } from "./output.ts";
+import { allocatePort, childEnv, groupAlive, httpProbe, killGroup, type Proc, runCapture, spawnGroup } from "./proc.ts";
+import type { RunDir } from "./rundir.ts";
+import { fmtDuration, git, pidAlive, readJson, sha, sleep, writeJson } from "./util.ts";
+
+export class Failure extends Error {
+  diagnosis: Diagnosis;
+  constructor(d: Diagnosis) {
+    super(`${d.cause}${d.evidence ? `: ${d.evidence}` : ""}`);
+    this.diagnosis = d;
+  }
+}
+
+export interface LiveService {
+  name: string;
+  svc: Service;
+  port?: number;
+  url: string;
+  proc?: Proc;
+  pgid?: number;
+  pid?: number;
+  log: string;
+  ownedByUs: boolean;
+  probeFailures: number;
+  lastProbe: number;
+}
+
+export interface UpState {
+  pid: number;
+  started_at: string;
+  root: string;
+  services: Record<string, { pgid?: number; pid?: number; port?: number; url: string; log: string; external?: boolean }>;
+  deps_started: string[];
+}
+
+export interface StackOpts {
+  cfg: Config;
+  root: string;
+  baseEnv: Record<string, string>;
+  logDir: string;
+  progress: Progress;
+  run?: RunDir;
+  noSetup: boolean;
+  setupCacheDir: string | null;
+  runDirPath?: string;
+  abort: { aborted: boolean };
+  reuse?: UpState | null;
+}
+
+const SETUP_TIMEOUT = 30 * 60_000;
+
+export const upFile = (root: string) => path.join(root, ".witness", "up.json");
+
+export function readUp(root: string): UpState | null {
+  return readJson<UpState | null>(upFile(root), null);
+}
+
+/** Dependency checks, service boot with readiness, watching and teardown for one checkout. */
+export class Stack {
+  o: StackOpts;
+  live = new Map<string, LiveService>();
+  depsStarted: Dependency[] = [];
+  taken = new Set<number>();
+  constructor(o: StackOpts) {
+    this.o = o;
+  }
+
+  vars(self?: LiveService): Vars {
+    const v: Vars = { ...this.o.baseEnv, CHECKOUT: this.o.root };
+    if (this.o.runDirPath) v.WITNESS_RUN_DIR = this.o.runDirPath;
+    for (const [n, l] of this.live) v[`${n}.url`] = l.url;
+    if (self) {
+      v["self.url"] = self.url;
+      if (self.port) v.PORT = String(self.port);
+    }
+    return v;
+  }
+
+  serviceUrlEnv(): Record<string, string> {
+    const e: Record<string, string> = {};
+    for (const [n, l] of this.live) e[`WITNESS_${n.toUpperCase().replace(/-/g, "_")}_URL`] = l.url;
+    return e;
+  }
+
+  private fail(stage: Stage, cause: Cause, extra: Partial<Parameters<typeof diagnose>[0]> = {}): never {
+    throw new Failure(diagnose({ stage, cause, ...extra }));
+  }
+
+  async checkDep(d: Dependency): Promise<{ ok: boolean; detail: string }> {
+    if (d.checkHttp) return httpProbe(substitute(d.checkHttp, this.vars()), undefined, 5000);
+    const r = await runCapture(substitute(d.check!, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 15_000 });
+    const last = r.out.trim().split("\n").pop() ?? "";
+    return { ok: r.code === 0, detail: r.timedOut ? "check timed out" : last || `exit code ${r.code}` };
+  }
+
+  async checkDeps(deps = this.o.cfg.dependencies): Promise<void> {
+    for (const d of deps) {
+      const t0 = Date.now();
+      let r = await this.checkDep(d);
+      if (r.ok) {
+        this.o.progress.line(`deps   ${d.name} · ok`);
+        continue;
+      }
+      const log = path.join(this.o.logDir, `dep-${d.name}.log`);
+      if (d.start && !this.o.reuse?.deps_started.includes(d.name)) {
+        this.o.progress.line(`deps   ${d.name} · not reachable (${r.detail}); starting it`);
+        const s = await runCapture(substitute(d.start, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: d.timeoutMs, log });
+        if (s.code !== 0) this.fail("deps", "dependency_unreachable", { command: d.start, log, evidence: s.out.trim().split("\n").pop() });
+        this.depsStarted.push(d);
+        const until = Date.now() + d.timeoutMs;
+        while (Date.now() < until && !this.o.abort.aborted) {
+          r = await this.checkDep(d);
+          if (r.ok) break;
+          await sleep(1000);
+        }
+      }
+      if (!r.ok) this.fail("deps", "dependency_unreachable", { command: d.check ?? `curl ${d.checkHttp}`, evidence: `${d.name}: ${r.detail}`, log: fs.existsSync(log) ? log : undefined });
+      this.o.progress.line(`deps   ${d.name} · ok (${fmtDuration(Date.now() - t0)})`);
+    }
+  }
+
+  /** Boot `names` and what they depend on. `as` maps a booted service to the name suites see. */
+  async boot(names: string[], as: Map<string, string> = new Map()): Promise<void> {
+    for (const svc of topoOrder(this.o.cfg.services, names)) {
+      if (this.o.abort.aborted) return;
+      const alias = as.get(svc.name) ?? svc.name;
+      if (this.live.has(alias)) continue;
+      await this.bootOne(svc, alias);
+    }
+  }
+
+  private async bootOne(svc: Service, alias: string) {
+    const t0 = Date.now();
+    const cwd = path.resolve(this.o.root, svc.cwd);
+    const log = path.join(this.o.logDir, `${svc.name}.log`);
+    const prev = this.o.reuse?.services[svc.name];
+    if (prev && this.o.reuse?.root === this.o.root && (prev.external || (prev.pgid && groupAlive(prev.pgid)) || (prev.pid && pidAlive(prev.pid)))) {
+      const ls: LiveService = { name: alias, svc, port: prev.port, url: prev.url, pgid: prev.pgid, pid: prev.pid, log: prev.log, ownedByUs: false, probeFailures: 0, lastProbe: 0 };
+      if ((await this.probe(ls)).ok) {
+        this.live.set(alias, ls);
+        if (prev.port) this.taken.add(prev.port);
+        this.o.progress.line(`boot   ${svc.name} · reusing the service from \`witness up\` at ${ls.url}`);
+        return;
+      }
+    }
+    if (svc.external) {
+      const ls: LiveService = { name: alias, svc, url: svc.external.replace(/\/$/, ""), log, ownedByUs: false, probeFailures: 0, lastProbe: 0 };
+      await this.waitReady(ls, cwd, true);
+      this.live.set(alias, ls);
+      this.o.progress.line(`boot   ${svc.name} · external ${ls.url} is ready`);
+      return;
+    }
+    const alloc = await allocatePort(svc.ports, this.taken);
+    if (!alloc.port) this.fail("boot", "port_in_use", { service: svc.name, evidence: alloc.tried, port: svc.ports?.[0] });
+    this.taken.add(alloc.port!);
+    this.o.run?.state && (this.o.run.state.ports[svc.name] = alloc.port!);
+    const ls: LiveService = { name: alias, svc, port: alloc.port, url: `http://127.0.0.1:${alloc.port}`, log, ownedByUs: true, probeFailures: 0, lastProbe: 0 };
+    const vars = this.vars(ls);
+    const env = childEnv(this.o.baseEnv, { PORT: String(alloc.port), ...this.serviceUrlEnv(), ...mapValues(svc.env, (v) => substitute(v, vars)) });
+
+    if (svc.setup) await this.setup(svc, cwd, env, vars, log);
+    if (this.o.abort.aborted) return;
+
+    const cmd = substitute(svc.start!, vars);
+    const proc = spawnGroup(cmd, { name: svc.name, cwd, env, log });
+    ls.proc = proc;
+    ls.pgid = proc.pgid;
+    this.live.set(alias, ls);
+    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop, cwd });
+    this.o.run?.event("service_started", { service: svc.name, pid: proc.pid, port: alloc.port, cmd }, `starting ${svc.name}`);
+    this.o.progress.line(`boot   ${svc.name} · starting on port ${alloc.port}`);
+    try {
+      await this.waitReady(ls, cwd, false, cmd);
+    } catch (e) {
+      this.live.delete(alias);
+      await this.stopOne(ls);
+      throw e;
+    }
+    this.o.run?.event("service_ready", { service: svc.name, url: ls.url, ms: Date.now() - t0 }, `${svc.name} ready`);
+    this.o.progress.line(`boot   ${svc.name} · ready at ${ls.url} (${fmtDuration(Date.now() - t0)})`);
+  }
+
+  private async setup(svc: Service, cwd: string, env: Record<string, string>, vars: Vars, log: string) {
+    const cmd = substitute(svc.setup!, vars);
+    if (this.o.noSetup) {
+      this.o.progress.line(`setup  ${svc.name} · skipped (--no-setup)`);
+      return;
+    }
+    const hash = this.o.setupCacheDir ? setupInputsHash(cwd, cmd) : null;
+    const cacheFile = this.o.setupCacheDir ? path.join(this.o.setupCacheDir, `${svc.name}.json`) : null;
+    if (hash && cacheFile && readJson<{ hash?: string }>(cacheFile, {}).hash === hash) {
+      this.o.progress.line(`setup  ${svc.name} · skipped (inputs unchanged since the last successful setup)`);
+      return;
+    }
+    const t0 = Date.now();
+    this.o.progress.line(`setup  ${svc.name} · ${cmd}`);
+    this.o.run?.event("setup_started", { service: svc.name, cmd }, `setup ${svc.name}`);
+    const proc = spawnGroup(cmd, { name: `setup-${svc.name}`, cwd, env, log });
+    this.o.run?.track({ kind: "setup", name: svc.name, pid: proc.pid, pgid: proc.pgid });
+    const timer = setTimeout(() => void killGroup(proc.pgid, this.o.cfg.run.graceMs), SETUP_TIMEOUT);
+    const abortPoll = setInterval(() => this.o.abort.aborted && void killGroup(proc.pgid, this.o.cfg.run.graceMs), 200);
+    const { code } = await proc.exit;
+    clearTimeout(timer);
+    clearInterval(abortPoll);
+    this.o.run?.untrack(proc.pgid);
+    if (this.o.abort.aborted) return;
+    if (code !== 0) this.fail("boot", "setup_failed", { service: svc.name, command: cmd, log, cwd: svc.cwd });
+    if (hash && cacheFile) writeJson(cacheFile, { hash, at: new Date().toISOString() });
+    this.o.progress.line(`setup  ${svc.name} · done (${fmtDuration(Date.now() - t0)})`);
+  }
+
+  private async waitReady(ls: LiveService, cwd: string, external: boolean, cmd?: string) {
+    const svc = ls.svc;
+    const timeoutMs = svc.ready?.timeoutMs ?? 120_000;
+    const until = Date.now() + timeoutMs;
+    const pidfile = svc.pidfile ? path.resolve(cwd, substitute(svc.pidfile, this.vars(ls))) : undefined;
+    let delay = 200;
+    let last = "";
+    const exitedFail = () => this.fail("boot", "exited_before_ready", { service: svc.name, command: cmd, log: ls.log, cwd: svc.cwd, port: ls.port, evidence: undefined });
+    for (;;) {
+      if (this.o.abort.aborted) return;
+      if (pidfile && !ls.pid && fs.existsSync(pidfile)) {
+        const pid = Number(fs.readFileSync(pidfile, "utf8").trim());
+        if (pid > 0) ls.pid = pid;
+      }
+      if (!external) {
+        if (pidfile) {
+          if (ls.pid && !pidAlive(ls.pid)) exitedFail();
+          if (!ls.pid && ls.proc?.exited && ls.proc.code !== 0) exitedFail();
+        } else if (ls.proc?.exited) exitedFail();
+      }
+      if (!svc.ready) {
+        await sleep(1000);
+        if (!external && !pidfile && ls.proc?.exited) exitedFail();
+        return;
+      }
+      const r = await this.probe(ls);
+      if (r.ok) return;
+      last = r.detail;
+      if (Date.now() > until) {
+        const url = svc.ready.http ? substitute(svc.ready.http, this.vars(ls)) : undefined;
+        this.fail("boot", "ready_timeout", { service: svc.name, command: svc.ready.cmd ?? cmd, log: external ? undefined : ls.log, url, port: ls.port, evidence: `not ready after ${fmtDuration(timeoutMs)}: ${last}`, cwd: svc.cwd });
+      }
+      await sleep(delay);
+      delay = Math.min(delay * 1.5, 1000);
+    }
+  }
+
+  async probe(ls: LiveService): Promise<{ ok: boolean; detail: string }> {
+    const r = ls.svc.ready;
+    if (!r) return { ok: true, detail: "no readiness check" };
+    const vars = this.vars(ls);
+    if (r.http) return httpProbe(substitute(r.http, vars), r.status);
+    const res = await runCapture(substitute(r.cmd!, vars), { cwd: path.resolve(this.o.root, ls.svc.cwd), env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv() }), timeoutMs: 10_000 });
+    return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split("\n").pop() || `exit code ${res.code}` };
+  }
+
+  /** Called while suites run: a service that exits or keeps failing its probe is dead. */
+  async watch(): Promise<Diagnosis | null> {
+    const now = Date.now();
+    for (const ls of this.live.values()) {
+      let dead = "";
+      if (ls.ownedByUs && ls.proc && !ls.svc.pidfile && ls.proc.exited) dead = `exited with code ${ls.proc.code}`;
+      else if (ls.pid && !pidAlive(ls.pid)) dead = `pid ${ls.pid} is gone`;
+      else if (!ls.ownedByUs && ls.pgid && !groupAlive(ls.pgid)) dead = "process group is gone";
+      if (!dead && ls.svc.ready && now - ls.lastProbe >= 5000) {
+        ls.lastProbe = now;
+        const r = await this.probe(ls);
+        ls.probeFailures = r.ok ? 0 : ls.probeFailures + 1;
+        if (ls.probeFailures >= 3) dead = `readiness check failed 3 times in a row (${r.detail})`;
+      }
+      if (dead) {
+        const d = diagnose({ stage: "suite", cause: "service_died", service: ls.svc.name, log: fs.existsSync(ls.log) ? ls.log : undefined, cwd: ls.svc.cwd });
+        if (!d.evidence || d.cause === "service_died") d.evidence = d.evidence ? `${dead}; last log line: ${d.evidence}` : dead;
+        return d;
+      }
+    }
+    return null;
+  }
+
+  async stopOne(ls: LiveService) {
+    if (!ls.ownedByUs) return;
+    const grace = this.o.cfg.run.graceMs;
+    if (ls.svc.stop) {
+      const cwd = path.resolve(this.o.root, ls.svc.cwd);
+      await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? "") }), timeoutMs: 60_000, log: ls.log });
+    }
+    if (ls.pid && pidAlive(ls.pid)) {
+      try {
+        process.kill(ls.pid, "SIGTERM");
+      } catch {
+        /* gone */
+      }
+      const until = Date.now() + grace;
+      while (pidAlive(ls.pid) && Date.now() < until) await sleep(100);
+      if (pidAlive(ls.pid)) {
+        try {
+          process.kill(ls.pid, "SIGKILL");
+        } catch {
+          /* gone */
+        }
+      }
+    }
+    if (ls.pgid) {
+      await killGroup(ls.pgid, grace);
+      this.o.run?.untrack(ls.pgid);
+    }
+  }
+
+  async teardown(opts: { keepDeps?: boolean } = {}) {
+    for (const ls of [...this.live.values()].reverse()) await this.stopOne(ls);
+    this.live.clear();
+    if (opts.keepDeps) return;
+    for (const d of this.depsStarted.reverse()) {
+      if (!d.stop) continue;
+      this.o.progress.line(`deps   ${d.name} · stopping`);
+      await runCapture(substitute(d.stop, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 120_000, log: path.join(this.o.logDir, `dep-${d.name}.log`) });
+    }
+    this.depsStarted = [];
+  }
+}
+
+function mapValues(o: Record<string, string>, f: (v: string) => string): Record<string, string> {
+  return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, f(v)]));
+}
+
+/** Hash of what a setup step depends on: the command and the checkout state under cwd. */
+export function setupInputsHash(cwd: string, cmd: string): string | null {
+  const top = git(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!top.ok) return null;
+  const head = git(cwd, ["rev-parse", "HEAD:./"]);
+  const diff = git(cwd, ["diff", "HEAD", "--", ".", ":(exclude).witness"]);
+  const untracked = git(cwd, ["ls-files", "--others", "--exclude-standard", "--", ".", ":(exclude).witness"]);
+  if (!head.ok || !diff.ok || !untracked.ok) return null;
+  const stamps = untracked.out
+    .split("\n")
+    .filter(Boolean)
+    .slice(0, 5000)
+    .map((f) => {
+      try {
+        const p = path.join(cwd, f);
+        const st = fs.statSync(p);
+        return st.size < 1024 * 1024 ? `${f}:${sha(fs.readFileSync(p))}` : `${f}:${st.size}`;
+      } catch {
+        return f;
+      }
+    })
+    .join("\n");
+  return sha([cmd, head.out, diff.out, stamps].join("\0"));
+}
