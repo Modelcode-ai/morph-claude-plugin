@@ -9,7 +9,7 @@ No AI model calls happen inside the CLI.
 
 ## Run it
 
-Needs Node 22.18+ (TypeScript runs from source) or just Node 20+ with the bundle.
+Needs Node 22.18+ (the sources use type stripping; the bundle is tested on the same version).
 
 ```bash
 bin/witness init                      # .witness/witness.example.toml guessed from the repo
