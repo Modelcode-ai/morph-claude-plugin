@@ -17,6 +17,8 @@ test("evidence is the exception line of the last command, not a stack frame or b
   const py = 'Traceback (most recent call last):\n  File "app.py", line 3, in <module>\n    main()\nKeyError: \'DATABASE_URL\'\n';
   assert.equal(diagnose({ stage: "boot", cause: "exited_before_ready", service: "api", log: log(py) }).evidence, "KeyError: 'DATABASE_URL'");
   assert.equal(diagnose({ stage: "boot", cause: "exited_before_ready", service: "api", log: log("starting\nbye\n") }).evidence, "bye");
+  const build = "$ dotnet build\nsrc/Basket.cs(12,27): error CS1525: Invalid expression term ';' [src/ApplicationCore.csproj]\n\nBuild FAILED.\n\nsrc/Basket.cs(12,27): error CS1525: Invalid expression term ';' [src/ApplicationCore.csproj]\n    0 Warning(s)\n    1 Error(s)\n\nTime Elapsed 00:00:05.12\n";
+  assert.match(diagnose({ stage: "boot", cause: "setup_failed", service: "web", log: log(build) }).evidence!, /error CS1525/);
 });
 
 describe("diagnosis heuristics", () => {

@@ -78,7 +78,7 @@ function lastMeaningful(lines: string[], preferError: boolean): string | undefin
   });
   const cand = lines.slice(start).filter((l) => l.trim().length > 1 && !FRAME.test(l));
   const pool = cand.length ? cand : lines.filter((l) => !/^\s*\$ /.test(l) && l.trim().length > 1);
-  return ((preferError ? [...pool].reverse().find((l) => ERRORISH.test(l) && !/\b0 (Error\(s\)|errors?)\b/i.test(l)) : undefined) ?? pool.at(-1))?.trim();
+  return ((preferError ? [...pool].reverse().find((l) => ERRORISH.test(l) && !/^\s*\d+ Error\(s\)\s*$|\b0 errors?\b/i.test(l)) : undefined) ?? pool.at(-1))?.trim();
 }
 
 /** Turn a failure into cause + evidence + next commands, using the log tail to refine the cause. */
