@@ -61,6 +61,14 @@ test("skills render: every profile of the real skills renders with no markers le
       assert.doesNotMatch(text, /\n\n\n/, `${p} ${f} has a doubled blank line`);
     }
   }
+  const standalone = renderSkillFiles(SKILLS, "standalone");
+  const morph = renderSkillFiles(SKILLS, "morph");
+  assert.match(standalone["test-change/SKILL.md"], /tell the user/);
+  assert.doesNotMatch(standalone["test-change/SKILL.md"], /\$WITNESS|MCODE_DIR|milestone spec/);
+  assert.match(morph["test-change/SKILL.md"], /node "\$WITNESS"/);
+  assert.match(morph["plan/SKILL.md"], /milestone spec/);
+  assert.match(morph["verify/SKILL.md"], /--against origin/);
+  assert.doesNotMatch(morph["triage/SKILL.md"], /\.witness\/\.env/);
 });
 
 test("skills check: catches tool names, a missing description, a wrong name and the word budget", () => {

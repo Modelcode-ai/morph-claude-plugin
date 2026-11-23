@@ -26,10 +26,10 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 `witness check` and `witness run` can take many minutes (builds, app boot, browser tests).
 
-- Start them so they can run to the end without being cut off by a short timeout, and so you can
-  read their output while they run. If your environment can run a command in the background and
-  show its output later, use that. Otherwise redirect the output to a file in `.witness/scratch/`
-  (git ignores it), for example `witness run > .witness/scratch/run.out 2>&1`, and read that file.
+- Start them so a short timeout cannot cut them off and you can read their output as they run:
+  in the background if your environment can show its output later, otherwise redirected to a
+  file in `.witness/scratch/` (git ignores it), for example
+  `witness run > .witness/scratch/run.out 2>&1`.
 - Progress lines start with `witness  [mm:ss]`. A heartbeat line appears at least once a minute,
   so silence for several minutes means the command itself is stuck.
 - For a snapshot of a run in progress, read `.witness/runs/latest/status.json` (phase, suites,
@@ -42,8 +42,8 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 ## Steps
 
-1. Check the tool: run `witness --version`. If the command is missing, stop. Standalone: tell the
-   user that witness is not installed. In morph: file a blocker as your instructions describe.
+1. Check the tool: run `witness --version`.
+   If the command is missing, stop and tell the user that witness is not installed.
 2. Setup: if `.witness/witness.toml` does not exist, or `witness check --stage config` fails,
    follow the `init` skill. Continue only when `witness check` passes.
 3. Plan: follow the `plan` skill. It ends with `.witness/plan.yaml` passing

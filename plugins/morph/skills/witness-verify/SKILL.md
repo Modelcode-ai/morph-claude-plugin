@@ -70,8 +70,9 @@ broken behavior is no longer exercised, or edit anything under `.witness/runs/`.
 
 - The last VERDICT line, exactly as printed, and the run id.
 - Counts: passed, failed, skipped, and flaky tests.
-- For each plan item, its tests and their final status. With `--against`, the parity counts and
-  any test whose outcome differs from the base.
+- For each plan item, its tests and their final status. With `--against`, the parity counts
+  (same, differs, origin_only, target_only) and each test whose outcome differs, with both
+  statuses.
 - What you fixed in the code and in tests during these rounds.
 - Failures you left, each with the reason (failing on the base too, or the limit of three rounds
   reached) and the test's message.

@@ -17,9 +17,19 @@ It boots the services, runs every suite and can take many minutes. Follow the "L
 rules of the `test-change` skill: let it run to the end, read its output as it goes, and check
 `.witness/runs/latest/status.json` for progress.
 
+<!-- if morph -->
+Your instructions say whether to compare with the original application. When they do (the config
+has `role = "origin"` services), every full run is `witness run --against origin`: witness runs
+the same suites on the origin services too and records, for each test, whether its outcome is the
+same or differs. Otherwise do not use `--against` for full runs.
+
+Morph records your last `witness run` (`.witness/runs/latest`) when you finish, so the last run
+must be a full run, never a `--select` run.
+<!-- else -->
 When the plan has `parity` items and the repo has a base branch or an origin service configured,
 add `--against <base-ref>` (for example `--against origin/main`). Witness then runs the same suites
 on the base too and records, for each test, whether its outcome is the same or differs.
+<!-- endif -->
 
 ## 2. Read the result
 
@@ -70,8 +80,9 @@ broken behavior is no longer exercised, or edit anything under `.witness/runs/`.
 
 - The last VERDICT line, exactly as printed, and the run id.
 - Counts: passed, failed, skipped, and flaky tests.
-- For each plan item, its tests and their final status. With `--against`, the parity counts and
-  any test whose outcome differs from the base.
+- For each plan item, its tests and their final status. With `--against`, the parity counts
+  (same, differs, origin_only, target_only) and each test whose outcome differs, with both
+  statuses.
 - What you fixed in the code and in tests during these rounds.
 - Failures you left, each with the reason (failing on the base too, or the limit of three rounds
   reached) and the test's message.

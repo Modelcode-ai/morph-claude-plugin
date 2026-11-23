@@ -12,10 +12,16 @@ The result is `.witness/plan.yaml`, checked by `witness plan check --draft`.
 Collect what the change is supposed to do from sources the change itself did not write, in this
 order:
 
+<!-- if morph -->
+1. The milestone spec your instructions name, then the project spec. Set the plan's `source` to
+   that milestone spec (for example "Milestone 3 spec"), and take each `expect` from the spec,
+   not from what the code happens to do.
+2. Commit messages on the branch: `git log --oneline <base>..HEAD`.
+<!-- else -->
 1. What the user asked for: the request and any acceptance criteria.
 2. The pull request description, and the issue or ticket it links.
-3. In morph: the spec and task you were given.
-4. Commit messages on the branch: `git log --oneline <base>..HEAD`.
+3. Commit messages on the branch: `git log --oneline <base>..HEAD`.
+<!-- endif -->
 
 Turn each expectation into one sentence about behavior someone outside the app can observe
 through its HTTP API, UI or command line: a response, a page, a command's output, data read back. Witness runs

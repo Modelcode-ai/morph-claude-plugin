@@ -6,6 +6,10 @@ description: Set up witness in a repo that has no .witness/witness.toml - detect
 # Set up witness in a repo
 
 Output: a `.witness/witness.toml` that passes `witness check`, plus one run per suite.
+<!-- if morph -->
+
+If morph rendered `.witness/witness.toml`, keep it and start at step 3.
+<!-- endif -->
 
 ## 1. Detect
 
@@ -42,8 +46,13 @@ For each service the tests need (an API, a web front end, a worker):
 For databases and other infrastructure, add a `[[dependency]]` with a `check` command and, when it
 can be started locally, `start` and `stop` (for example `docker compose up -d db`).
 
+<!-- if morph -->
+Morph supplies the project's variables and secrets. List the names the app needs in
+`[env] required`; never write a secret into a file.
+<!-- else -->
 Put secrets and machine-specific values in `.witness/.env` (git-ignored) and list required names in
 `[env] required`.
+<!-- endif -->
 
 For each suite:
 
@@ -58,9 +67,9 @@ remove the suite.
 
 ## 3. Check until it passes
 
-Run `witness check`. It checks config and dependencies, boots the suites' services, then lists each
-suite's tests (or smoke-runs it). It can take minutes
-on the first build; follow the "Long commands" rules of the `test-change` skill.
+Run `witness check`: config, dependencies, the suites' services, then each suite's test listing
+(or a smoke run). The first build can take minutes; follow the "Long commands" rules of the
+`test-change` skill.
 
 It also prints each suite's capabilities (`report`, `list`, `select`, per-test timeout) and what a
 missing one costs. Fix what you can: when `select` is `none` because the
@@ -82,8 +91,12 @@ Run each suite once on the unchanged code: `witness run --suite <name> --label i
 
 ## 5. Finish
 
-- Commit `.witness/witness.toml` and `.witness/.gitignore` only if the user or your instructions
-  want the config in the repo. Never commit `.witness/.env` or `.witness/runs/`.
+<!-- if morph -->
+- Commit `.witness/witness.toml` and `.witness/.gitignore` with your tests.
+<!-- else -->
+- Commit `.witness/witness.toml` and `.witness/.gitignore` only if the user wants the config in
+  the repo. Never commit `.witness/.env` or `.witness/runs/`.
+<!-- endif -->
 - Report: the services and suites configured, the check result, each suite's first VERDICT, tests
   that already fail on the unchanged code, and anything left out (with the reason, for example a
   suite needing a paid service).

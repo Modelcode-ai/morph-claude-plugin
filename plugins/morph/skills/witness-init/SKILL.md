@@ -58,9 +58,9 @@ remove the suite.
 
 ## 3. Check until it passes
 
-Run `witness check`. It checks config and dependencies, boots the suites' services, then lists each
-suite's tests (or smoke-runs it). It can take minutes
-on the first build; follow the "Long commands" rules of the `test-change` skill.
+Run `witness check`: config, dependencies, the suites' services, then each suite's test listing
+(or a smoke run). The first build can take minutes; follow the "Long commands" rules of the
+`test-change` skill.
 
 It also prints each suite's capabilities (`report`, `list`, `select`, per-test timeout) and what a
 missing one costs. Fix what you can: when `select` is `none` because the
@@ -82,8 +82,8 @@ Run each suite once on the unchanged code: `witness run --suite <name> --label i
 
 ## 5. Finish
 
-- Commit `.witness/witness.toml` and `.witness/.gitignore` only if the user or your instructions
-  want the config in the repo. Never commit `.witness/.env` or `.witness/runs/`.
+- Commit `.witness/witness.toml` and `.witness/.gitignore` only if the user wants the config in
+  the repo. Never commit `.witness/.env` or `.witness/runs/`.
 - Report: the services and suites configured, the check result, each suite's first VERDICT, tests
   that already fail on the unchanged code, and anything left out (with the reason, for example a
   suite needing a paid service).

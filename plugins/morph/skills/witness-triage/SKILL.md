@@ -76,9 +76,8 @@ change to the config or env file: what, why, and the evidence that called for it
 After three tries, or when you need something you cannot get (a secret, a paid service, a
 machine), stop. Do not keep changing things.
 
-- Standalone: tell the user what fails, the cause and evidence line, what you tried, and what is
-  needed from them.
-- In morph: file a blocker as your instructions describe, with the same content.
+Tell the user what fails, the cause and evidence line, what you tried, and what is needed from
+them.
 
 Never turn a mistrial into a pass by removing a suite, a service or a readiness check from the
 config, or by marking the suite generic with no report.

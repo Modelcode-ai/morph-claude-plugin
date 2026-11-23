@@ -53,8 +53,15 @@ change itself cannot boot.)
 
 Typical fixes, guided by `cause` and `try`:
 
+<!-- if morph -->
+- `missing_env`: morph loads the project's variables and secrets into witness's environment. A
+  setting that is not secret (a mode, a local URL) can go in the service's `env` in the config.
+  A missing secret must be added to the project in morph: never write a value into a file; stop
+  with a blocker that names the variable (step 5).
+<!-- else -->
 - `missing_env`: add the missing names to `.witness/.env` (never commit secrets). If a value is a
   secret you do not have, stop and ask (step 5).
+<!-- endif -->
 - `bad_config`: the message names the key; fix `.witness/witness.toml`.
 - `dependency_unreachable`: start the dependency (the `try` list has the command), or add a
   `[[dependency]]` with `check` and `start` commands.
@@ -76,9 +83,13 @@ change to the config or env file: what, why, and the evidence that called for it
 After three tries, or when you need something you cannot get (a secret, a paid service, a
 machine), stop. Do not keep changing things.
 
-- Standalone: tell the user what fails, the cause and evidence line, what you tried, and what is
-  needed from them.
-- In morph: file a blocker as your instructions describe, with the same content.
+<!-- if morph -->
+No one can answer during the run: record a blocker for your final report with what fails, the
+cause and evidence line, what you tried, and what is needed.
+<!-- else -->
+Tell the user what fails, the cause and evidence line, what you tried, and what is needed from
+them.
+<!-- endif -->
 
 Never turn a mistrial into a pass by removing a suite, a service or a readiness check from the
 config, or by marking the suite generic with no report.

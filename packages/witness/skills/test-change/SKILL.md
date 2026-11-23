@@ -21,15 +21,25 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 - Use the repo's own test frameworks and conventions. Add no new framework unless the repo has none
   for that kind of test.
 - Work in the checkout you were given. Do not push, open pull requests or change CI.
+<!-- if morph -->
+- No one answers questions here. Wherever a skill says to ask or tell the user, record a blocker
+  for your final report instead (what is needed, witness's cause and evidence line, what you
+  tried) and go on with the work that does not depend on it.
+- When morph rendered `.witness/witness.toml` from the project's lifecycle config (its first
+  line says so), morph renders it again before each run until it is edited; then your version is
+  kept. Edit it only to fix what `witness check` or a diagnosis shows is wrong.
+- Temporary files go in `$MCODE_DIR/scratch/`, not the shared `/tmp`.
+- Commit your tests, `.witness/plan.yaml` and `.witness/witness.toml`, never `.witness/runs/`.
+<!-- endif -->
 
 ## Long commands
 
 `witness check` and `witness run` can take many minutes (builds, app boot, browser tests).
 
-- Start them so they can run to the end without being cut off by a short timeout, and so you can
-  read their output while they run. If your environment can run a command in the background and
-  show its output later, use that. Otherwise redirect the output to a file in `.witness/scratch/`
-  (git ignores it), for example `witness run > .witness/scratch/run.out 2>&1`, and read that file.
+- Start them so a short timeout cannot cut them off and you can read their output as they run:
+  in the background if your environment can show its output later, otherwise redirected to a
+  file in `.witness/scratch/` (git ignores it), for example
+  `witness run > .witness/scratch/run.out 2>&1`.
 - Progress lines start with `witness  [mm:ss]`. A heartbeat line appears at least once a minute,
   so silence for several minutes means the command itself is stuck.
 - For a snapshot of a run in progress, read `.witness/runs/latest/status.json` (phase, suites,
@@ -42,8 +52,13 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 ## Steps
 
-1. Check the tool: run `witness --version`. If the command is missing, stop. Standalone: tell the
-   user that witness is not installed. In morph: file a blocker as your instructions describe.
+1. Check the tool: run `witness --version`.
+   <!-- if morph -->
+   If `witness` is not on the PATH but `$WITNESS` is set, run every `witness <args>` in these
+   skills as `node "$WITNESS" <args>`. If neither works, stop with a blocker.
+   <!-- else -->
+   If the command is missing, stop and tell the user that witness is not installed.
+   <!-- endif -->
 2. Setup: if `.witness/witness.toml` does not exist, or `witness check --stage config` fails,
    follow the `init` skill. Continue only when `witness check` passes.
 3. Plan: follow the `plan` skill. It ends with `.witness/plan.yaml` passing
@@ -64,6 +79,10 @@ Finish with a short report:
 - Tests you added or changed, by file.
 - Code you fixed because a test showed a bug.
 - Any change you made to `.witness/witness.toml` or the env file, and why.
+<!-- if morph -->
+- What is not covered, and each blocker with what is needed and the diagnosis lines.
+<!-- else -->
 - What is not covered, and anything that blocked you.
+<!-- endif -->
 
 Do not describe the change as working unless the final VERDICT is `passed`.

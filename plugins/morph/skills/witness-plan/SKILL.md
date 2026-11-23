@@ -14,8 +14,7 @@ order:
 
 1. What the user asked for: the request and any acceptance criteria.
 2. The pull request description, and the issue or ticket it links.
-3. In morph: the spec and task you were given.
-4. Commit messages on the branch: `git log --oneline <base>..HEAD`.
+3. Commit messages on the branch: `git log --oneline <base>..HEAD`.
 
 Turn each expectation into one sentence about behavior someone outside the app can observe
 through its HTTP API, UI or command line: a response, a page, a command's output, data read back. Witness runs
