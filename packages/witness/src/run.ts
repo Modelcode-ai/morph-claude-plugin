@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { ADAPTERS } from "./adapters.ts";
+import { ADAPTERS, selectCommand } from "./adapters.ts";
 import { type Config, loadEnv, type Service, type Suite } from "./config.ts";
 import { buildCtrf } from "./ctrf.ts";
 import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
@@ -79,6 +79,10 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   const suites = pickSuites(cfg, opts.suites);
   const select = splitSelect(suites, opts.select);
   if (!suites.length) throw new UsageError("no [[suite]] in the config");
+  for (const [name, ids] of select ?? []) {
+    const s = suites.find((x) => x.name === name)!;
+    if (!selectCommand(ADAPTERS[s.adapter], s.cmd, ids, s.select)) throw new UsageError(`suite ${name}: adapter ${s.adapter} cannot select tests${s.select ? ` with select = "${s.select}" (use {ids}, or {id} for one test)` : '; add select = "<cmd> {ids}" to the suite'}`);
+  }
   const progress = new Progress(Date.now(), false);
   let release: () => void;
   try {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const mode = process.argv[2] ?? "pass";
-const only = process.argv.includes("--only") ? process.argv[process.argv.indexOf("--only") + 1] : null;
+const only = process.argv.includes("--only") ? process.argv.slice(process.argv.indexOf("--only") + 1) : null;
 const dir = process.env.WITNESS_REPORT_DIR;
 const base = process.env.WITNESS_API_URL;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -24,16 +24,16 @@ function junit(list) {
 }
 
 async function main() {
-  console.log(`fake suite: ${mode}${only ? ` only ${only}` : ""}`);
+  console.log(`fake suite: ${mode}${only ? ` only ${only.join(" ")}` : ""}`);
   if (base) {
     const r = await fetch(`${base}/hello`);
     console.log(`GET /hello -> ${r.status}`);
   }
-  const list = only ? cases.filter((c) => `${c.cls}#${c.name}` === only) : cases;
+  const list = only ? cases.filter((c) => only.includes(`${c.cls}#${c.name}`)) : cases;
   switch (mode) {
     case "hang":
       console.log("waiting forever");
-      await new Promise(() => {});
+      setInterval(() => {}, 1 << 30);
       break;
     case "slow":
       for (let i = 0; i < 100; i++) {
@@ -43,7 +43,7 @@ async function main() {
       }
       break;
     case "broken-xml":
-      if (only) {
+      if (only?.length === 1) {
         fs.writeFileSync(path.join(dir, "junit.xml"), junit(list));
         process.exit(list.every((c) => c.ok) ? 0 : 1);
       }
