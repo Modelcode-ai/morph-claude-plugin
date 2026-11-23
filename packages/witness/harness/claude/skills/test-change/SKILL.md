@@ -25,8 +25,8 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 - Start them so they can run to the end without being cut off by a short timeout, and so you can
   read their output while they run. If your environment can run a command in the background and
-  show its output later, use that. Otherwise redirect the output to a file outside the repo, for
-  example `witness run > /tmp/witness-run.out 2>&1`, and read that file.
+  show its output later, use that. Otherwise redirect the output to a file in `.witness/scratch/`
+  (git ignores it), for example `witness run > .witness/scratch/run.out 2>&1`, and read that file.
 - Progress lines start with `witness  [mm:ss]`. A heartbeat line appears at least once a minute,
   so silence for several minutes means the command itself is stuck.
 - For a snapshot of a run in progress, read `.witness/runs/latest/status.json` (phase, suites,

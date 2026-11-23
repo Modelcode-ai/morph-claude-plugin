@@ -33,15 +33,11 @@ once more. If it then works, note the retry in your report and go back to where 
 ## 3. Did the change break the boot?
 
 For `boot` and `deps` stages, and for a suite that hangs, find out whether the base revision
-boots. Check it in a separate worktree, so the current checkout is untouched:
+boots. This checks it out in a temporary worktree (with this checkout's `.witness/`) and leaves
+the current checkout untouched:
 
 ```
-git worktree add /tmp/witness-base <base-ref>
-mkdir -p /tmp/witness-base/.witness
-cp .witness/witness.toml /tmp/witness-base/.witness/
-cp .witness/.env /tmp/witness-base/.witness/ 2>/dev/null
-(cd /tmp/witness-base && witness check --stage boot)
-git worktree remove --force /tmp/witness-base
+witness check --stage boot --against <base-ref>
 ```
 
 (`witness run --against <base-ref>` compares test outcomes, but it does not run the base when the
