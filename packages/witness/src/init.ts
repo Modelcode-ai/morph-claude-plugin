@@ -148,8 +148,10 @@ export function guess(root: string): Guess {
         const testDir = path.posix.normalize(path.posix.join(path.posix.dirname(c), td ?? "."));
         pwDirs.push(testDir);
         const isDefault = /^playwright\.config\.[cm]?[jt]s$/.test(c);
-        const under = (r: string) => testDir === "." || r.startsWith(`${testDir}/`);
-        projects.push({ label: `${d === "." ? "" : `${d}/`}${isDefault ? testDir : c}`.replace(/^\.\//, ""), adapter: "playwright", cwd: d, dir: d, cmd: isDefault ? "npx playwright test" : `npx playwright test -c ${c}`, nameBase: `${pre}${isDefault ? "playwright" : path.basename(c).replace(/\.config\.\w+$/, "").replace(/^playwright\.?/, "playwright-")}`, isTest: (r) => JS_TEST.test(r) && under(r), include: (r) => own(r) && (under(r) || r === c), helper: (r) => r === c, defaultKind: "ui" });
+        const ignore = configRegex(text, "testIgnore");
+        const match = configRegex(text, "testMatch");
+        const under = (r: string) => (testDir === "." || r.startsWith(`${testDir}/`)) && !ignore?.test(`/${r}`) && (!match || match.test(`/${r}`));
+        projects.push({ label: `${d === "." ? "" : `${d}/`}${isDefault ? testDir : c}`.replace(/^\.\//, ""), adapter: "playwright", cwd: d, dir: d, cmd: isDefault ? "npx playwright test" : `npx playwright test -c ${c}`, nameBase: `${pre}${pwName(c, isDefault)}`, isTest: (r) => JS_TEST.test(r) && under(r), include: (r) => own(r) && (r === c || (under(r) && !configs.includes(r))), helper: (r) => r === c, defaultKind: "ui" });
       }
     }
     const notPw = (r: string) => own(r) && !pwDirs.some((t) => t !== "." && r.startsWith(`${t}/`)) && !/@playwright\/test|playwright-bdd/.test(read(path.join(root, d, r)).slice(0, 4000));
@@ -174,13 +176,33 @@ export function guess(root: string): Guess {
   return g;
 }
 
+const pwName = (c: string, isDefault: boolean) => {
+  const b = path.basename(c).replace(/\.config\.\w+$/, "");
+  return isDefault ? "playwright" : b === "playwright" ? `playwright-${path.basename(path.dirname(c))}` : b.replace(/^playwright\.?/, "playwright-");
+};
+
+const RE_LIT = String.raw`\/(?:\\.|\[(?:\\.|[^\]\n])*\]|[^/\\\n\[])+\/[a-z]*`;
+
+/** A config-wide `key: /regex/` (or `key: NAME` with `const NAME = /regex/`), before any `projects:`. */
+function configRegex(text: string, key: string): RegExp | undefined {
+  const top = text.slice(0, text.search(/\bprojects\s*:/) >>> 0);
+  const m = new RegExp(String.raw`\b${key}\s*:\s*(${RE_LIT}|[A-Za-z_]\w*)`).exec(top);
+  if (!m) return undefined;
+  const lit = m[1].startsWith("/") ? m[1] : new RegExp(String.raw`\bconst\s+${m[1]}\s*=\s*(${RE_LIT})`).exec(text)?.[1];
+  const r = lit && /^\/(.*)\/([a-z]*)$/.exec(lit);
+  try {
+    return r ? new RegExp(r[1], r[2]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function decide(g: Guess, p: Project, v: Verdict, name: (b: string) => string) {
   const kind = v.kind ?? p.defaultKind;
   const ev = v.evidence ? ` (${v.evidence})` : "";
   const suite = (cmd: string, why: string) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind: kind!, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report });
   if (v.status === "functional") return suite(p.cmd, `${p.label}: ${v.reason}${ev}`);
   if (v.status === "excluded") {
-    if (p.defaultKind && v.reason === "no tests found") return suite(p.cmd, `${p.label}: ${p.adapter === "playwright" ? "Playwright" : "browser"} config; no test files found to scan`);
     return g.excluded.push({ path: p.label, adapter: p.adapter, reason: v.reason });
   }
   const filtered = filteredCmd(p.adapter, p.cmd, v, { xunitMtp: p.xunitMtp });

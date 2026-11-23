@@ -5,7 +5,7 @@ import type { Config, Kind } from "./config.ts";
 import { expandArgs, findTests, type Lang, langOf, mask } from "./lint.ts";
 import { shellWords } from "./util.ts";
 
-type SigType = "api" | "http" | "host" | "url" | "self" | "ui" | "db" | "httpmock" | "note";
+type SigType = "api" | "http" | "call" | "host" | "url" | "self" | "ui" | "db" | "httpmock" | "note";
 
 interface Rule {
   langs: Lang[];
@@ -33,6 +33,9 @@ const RULES: Rule[] = [
   { langs: ["py"], type: "host", label: "Django/DRF test client", code: /\bAPIClient\s*\(|\bAPITestCase\b|\bLiveServerTestCase\b|\blive_server\b/ },
   { langs: ["py"], type: "api", label: "Django test client", code: /\bself\.client\.(get|post|put|patch|delete|head|options)\s*\(/ },
   { langs: ["py"], type: "http", label: "HTTP requests on a client", code: /\b\w*client\.(get|post|put|patch|delete|head|options|request)\s*\(\s*(?:f|rf|fr)?["']/i, arg: /^(\/|https?:|\{)/ },
+  { langs: ["py"], type: "api", label: "TestClient", code: /\bTestClient\s*\([^()]*\)\s*\.(get|post|put|patch|delete|head|options|request)\s*\(/ },
+  { langs: ["py"], type: "call", label: "HTTP requests on a client", code: /\b\w*client\.(get|post|put|patch|delete|head|options|request|stream)\s*\(/i },
+  { langs: ["py"], type: "call", label: "HTTP requests on a client", code: /\)\s*\.(get|post|put|patch|delete|head|options)\s*\(\s*(?:f|rf|fr)?["']/, arg: /^\// },
   { langs: ["py"], type: "http", label: "requests/httpx calls", code: /\b(requests|httpx|session|aiohttp)\.(get|post|put|patch|delete|head|request)\s*\(/ },
   { langs: ["py"], type: "url", label: "base URL from the environment", code: /\bos\.(?:environ\s*(?:\.get\s*\(|\[)|getenv\s*\()\s*["']/, arg: URLISH },
   { langs: ["py"], type: "ui", label: "browser driver", mod: /^(playwright|selenium|splinter|pyppeteer|pytest_playwright)\b/ },
@@ -47,7 +50,7 @@ const RULES: Rule[] = [
   { langs: ["js"], type: "api", label: "supertest request(app)", code: /\brequest\s*\(\s*[\w.]+\s*\)\s*\.(get|post|put|patch|delete|head|options)\s*\(/ },
   { langs: ["js"], type: "api", label: "fastify inject", code: /\.inject\s*\(\s*\{/ },
   { langs: ["js"], type: "api", label: "app.request", code: /\bapp\.request\s*\(/ },
-  { langs: ["js"], type: "host", label: "server started in the test", code: /\.listen\s*\(\s*(0|\w*[pP]ort\w*)?\s*[,)]/ },
+  { langs: ["js"], type: "host", label: "app server started in the test", code: /\bapp\.listen\s*\(|\bcreateServer\s*\(\s*app\b/ },
   { langs: ["js"], type: "http", label: "HTTP client calls", code: /\bfetch\s*\(|\baxios(\.\w+)?\s*\(|\bgot(\.\w+)?\s*\(/ },
   { langs: ["js"], type: "http", label: "HTTP client", mod: /^(axios|got|ky|undici|node-fetch|superagent)$/ },
   { langs: ["js"], type: "url", label: "base URL from the environment", code: /\bprocess\.env\.\w*(URL|HOST|ORIGIN|ENDPOINT|BASE)\w*/i },
@@ -230,6 +233,7 @@ export function scanFile(root: string, rel: string, isTest?: boolean): FileScan 
 export function fileKind(f: FileScan, ctx: { host: boolean; url: boolean }): Kind | null {
   if (has(f, "ui")) return "ui";
   if (has(f, "api")) return "api";
+  if (has(f, "call") && (has(f, "host") || has(f, "self"))) return "api";
   if (has(f, "http") && !has(f, "httpmock") && (ctx.host || ctx.url || has(f, "host") || has(f, "url") || has(f, "self"))) return "api";
   return null;
 }

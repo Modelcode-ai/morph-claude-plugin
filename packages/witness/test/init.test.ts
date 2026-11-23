@@ -30,8 +30,8 @@ test("init finds services and skips test projects without tests", () => {
     "build.gradle.kts": "",
   });
   const g = guess(dir);
-  assert.deepEqual(g.suites.map((s) => [s.adapter, s.kind, s.cmd]), [["playwright", "ui", "npx playwright test"]]);
-  assert.deepEqual(g.excluded.map((e) => `${e.adapter} ${e.reason}`).sort(), ["dotnet no tests found", "go no tests found", "junit-gradle no tests found", "junit-maven no tests found", "phpunit no tests found", "pytest no tests found", "rspec no tests found", "vitest no tests found"]);
+  assert.deepEqual(g.suites, []);
+  assert.deepEqual(g.excluded.map((e) => `${e.adapter} ${e.reason}`).sort(), ["dotnet no tests found", "go no tests found", "junit-gradle no tests found", "junit-maven no tests found", "phpunit no tests found", "playwright no tests found", "pytest no tests found", "rspec no tests found", "vitest no tests found"]);
   assert.ok(g.services.some((s) => s.start.includes("dotnet run --no-build --project src/Web/Web.csproj")));
   assert.ok(g.services.some((s) => s.cwd === "web" && s.start === "npm start"));
   const cfg = parseConfig(parse(renderExample(g)) as Record<string, unknown>, path.join(dir, ".witness", "witness.toml"));

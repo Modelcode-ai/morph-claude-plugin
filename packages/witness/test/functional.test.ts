@@ -74,6 +74,25 @@ describe("init proposes functional suites only", () => {
     assert.equal(parseConfig(parse(toml) as Record<string, unknown>, "/x/.witness/witness.toml").suites.length, 0);
   });
 
+  test("Playwright: config-wide testIgnore applies, project testMatch and sibling configs don't, empty configs are excluded", () => {
+    const ui = 'import { test } from "@playwright/test";\ntest("home", async ({ page }) => { await page.goto("/"); });\n';
+    const guard = 'import { test, expect } from "@playwright/test";\ntest("config", () => { expect(1).toBe(1); });\n';
+    const g = guess(repo({
+      "package.json": JSON.stringify({ devDependencies: { "@playwright/test": "1" } }),
+      "playwright.config.ts": "const IGNORE = /[/\\\\]regression[/\\\\]/;\nexport default defineConfig({\n  testDir: './e2e',\n  testIgnore: IGNORE,\n  projects: [{ name: 'setup', testMatch: /auth\\.setup\\.ts$/ }],\n});\n",
+      "e2e/home.spec.ts": ui,
+      "e2e/regression/guards/config.spec.ts": guard,
+      "e2e/playwright.other.config.ts": "export default defineConfig({ testDir: '.', webServer: { command: 'npm start' } });\n",
+      "tools/playwright.config.ts": "export default defineConfig({ testDir: './none' });\n",
+    }));
+    const def = g.suites.find((s) => s.cmd === "npx playwright test");
+    assert.ok(def, JSON.stringify(g));
+    assert.equal(def.hostsApp, false);
+    assert.match(def.why, /^e2e: 1 test file\(s\) drive the app/);
+    assert.deepEqual(g.excluded.map((e) => `${e.path}: ${e.reason}`), ["tools/playwright.config.ts: no tests found"]);
+    assert.deepEqual(g.needsFilter.map((n) => n.path), ["e2e/playwright.other.config.ts"]);
+  });
+
   test("the excluded list goes into the generated file as comments", () => {
     const toml = renderExample(guess(fx("dotnet/unit")));
     assert.match(toml, /# Not proposed: .*\n# {3}tests\/Shop\.UnitTests: unit \(no app host, HTTP client or browser driver\)/);
@@ -112,6 +131,8 @@ describe("file classifier", () => {
       ["OrdersTest.java", "class OrdersTest {\n  @Test void list() throws Exception { mockMvc.perform(get(\"/orders\")).andExpect(status().isOk()); }\n}\n"],
       ["router_test.go", "func TestList(t *testing.T) {\n\tw := httptest.NewRecorder()\n\tNewRouter().ServeHTTP(w, httptest.NewRequest(\"GET\", \"/orders\", nil))\n}\n"],
       ["orders.test.ts", "import request from 'supertest';\ntest('list', async () => { await request(app).get('/orders').expect(200); });\n"],
+      ["test_helper_client.py", "from fastapi.testclient import TestClient\ndef _client():\n    return TestClient(app)\ndef test_a():\n    assert _client().post('/echo', json={}).status_code == 200\n"],
+      ["test_fixture_client.py", "from fastapi.testclient import TestClient\ndef test_a(client: TestClient):\n    assert client.get(URL).status_code == 200\n"],
     ];
     for (const [f, src] of api) assert.equal(kindOf(f, src), "api", f);
     const ui: [string, string][] = [
@@ -126,6 +147,7 @@ describe("file classifier", () => {
   test("mocked HTTP, repository calls and localhost test data don't count", () => {
     assert.equal(kindOf("test_client.py", "import responses\nimport requests\n@responses.activate\ndef test_a():\n    requests.get('http://x/a')\n", { host: false, url: true }), null);
     assert.equal(kindOf("DeleteBasket.cs", "public class DeleteBasket {\n  [Fact]\n  public async Task Deletes() { await _repo.DeleteAsync(basket); }\n}\n", { host: true, url: false }), null);
+    assert.equal(kindOf("proxy.test.ts", "import http from 'node:http';\nconst server = http.createServer((req, res) => res.end());\nbeforeAll(() => server.listen(0, '127.0.0.1'));\nit('times out', async () => { await fetch(url); });\n"), null);
     assert.equal(kindOf("EmailTests.cs", "public class EmailTests {\n  [Fact]\n  public void Link() { Assert.Equal(\"https://localhost:5001/confirm\", svc.Link()); }\n}\n"), null);
     const files = [scanSource("tests/helpers.py", "BASE = 'http://localhost:8000'\n", { isTest: false })!, scanSource("tests/test_a.py", "import requests\ndef test_a():\n    requests.get(BASE + '/a')\n")!];
     assert.equal(classify(files).status, "functional");
