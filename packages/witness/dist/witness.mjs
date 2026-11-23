@@ -8984,8 +8984,8 @@ var require_fxp = __commonJS((exports, module) => {
 });
 
 // src/cli.ts
-import * as fs17 from "node:fs";
-import * as path17 from "node:path";
+import * as fs18 from "node:fs";
+import * as path18 from "node:path";
 
 // src/commands.ts
 import * as fs14 from "node:fs";
@@ -13821,7 +13821,14 @@ function scanSource(rel, raw, opts = {}) {
   const code = mask(raw, fl.as);
   const mods = importsOf(raw, code, lang);
   const sigs = new Map;
-  const hit = (r) => (sigs.get(r.type) ?? sigs.set(r.type, new Set).get(r.type)).add(r.label);
+  const lines = new Map;
+  const lineAt2 = (i) => code.slice(0, i).split(`
+`).length;
+  const hit = (r, line) => {
+    (sigs.get(r.type) ?? sigs.set(r.type, new Set).get(r.type)).add(r.label);
+    if (line && !lines.has(r.label))
+      lines.set(r.label, line);
+  };
   const rawLines = raw.split(`
 `);
   const codeLines = code.split(`
@@ -13829,19 +13836,21 @@ function scanSource(rel, raw, opts = {}) {
   for (const r of RULES) {
     if (!r.langs.includes(lang))
       continue;
-    if (r.mod && mods.some((m) => r.mod.test(m)))
-      hit(r);
+    const mod = r.mod && mods.find((m) => r.mod.test(m));
+    if (mod)
+      hit(r, rawLines.findIndex((l) => l.includes(mod)) + 1);
     if (r.code) {
       const re = new RegExp(r.code.source, r.code.flags.includes("g") ? r.code.flags : `${r.code.flags}g`);
       for (const m of code.matchAll(re)) {
         if (!r.arg || r.arg.test(rawString(raw, m.index + m[0].length - 1))) {
-          hit(r);
+          hit(r, lineAt2(m.index));
           break;
         }
       }
     }
-    if (r.lit && rawLines.some((l, i) => /["'`]/.test(codeLines[i] ?? "") && r.lit.test(l)))
-      hit(r);
+    const li = r.lit ? rawLines.findIndex((l, i) => /["'`]/.test(codeLines[i] ?? "") && r.lit.test(l)) : -1;
+    if (li >= 0)
+      hit(r, li + 1);
   }
   const lits = [...code.matchAll(/(["'`])[ ]*\1/g)].map((m) => rawString(raw, m.index));
   const mark = (type, label) => (sigs.get(type) ?? sigs.set(type, new Set).get(type)).add(label);
@@ -13865,7 +13874,7 @@ ${opts.helpers}` : raw, opts.entries);
   const isTest = opts.isTest ?? (extra ? extra.test(code) : findTests(raw, code, lang).length > 0);
   const ns = lang === "cs" || lang === "java" ? /^\s*(?:namespace|package)\s+([\w.]+)/m.exec(code)?.[1] : undefined;
   const classes = lang === "cs" || lang === "java" ? [...code.matchAll(/\bclass\s+(\w+)/g)].map((m) => m[1]) : [];
-  return { rel, isTest, sigs, tags: tagsOf(raw, code, lang), namespace: ns, classes };
+  return { rel, isTest, sigs, lines, tags: tagsOf(raw, code, lang), namespace: ns, classes };
 }
 function scanFile(root, rel, isTest, entries) {
   let raw;
@@ -15642,25 +15651,25 @@ function guess(root) {
   const py = has2(/(^|\/)(pytest\.ini|conftest\.py|pyproject\.toml|setup\.cfg|tox\.ini)$/).filter((f) => /pytest\.ini|conftest\.py/.test(f) || /\[tool\.pytest|\[tool:pytest\]|\[pytest\]|pytest/.test(read(path15.join(root, f))));
   const pyDirs = [...new Set(py.map(dirOf))].filter((d, _i, a) => !a.some((o) => o !== d && (d.startsWith(`${o}/`) || o === ".")) || d === ".");
   for (const d of pyDirs.slice(0, 3))
-    projects.push({ label: d, adapter: "pytest", cwd: d, dir: d, cmd: "python -m pytest", nameBase: d === "." ? "pytest" : `${path15.basename(d)}-pytest`, isTest: (r) => PY_TEST.test(r) });
+    projects.push({ label: d, adapter: "pytest", cwd: d, dir: d, manifest: py.find((f) => dirOf(f) === d), cmd: "python -m pytest", nameBase: d === "." ? "pytest" : `${path15.basename(d)}-pytest`, isTest: (r) => PY_TEST.test(r) });
   const javaTest = (r) => /(^|\/)src\/test\/.*\.(java|kt)$/.test(r);
   const pom = has2(/(^|\/)pom\.xml$/).sort((a, b) => a.length - b.length)[0];
   if (pom) {
-    projects.push({ label: dirOf(pom), adapter: "junit-maven", cwd: dirOf(pom), dir: dirOf(pom), cmd: "mvn -B verify", nameBase: "maven-tests", include: javaTest });
+    projects.push({ label: dirOf(pom), adapter: "junit-maven", cwd: dirOf(pom), dir: dirOf(pom), manifest: pom, cmd: "mvn -B verify", nameBase: "maven-tests", include: javaTest });
     if (/spring-boot/.test(read(path15.join(root, pom))))
-      g.services.push({ name: name("app"), cwd: dirOf(pom), setup: "mvn -B -DskipTests package", start: "mvn -B spring-boot:run -Dspring-boot.run.arguments=--server.port=${PORT}", ready: "${self.url}/actuator/health", why: "spring-boot in pom.xml" });
+      g.services.push({ name: name("app"), cwd: dirOf(pom), setup: "mvn -B -DskipTests package", start: "mvn -B spring-boot:run -Dspring-boot.run.arguments=--server.port=${PORT}", ready: "${self.url}/actuator/health", why: "spring-boot in pom.xml", confidence: "medium", evidence: [pom] });
   }
   const gradle = has2(/(^|\/)build\.gradle(\.kts)?$/).sort((a, b) => a.length - b.length)[0];
   if (gradle)
-    projects.push({ label: dirOf(gradle), adapter: "junit-gradle", cwd: dirOf(gradle), dir: dirOf(gradle), cmd: fs15.existsSync(path15.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", nameBase: "gradle-tests", include: javaTest });
+    projects.push({ label: dirOf(gradle), adapter: "junit-gradle", cwd: dirOf(gradle), dir: dirOf(gradle), manifest: gradle, cmd: fs15.existsSync(path15.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", nameBase: "gradle-tests", include: javaTest });
   const csproj = has2(/\.csproj$/);
   for (const f of csproj.filter((f2) => /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i.test(read(path15.join(root, f2))))) {
     const mode = dotnetMode(root, `dotnet test ${f}`);
     const cmd = `dotnet test ${mode !== "vstest" ? "--project " : ""}${f}`;
-    projects.push({ label: dirOf(f), adapter: "dotnet", cwd: ".", dir: dirOf(f), cmd, nameBase: path15.basename(f, ".csproj"), xunitMtp: dotnetMode(root, cmd) === "mtp-xunit" });
+    projects.push({ label: dirOf(f), adapter: "dotnet", cwd: ".", dir: dirOf(f), manifest: f, cmd, nameBase: path15.basename(f, ".csproj"), xunitMtp: dotnetMode(root, cmd) === "mtp-xunit" });
   }
   for (const f of csproj.filter((f2) => /Sdk="Microsoft\.NET\.Sdk\.Web"/.test(read(path15.join(root, f2)))).slice(0, 3)) {
-    g.services.push({ name: name(path15.basename(f, ".csproj")), cwd: ".", setup: `dotnet build ${f}`, start: `dotnet run --no-build --project ${f} --urls http://127.0.0.1:\${PORT}`, ready: "${self.url}/", why: `web project ${f}` });
+    g.services.push({ name: name(path15.basename(f, ".csproj")), cwd: ".", setup: `dotnet build ${f}`, start: `dotnet run --no-build --project ${f} --urls http://127.0.0.1:\${PORT}`, ready: "${self.url}/", why: `web project ${f}`, confidence: "medium", evidence: [f] });
   }
   const pkgs = has2(/(^|\/)package\.json$/).filter((f) => f.split("/").length <= 3);
   const pkgDirs = pkgs.map(dirOf);
@@ -15688,38 +15697,38 @@ function guess(root) {
         const ignore = configRegex(text, "testIgnore");
         const match = configRegex(text, "testMatch");
         const under = (r) => (testDir === "." || r.startsWith(`${testDir}/`)) && !ignore?.test(`/${r}`) && (!match || match.test(`/${r}`));
-        projects.push({ label: `${d === "." ? "" : `${d}/`}${isDefault ? testDir : c2}`.replace(/^\.\//, ""), adapter: "playwright", cwd: d, dir: d, cmd: isDefault ? "npx playwright test" : `npx playwright test -c ${c2}`, nameBase: `${pre}${pwName(c2, isDefault)}`, isTest: (r) => JS_TEST.test(r) && under(r), include: (r) => own(r) && (r === c2 || under(r) && !configs.includes(r)), helper: (r) => r === c2, defaultKind: "ui" });
+        projects.push({ label: `${d === "." ? "" : `${d}/`}${isDefault ? testDir : c2}`.replace(/^\.\//, ""), adapter: "playwright", cwd: d, dir: d, manifest: path15.posix.join(d, c2), cmd: isDefault ? "npx playwright test" : `npx playwright test -c ${c2}`, nameBase: `${pre}${pwName(c2, isDefault)}`, isTest: (r) => JS_TEST.test(r) && under(r), include: (r) => own(r) && (r === c2 || under(r) && !configs.includes(r)), helper: (r) => r === c2, defaultKind: "ui" });
       }
     }
     const notPw = (r) => own(r) && !pwDirs.some((t) => t !== "." && r.startsWith(`${t}/`)) && !/@playwright\/test|playwright-bdd/.test(read(path15.join(root, d, r)).slice(0, 4000));
     if (deps.vitest)
-      projects.push({ label: d, adapter: "vitest", cwd: d, dir: d, cmd: "npx vitest run", nameBase: `${pre}vitest`, isTest: (r) => JS_TEST.test(r), include: notPw });
+      projects.push({ label: d, adapter: "vitest", cwd: d, dir: d, manifest: pj, cmd: "npx vitest run", nameBase: `${pre}vitest`, isTest: (r) => JS_TEST.test(r), include: notPw });
     const detox = deps.detox ? detoxDir(path15.join(root, d)) : undefined;
     const notDetox = (r) => !detox || !r.startsWith(`${detox}/`);
     if (detox)
-      projects.push({ label: `${d === "." ? "" : `${d}/`}${detox}`, adapter: "jest", cwd: d, dir: d, cmd: "npx detox test", nameBase: `${pre}detox`, isTest: (r) => JS_TEST.test(r), include: (r) => own(r) && !notDetox(r), defaultKind: "mobile" });
+      projects.push({ label: `${d === "." ? "" : `${d}/`}${detox}`, adapter: "jest", cwd: d, dir: d, manifest: pj, cmd: "npx detox test", nameBase: `${pre}detox`, isTest: (r) => JS_TEST.test(r), include: (r) => own(r) && !notDetox(r), defaultKind: "mobile" });
     if (deps.jest)
-      projects.push({ label: d, adapter: "jest", cwd: d, dir: d, cmd: "npx jest", nameBase: `${pre}jest`, isTest: (r) => JS_TEST.test(r), include: (r) => notPw(r) && notDetox(r) });
+      projects.push({ label: d, adapter: "jest", cwd: d, dir: d, manifest: pj, cmd: "npx jest", nameBase: `${pre}jest`, isTest: (r) => JS_TEST.test(r), include: (r) => notPw(r) && notDetox(r) });
     if (deps.mocha)
-      projects.push({ label: d, adapter: "mocha", cwd: d, dir: d, cmd: "npx mocha", nameBase: `${pre}mocha`, isTest: (r) => JS_TEST.test(r) || MOCHA_TEST.test(r), include: notPw });
+      projects.push({ label: d, adapter: "mocha", cwd: d, dir: d, manifest: pj, cmd: "npx mocha", nameBase: `${pre}mocha`, isTest: (r) => JS_TEST.test(r) || MOCHA_TEST.test(r), include: notPw });
     if (deps.cypress)
-      projects.push({ label: `${d === "." ? "" : `${d}/`}cypress`, adapter: "generic", cwd: d, dir: d, cmd: 'npx cypress run --reporter junit --reporter-options "mochaFile=${WITNESS_REPORT_DIR}/cypress-[hash].xml"', nameBase: `${pre}cypress`, isTest: (r) => /\.cy\.[cm]?[jt]sx?$/.test(r), include: own, defaultKind: "ui", report: "${WITNESS_REPORT_DIR}/*.xml" });
+      projects.push({ label: `${d === "." ? "" : `${d}/`}cypress`, adapter: "generic", cwd: d, dir: d, manifest: pj, cmd: 'npx cypress run --reporter junit --reporter-options "mochaFile=${WITNESS_REPORT_DIR}/cypress-[hash].xml"', nameBase: `${pre}cypress`, isTest: (r) => /\.cy\.[cm]?[jt]sx?$/.test(r), include: own, defaultKind: "ui", report: "${WITNESS_REPORT_DIR}/*.xml" });
     if (doc.scripts?.start)
-      g.services.push({ name: name(`${pre}web`.replace(/-$/, "")), cwd: d, setup: fs15.existsSync(path15.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}` });
+      g.services.push({ name: name(`${pre}web`.replace(/-$/, "")), cwd: d, setup: fs15.existsSync(path15.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}`, confidence: "medium", evidence: [pj] });
   }
   const gomod = has2(/(^|\/)go\.mod$/).sort((a, b) => a.length - b.length)[0];
   if (gomod)
-    projects.push({ label: dirOf(gomod), adapter: "go", cwd: dirOf(gomod), dir: dirOf(gomod), cmd: "go test ./...", nameBase: "go-tests", isTest: (r) => /_test\.go$/.test(r) });
+    projects.push({ label: dirOf(gomod), adapter: "go", cwd: dirOf(gomod), dir: dirOf(gomod), manifest: gomod, cmd: "go test ./...", nameBase: "go-tests", isTest: (r) => /_test\.go$/.test(r) });
   const gem = has2(/(^|\/)Gemfile$/).find((f) => /rspec/.test(read(path15.join(root, f))));
   if (gem)
-    projects.push({ label: dirOf(gem), adapter: "rspec", cwd: dirOf(gem), dir: dirOf(gem), cmd: "bundle exec rspec", nameBase: "rspec", isTest: (r) => /_spec\.rb$/.test(r) });
+    projects.push({ label: dirOf(gem), adapter: "rspec", cwd: dirOf(gem), dir: dirOf(gem), manifest: gem, cmd: "bundle exec rspec", nameBase: "rspec", isTest: (r) => /_spec\.rb$/.test(r) });
   const php = has2(/(^|\/)phpunit\.xml(\.dist)?$/)[0];
   if (php)
-    projects.push({ label: dirOf(php), adapter: "phpunit", cwd: dirOf(php), dir: dirOf(php), cmd: "vendor/bin/phpunit", nameBase: "phpunit", isTest: (r) => /Test\.php$/.test(r) });
+    projects.push({ label: dirOf(php), adapter: "phpunit", cwd: dirOf(php), dir: dirOf(php), manifest: php, cmd: "vendor/bin/phpunit", nameBase: "phpunit", isTest: (r) => /Test\.php$/.test(r) });
   const cargo = has2(/(^|\/)Cargo\.toml$/).sort((a, b) => a.length - b.length)[0];
   if (cargo) {
     const d = dirOf(cargo);
-    projects.push({ label: d, adapter: "generic", cwd: d, dir: d, cmd: "cargo test", nameBase: "cargo-tests", include: (r) => r.endsWith(".rs"), note: "cargo test writes no JUnit report, so witness records one row from the exit code; cargo-nextest's JUnit output gives per-test rows (docs/witness/APP-KINDS.md)", filter: cargoFilter });
+    projects.push({ label: d, adapter: "generic", cwd: d, dir: d, manifest: cargo, cmd: "cargo test", nameBase: "cargo-tests", include: (r) => r.endsWith(".rs"), note: "cargo test writes no JUnit report, so witness records one row from the exit code; cargo-nextest's JUnit output gives per-test rows (docs/witness/APP-KINDS.md)", filter: cargoFilter });
   }
   const bats = has2(/\.bats$/);
   if (bats.length) {
@@ -15733,26 +15742,26 @@ function guess(root) {
   const androidTest = has2(/(^|\/)build\.gradle(\.kts)?$/).map(dirOf).filter((d) => fs15.existsSync(path15.join(root, d, "src", "androidTest")));
   if (androidTest.length && gradleRoot) {
     const gw = fs15.existsSync(path15.join(root, gradleRoot, "gradlew")) ? "./gradlew" : "gradle";
-    projects.push({ label: `${androidTest.join(", ")} (androidTest)`, adapter: "junit-gradle", cwd: gradleRoot, dir: gradleRoot, cmd: `${gw} connectedAndroidTest`, nameBase: "android-tests", include: (r) => /(^|\/)src\/androidTest\//.test(r), defaultKind: "mobile", report: "**/build/outputs/androidTest-results/connected/**/*.xml" });
+    projects.push({ label: `${androidTest.join(", ")} (androidTest)`, adapter: "junit-gradle", cwd: gradleRoot, dir: gradleRoot, manifest: gradle, cmd: `${gw} connectedAndroidTest`, nameBase: "android-tests", include: (r) => /(^|\/)src\/androidTest\//.test(r), defaultKind: "mobile", report: "**/build/outputs/androidTest-results/connected/**/*.xml" });
   }
   for (const pub of has2(/(^|\/)pubspec\.yaml$/).filter((f) => files.some((x) => x.startsWith(`${dirOf(f) === "." ? "" : `${dirOf(f)}/`}integration_test/`)))) {
     const d = dirOf(pub);
-    projects.push({ label: `${d === "." ? "" : `${d}/`}integration_test`, adapter: "generic", cwd: d, dir: d, cmd: "flutter test integration_test", nameBase: "flutter-integration", include: (r) => r.startsWith("integration_test/"), defaultKind: "mobile", note: "flutter test writes no JUnit report: one row from the exit code" });
+    projects.push({ label: `${d === "." ? "" : `${d}/`}integration_test`, adapter: "generic", cwd: d, dir: d, manifest: pub, cmd: "flutter test integration_test", nameBase: "flutter-integration", include: (r) => r.startsWith("integration_test/"), defaultKind: "mobile", note: "flutter test writes no JUnit report: one row from the exit code" });
   }
   for (const ui of [...new Set(has2(/(^|\/)[^/]*UITests\/.*\.swift$/).map((f) => f.slice(0, f.search(/[^/]*UITests\//) + f.slice(f.search(/[^/]*UITests\//)).indexOf("/"))))]) {
     const d = dirOf(ui);
     const proj = files.find((f) => dirOf(f) === d && f.endsWith(".xcodeproj/project.pbxproj"));
     const scheme = proj ? path15.basename(path15.dirname(proj), ".xcodeproj") : path15.basename(ui).replace(/UITests$/, "");
-    projects.push({ label: ui, adapter: "generic", cwd: d, dir: d, cmd: `xcodebuild test -scheme ${scheme} -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:${path15.basename(ui)}`, nameBase: "xcuitest", include: (r) => r.startsWith(`${path15.basename(ui)}/`), defaultKind: "mobile", note: "xcodebuild writes an .xcresult, not JUnit: one row from the exit code unless a converter such as xcbeautify --report junit writes into $WITNESS_REPORT_DIR" });
+    projects.push({ label: ui, adapter: "generic", cwd: d, dir: d, manifest: proj, cmd: `xcodebuild test -scheme ${scheme} -destination 'platform=iOS Simulator,name=iPhone 16' -only-testing:${path15.basename(ui)}`, nameBase: "xcuitest", include: (r) => r.startsWith(`${path15.basename(ui)}/`), defaultKind: "mobile", note: "xcodebuild writes an .xcresult, not JUnit: one row from the exit code unless a converter such as xcbeautify --report junit writes into $WITNESS_REPORT_DIR" });
   }
   const flows = has2(/\.ya?ml$/).filter((f) => /(^|\/)\.maestro\//.test(f) || /^appId:/m.test(read(path15.join(root, f)).slice(0, 2000)));
   const maestro = flows.filter((f) => /^\s*-\s*launchApp\b/m.test(read(path15.join(root, f))));
   if (maestro.length) {
     const d = commonDir([...new Set(maestro.map(dirOf))]);
-    g.suites.push({ name: name("maestro"), adapter: "generic", kind: "mobile", cwd: ".", cmd: `maestro test --format junit --output \${WITNESS_REPORT_DIR}/maestro.xml ${d}`, why: `${d}: ${maestro.length} Maestro flow(s) launch the app`, hostsApp: false });
+    g.suites.push({ name: name("maestro"), adapter: "generic", kind: "mobile", cwd: ".", cmd: `maestro test --format junit --output \${WITNESS_REPORT_DIR}/maestro.xml ${d}`, why: `${d}: ${maestro.length} Maestro flow(s) launch the app`, hostsApp: false, project: d, confidence: "high", evidence: maestro.slice(0, 3) });
   }
   if (fs15.existsSync(path15.join(root, "manage.py")))
-    g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py" });
+    g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py", confidence: "medium", evidence: ["manage.py"] });
   for (const p of projects) {
     if (p.label === ".")
       p.label = `. (${p.adapter})`;
@@ -15808,28 +15817,39 @@ function configRegex(text, key) {
     return;
   }
 }
+function fileEvidence(p, files, n = 3) {
+  return files.slice(0, n).map((f) => {
+    const [label, line] = [...f.lines ?? []].sort((a, b) => a[1] - b[1])[0] ?? [];
+    const rel = path15.posix.join(p.dir, f.rel);
+    return label ? `${rel}:${line} ${label}` : rel;
+  });
+}
 function decide(g, p, v, name) {
   const kind = v.kind ?? p.defaultKind;
   const ev = v.evidence ? ` (${v.evidence})` : "";
-  const suite = (cmd, why) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report, note: p.note });
+  const manifest = p.manifest ? [p.manifest] : [];
+  const suite = (cmd, why, confidence) => g.suites.push({ name: name(p.nameBase), adapter: p.adapter, kind, cwd: p.cwd, cmd, why, hostsApp: v.hostsApp, report: p.report, note: p.note, project: p.label, filtered: cmd !== p.cmd, confidence: v.kind ? confidence : "medium", evidence: [...manifest, ...fileEvidence(p, v.functional)] });
   if (v.status === "functional")
-    return suite(p.cmd, `${p.label}: ${v.reason}${ev}`);
+    return suite(p.cmd, `${p.label}: ${v.reason}${ev}`, "high");
   if (v.status === "excluded") {
-    return g.excluded.push({ path: p.label, adapter: p.adapter, reason: v.reason });
+    const hosted = /found, but no test sends a request/.test(v.reason) || /integration/.test(v.reason);
+    return g.excluded.push({ path: p.label, adapter: p.adapter, reason: v.reason, confidence: hosted ? "medium" : "high", evidence: [...manifest, ...fileEvidence(p, v.other, 2).map((e) => e.replace(/:\d+ .*$/, ""))] });
   }
   const own = p.filter?.(v);
   const filtered = own ?? filteredCmd(p.adapter, p.cmd, v, { xunitMtp: p.xunitMtp });
   if (filtered) {
-    suite(filtered, `${p.label}: ${v.reason}; the command ${own && !v.filter?.dirs ? `runs only ${v.functional.map((f) => f.rel).join(", ")}` : describeFilter(v)}${ev}`);
+    suite(filtered, `${p.label}: ${v.reason}; the command ${own && !v.filter?.dirs ? `runs only ${v.functional.map((f) => f.rel).join(", ")}` : describeFilter(v)}${ev}`, "medium");
     const why = "doesn't drive the app (no request, browser, run of its command, window or device)";
     if (v.other.length <= 5)
       for (const o of v.other)
-        g.excluded.push({ path: path15.posix.join(p.dir, o.rel), adapter: p.adapter, reason: why });
+        g.excluded.push({ path: path15.posix.join(p.dir, o.rel), adapter: p.adapter, reason: why, confidence: "medium", evidence: [path15.posix.join(p.dir, o.rel)] });
     else
-      g.excluded.push({ path: `${p.label} (the other ${v.other.length} test files)`, adapter: p.adapter, reason: why });
+      g.excluded.push({ path: `${p.label} (the other ${v.other.length} test files)`, adapter: p.adapter, reason: why, confidence: "medium", evidence: manifest });
     return;
   }
   g.needsFilter.push({
+    confidence: "low",
+    evidence: [...manifest, ...fileEvidence(p, v.functional)],
     path: p.label,
     adapter: p.adapter,
     name: name(p.nameBase),
@@ -15953,10 +15973,819 @@ scratch/
   return 0;
 }
 
-// src/skills.ts
+// src/scan.ts
 import * as fs16 from "node:fs";
-import * as os2 from "node:os";
 import * as path16 from "node:path";
+var SKIP2 = new Set([".git", "node_modules", ".witness", ".venv", "venv", "bin", "obj", "target", "build", "dist", "vendor", ".gradle", "__pycache__", ".next", ".nuxt", "coverage", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "out", ".turbo", ".cache", "site-packages"]);
+var KEEP_DOT_DIRS = new Set([".github", ".devcontainer", ".circleci", ".gitlab", ".config"]);
+var MAX_SOURCES = 6000;
+var MAX_BYTES = 256 * 1024;
+var read2 = (f) => {
+  try {
+    const st = fs16.statSync(f);
+    return st.size > MAX_BYTES * 4 ? "" : fs16.readFileSync(f, "utf8");
+  } catch {
+    return "";
+  }
+};
+var lineAt2 = (text, i) => i < 0 ? 0 : text.slice(0, i).split(`
+`).length;
+var lineOf = (text, needle, from = 0) => {
+  const lines = text.split(`
+`);
+  for (let i = from;i < lines.length; i++)
+    if (typeof needle === "string" ? lines[i].includes(needle) : needle.test(lines[i]))
+      return i + 1;
+  return 0;
+};
+var at = (file, line) => line ? `${file}:${line}` : file;
+var dirOf = (f) => path16.posix.dirname(f) || ".";
+var ROLE = [
+  ["setup", /\b(npm (ci|install|i)|pnpm (i|install)|yarn install|bun install|pip3? install|poetry install|uv (sync|pip)|pipenv install|bundle install|composer install|dotnet (restore|tool restore)|go mod download|playwright\S* install|dev-certs|apt-get|brew install|corepack)\b|^yarn$/i],
+  ["test", /(^|\s)(test|e2e|test:\S+|e2e:\S+|verify)(\s|$)|\b(pytest|jest|vitest|mocha|rspec|phpunit|cypress run|playwright test)\b/i],
+  ["migrate", /^(?!.*(migrations add|makemigrations|migration:(create|generate))).*(\bmigrat)|\bdatabase update\b|alembic upgrade|prisma (migrate|db push)|flyway|liquibase|db:(migrate|setup|prepare)/i],
+  ["seed", /\bseed|loaddata|\bfixtures?\b/i],
+  ["build", /\b(build|compile|publish|package|tsc|webpack|assemble|bundle exec rake assets)\b/i],
+  ["start", /(^|\s)(start|serve|server|runserver|dev|up|start:\S+|dev:\S+)(\s|$)|\bdocker run\b|\b(uvicorn|gunicorn|hypercorn|flask run|rails s|dotnet run|spring-boot:run|bootRun|quarkus:dev|php artisan serve|go run|cargo run)\b|^node \S+\.[cm]?js\b/i]
+];
+var NOT_A_COMMAND = /^(echo|printf|cat|if|then|else|elif|fi|for|while|do|done|case|esac|export|set|cd|source|\.|test|\[|\[\[|exit|return|true|false|sleep|mkdir|rm|cp|mv|ln|chmod|grep|sed|awk|jq|tee|curl|wget|gh|git|ls|find|xargs|read|local|trap|wait|unset|shift|eval|pre-commit|ruff|eslint|prettier|pylint|pyright|mypy|black|isort|flake8|out=)\b|^[^\w./$]|^(npm|pnpm|yarn|bun) (run )?(lint|format|check-format|typecheck|prepare)\b/;
+var roleOf = (cmd) => NOT_A_COMMAND.test(cmd) ? undefined : ROLE.find(([, re]) => re.test(cmd))?.[0];
+var SECRET_HI = /SECRET|PASSWORD|PASSWD|TOKEN|API_?KEY|APIKEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|CLIENT_?SECRET/i;
+var SECRET_MID = /(^|_)KEY$|AUTH|DSN$|CONNECTION_?STRING|ConnectionStrings|(^|_)PASS$|SALT|SIGNING|LICENSE/i;
+var NOT_SECRET = /(_|:)(URL|URI|HOST|PORT|PATH|ENDPOINT|ENABLED|TTL|TIMEOUT|EXPIRY|EXPIRES|NAME|ID|FILE|DIR|TYPE|MODE|LENGTH|HEADER|PREFIX|BACKEND|PROVIDER|REGION|GROUP|ARN|KID|BUNDLE|VERSION|SCOPES?|MS|SECONDS|MINUTES|HOURS|DAYS|COUNT|SIZE|LIMIT|MAX|MIN|EMAIL|USER|USERNAME|TENANT|HINT)$|^(SECRET|AUTH)_(BACKEND|PROVIDER|MODE|TYPE)$|^(ENABLE|DISABLE|USE|IS|HAS)_|PUBLIC/i;
+var TEST_USER = /(USER|LOGIN|ACCOUNT|ADMIN|TESTER)\w*_(EMAIL|USERNAME|LOGIN|PASSWORD|PASS)$|^(TEST|E2E|QA)_\w*(EMAIL|USERNAME|PASSWORD)$/i;
+var ENV_NOISE = /^(NODE_ENV|HOME|PATH|PWD|USER|SHELL|TERM|TMPDIR|TEMP|TMP|HOSTNAME|LANG|LC_\w+|CI|GITHUB_\w+|RUNNER_\w+|WITNESS_\w+|ASPNETCORE_ENVIRONMENT|DOTNET_\w+|JAVA_HOME|PYTHONPATH|VIRTUAL_ENV|npm_\w+|INIT_CWD)$/;
+function secretness(name) {
+  if (SECRET_HI.test(name))
+    return NOT_SECRET.test(name) ? "low" : "high";
+  if (SECRET_MID.test(name) && !NOT_SECRET.test(name))
+    return "medium";
+  return;
+}
+var ENV_READS = [
+  { exts: /\.[cm]?[jt]sx?$|\.vue$|\.svelte$/, re: /\bprocess\.env\.([A-Za-z_]\w*)|\bprocess\.env\[\s*["'`]([A-Za-z_]\w*)|\bimport\.meta\.env\.([A-Za-z_]\w*)|\bDeno\.env\.get\(\s*["']([A-Za-z_]\w*)|\bBun\.env\.([A-Za-z_]\w*)/g },
+  { exts: /\.py$/, re: /\bos\.environ\s*\[\s*["']([A-Za-z_]\w*)|\b(?:os\.)?environ\.get\(\s*["']([A-Za-z_]\w*)|\bos\.getenv\(\s*["']([A-Za-z_]\w*)|\benv(?:\.str|\.int|\.bool|\.url)?\(\s*["']([A-Z_][A-Z0-9_]*)["']/g },
+  { exts: /\.cs$/, re: /\bGetEnvironmentVariable\(\s*"([A-Za-z_]\w*)"/g },
+  { exts: /\.cs$/, re: /\b[Cc]onfiguration\s*\[\s*"([^"]+)"\s*\]|\bGetValue<[\w?]+>\(\s*"([^"]+)"|\bGetConnectionString\(\s*"([^"]+)"/g, config: true },
+  { exts: /\.(java|kt|scala)$/, re: /\bSystem\.getenv\(\s*"([A-Za-z_]\w*)"/g },
+  { exts: /\.(java|kt)$/, re: /@Value\(\s*"\$\{([\w.-]+)/g, config: true },
+  { exts: /\.go$/, re: /\bos\.(?:Getenv|LookupEnv)\(\s*"([A-Za-z_]\w*)"|\bviper\.Get\w*\(\s*"([\w.]+)"/g },
+  { exts: /\.rb$|\.erb$/, re: /\bENV\s*\[\s*["']([A-Za-z_]\w*)|\bENV\.fetch\(\s*["']([A-Za-z_]\w*)/g },
+  { exts: /\.php$/, re: /\bgetenv\(\s*["']([A-Za-z_]\w*)|\benv\(\s*["']([A-Za-z_]\w*)|\$_ENV\s*\[\s*["']([A-Za-z_]\w*)/g },
+  { exts: /\.rs$/, re: /\benv::var(?:_os)?\(\s*"([A-Za-z_]\w*)"|\benv!\(\s*"([A-Za-z_]\w*)"/g },
+  { exts: /application[\w-]*\.(ya?ml|properties)$/, re: /\$\{([A-Z_][A-Z0-9_]*)(?::[^}]*)?\}/g }
+];
+var SOURCE_EXT = /\.([cm]?[jt]sx?|vue|svelte|py|cs|java|kt|scala|go|rb|erb|php|rs)$|application[\w-]*\.(ya?ml|properties)$/;
+var EXAMPLE_ENV = /(^|\/)(\.env\.(example|sample|template|dist|defaults|local\.example|test\.example|development\.example)|example\.env|env\.example|\.env\.\w+\.example|sample\.env)$/;
+var INFRA_IMAGES = [
+  [/postgres|postgis|timescale/i, "postgres"],
+  [/mysql|mariadb|percona/i, "mysql"],
+  [/mssql|sqlserver|azure-sql-edge/i, "sqlserver"],
+  [/(^|\/)(redis|valkey|keydb)/i, "redis"],
+  [/(^|\/)mongo/i, "mongodb"],
+  [/rabbitmq/i, "rabbitmq"],
+  [/kafka|redpanda/i, "kafka"],
+  [/zookeeper/i, "zookeeper"],
+  [/elasticsearch|opensearch/i, "elasticsearch"],
+  [/localstack/i, "aws (localstack)"],
+  [/minio/i, "s3 (minio)"],
+  [/azurite/i, "azure storage (azurite)"],
+  [/mailhog|mailpit|maildev|smtp4dev/i, "smtp"],
+  [/(^|\/)nats/i, "nats"],
+  [/memcached/i, "memcached"],
+  [/keycloak/i, "keycloak"],
+  [/clickhouse/i, "clickhouse"],
+  [/cassandra|scylla/i, "cassandra"],
+  [/neo4j/i, "neo4j"],
+  [/temporal/i, "temporal"],
+  [/dynamodb/i, "dynamodb"],
+  [/(^|\/)(seq|jaeger|otel|grafana|prometheus|zipkin|signoz)/i, "telemetry"]
+];
+var URL_SCHEMES = [
+  [/^postgres(ql)?(\+\w+)?:\/\//i, "postgres"],
+  [/^(mysql|mariadb)(\+\w+)?:\/\//i, "mysql"],
+  [/^(sqlserver|mssql)(\+\w+)?:\/\//i, "sqlserver"],
+  [/^mongodb(\+srv)?:\/\//i, "mongodb"],
+  [/^rediss?:\/\//i, "redis"],
+  [/^amqps?:\/\//i, "rabbitmq"],
+  [/^(kafka|nats):\/\//i, "kafka"],
+  [/^sqlite:/i, "sqlite"],
+  [/^(Server|Data Source)=.*(Database|Initial Catalog)=/i, "sqlserver"],
+  [/^Host=.*Database=/i, "postgres"]
+];
+var FRAMEWORKS = [
+  [/^(express|fastify|koa|@nestjs\/core|hono|@hapi\/hapi|next|nuxt|@remix-run\/\w+|@sveltejs\/kit|astro|vite|react-scripts|@angular\/core)$/, "", "app"],
+  [/^(jest|vitest|mocha|@playwright\/test|cypress|supertest|detox|webdriverio|puppeteer|@testing-library\/\w+)$/, "", "test"],
+  [/^(fastapi|django|flask|starlette|aiohttp|litestar|sanic|tornado)$/i, "", "app"],
+  [/^(pytest|pytest-playwright|playwright|selenium|requests-mock|responses|factory[-_]boy|pytest-django)$/i, "", "test"],
+  [/^(xunit(\.v3)?|NUnit|MSTest(\.TestFramework)?|Microsoft\.Playwright(\.\w+)?|Microsoft\.AspNetCore\.Mvc\.Testing|Testcontainers(\.\w+)?|Selenium\.WebDriver)$/, "", "test"],
+  [/^(Aspire\.Hosting(\.(?!Testing)\w+)?|Microsoft\.EntityFrameworkCore\.(SqlServer|InMemory|Sqlite|Cosmos))$/, "", "app"],
+  [/^(rails|sinatra|hanami)$/, "", "app"],
+  [/^(rspec(-rails)?|capybara|cuprite|selenium-webdriver|factory_bot(_rails)?)$/, "", "test"],
+  [/^(laravel\/framework|symfony\/framework-bundle|slim\/slim)$/, "", "app"],
+  [/^(phpunit\/phpunit|laravel\/dusk|symfony\/panther|pestphp\/pest)$/, "", "test"],
+  [/(gin-gonic\/gin|labstack\/echo|gofiber\/fiber|go-chi\/chi|gorilla\/mux)/, "", "app"],
+  [/^(axum|actix-web|rocket|warp)$/, "", "app"]
+];
+var DB_DRIVERS = [
+  [/^(pg|postgres|psycopg2?(-binary)?|psycopg|asyncpg|Npgsql(\.\w+)*|org\.postgresql|github\.com\/(jackc\/pgx|lib\/pq))$/i, "postgres"],
+  [/^(mysql2?|pymysql|mysqlclient|aiomysql|MySql\.Data|Pomelo\.EntityFrameworkCore\.MySql|mysql-connector-\w+)$/i, "mysql"],
+  [/^(mssql|tedious|pyodbc|Microsoft\.EntityFrameworkCore\.SqlServer|Microsoft\.Data\.SqlClient)$/i, "sqlserver"],
+  [/^(mongodb|mongoose|pymongo|motor|MongoDB\.Driver)$/i, "mongodb"],
+  [/^(redis|ioredis|StackExchange\.Redis|aioredis)$/i, "redis"],
+  [/^(amqplib|pika|aio-pika|RabbitMQ\.Client|bunny)$/i, "rabbitmq"],
+  [/^(kafkajs|confluent-kafka|aiokafka|Confluent\.Kafka)$/i, "kafka"]
+];
+function scan(root) {
+  const files = globFiles(root, ["**/*"], { maxDepth: 8, skipDirs: SKIP2 }).filter((f) => !f.split("/").slice(0, -1).some((d) => d.startsWith(".") && !KEEP_DOT_DIRS.has(d)));
+  const w = { files };
+  const g = guess(root);
+  const out = {
+    version: 1,
+    root,
+    testProjects: [],
+    services: g.services,
+    commands: [],
+    containers: [],
+    infrastructure: [],
+    urls: [],
+    adapters: [],
+    health: [],
+    env: [],
+    data: [],
+    frameworks: [],
+    config: null
+  };
+  for (const s of g.suites)
+    out.testProjects.push({ path: s.project ?? s.cwd, adapter: s.adapter, status: "functional", kind: s.kind, reason: s.why.replace(/^[^:]*: /, ""), suite: { name: s.name, cwd: s.cwd, cmd: s.cmd, hostsApp: s.hostsApp, filtered: !!s.filtered }, confidence: s.confidence ?? "medium", evidence: s.evidence ?? [] });
+  for (const n of g.needsFilter)
+    out.testProjects.push({ path: n.path, adapter: n.adapter, status: "needs-filter", kind: n.kind, reason: n.reason, suite: { name: n.name, cwd: n.cwd, cmd: n.cmd, hostsApp: false, filtered: false }, confidence: n.confidence ?? "low", evidence: n.evidence ?? [] });
+  for (const e of g.excluded)
+    out.testProjects.push({ path: e.path, adapter: e.adapter, status: "excluded", reason: e.reason, confidence: e.confidence ?? "medium", evidence: e.evidence ?? [] });
+  scanCi(root, w, out);
+  scanPackages(root, w, out);
+  scanMake(root, w, out);
+  scanDocker(root, w, out);
+  scanCompose(root, w, out);
+  scanReadme(root, w, out);
+  scanEnvExamples(root, w, out);
+  scanAppSettings(root, w, out);
+  scanSources(root, w, out);
+  scanData(root, w, out);
+  scanManifests(root, w, out);
+  dedupe2(out);
+  out.config = existingConfig(root, out);
+  return out;
+}
+function addCommand(out, c2) {
+  const cmd = c2.cmd.trim().replace(/\s+/g, " ");
+  const role = c2.role ?? roleOf(cmd);
+  if (!role || !cmd || cmd.length > 300 || (cmd.match(/'/g)?.length ?? 0) % 2)
+    return;
+  const same = out.commands.find((x) => x.cmd === cmd && x.cwd === c2.cwd);
+  if (same) {
+    for (const e of c2.evidence)
+      if (!same.evidence.includes(e))
+        same.evidence.push(e);
+    if (c2.runs && !same.runs)
+      same.runs = c2.runs;
+    if (rank(c2.confidence) > rank(same.confidence))
+      same.confidence = c2.confidence;
+    return;
+  }
+  out.commands.push({ role, cmd, cwd: c2.cwd, source: c2.source, ...c2.runs ? { runs: c2.runs } : {}, confidence: c2.confidence, evidence: c2.evidence });
+}
+var rank = (c2) => ({ low: 0, medium: 1, high: 2 })[c2];
+function shellLines(script) {
+  const out = [];
+  let heredoc;
+  for (const raw of script.replace(/\\\r?\n\s*/g, " ").split(/\r?\n/)) {
+    const l = raw.trim();
+    if (heredoc) {
+      if (l === heredoc)
+        heredoc = undefined;
+      continue;
+    }
+    heredoc = /<<-?\s*["']?(\w+)["']?/.exec(l)?.[1];
+    if (l && !l.startsWith("#"))
+      out.push(l);
+  }
+  return out;
+}
+function scanCi(root, w, out) {
+  for (const f of w.files.filter((x) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(x))) {
+    const text = read2(path16.join(root, f));
+    let doc;
+    try {
+      doc = $parse(text);
+    } catch {
+      continue;
+    }
+    for (const m of text.matchAll(/\$\{\{\s*secrets\.([A-Za-z_]\w*)\s*\}\}/g))
+      if (m[1] !== "GITHUB_TOKEN")
+        addEnv(out, m[1], "ci", at(f, lineAt2(text, m.index)), true);
+    for (const m of text.matchAll(/\$\{\{\s*vars\.([A-Za-z_]\w*)\s*\}\}/g))
+      addEnv(out, m[1], "ci", at(f, lineAt2(text, m.index)));
+    for (const [jobName, job] of Object.entries(doc?.jobs ?? {})) {
+      const env = { ...doc?.env ?? {}, ...job?.env ?? {} };
+      for (const [svc, def] of Object.entries(job?.services ?? {})) {
+        const image = typeof def === "string" ? def : def?.image;
+        const type = typeof image === "string" ? INFRA_IMAGES.find(([re]) => re.test(image))?.[1] : undefined;
+        if (type)
+          out.infrastructure.push({ name: svc, type, source: "ci", image, ports: (def?.ports ?? []).map(String), confidence: "medium", evidence: [at(f, lineOf(text, new RegExp(`^\\s+${svc}:\\s*$`)))] });
+      }
+      let from = lineOf(text, new RegExp(`^\\s+${jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*$`));
+      for (const step of job?.steps ?? []) {
+        const withs = step?.with ?? {};
+        const setupTool = /^actions\/setup-(\w+)@/.exec(String(step?.uses ?? ""));
+        if (setupTool) {
+          const v = Object.entries(withs).find(([k]) => /-version$/.test(k))?.[1];
+          const line = lineOf(text, String(step.uses), from);
+          addFramework(out, { name: setupTool[1], role: "toolchain", version: v === undefined ? undefined : String(v), confidence: "high", evidence: [at(f, line)] });
+        }
+        if (typeof step?.run !== "string")
+          continue;
+        const stepEnv = { ...env, ...step?.env ?? {} };
+        const cwd = typeof step["working-directory"] === "string" ? step["working-directory"].replace(/^\.\//, "") || "." : ".";
+        for (const raw of shellLines(step.run)) {
+          const line = lineOf(text, raw.slice(0, 40), from) || lineOf(text, raw.slice(0, 40));
+          if (line)
+            from = line - 1;
+          const cmd = raw.replace(/\$\{\{\s*env\.(\w+)\s*\}\}/g, (m, k) => stepEnv[k] !== undefined ? String(stepEnv[k]) : m).replace(/\s+2>&1|\s*\|\s*tee\s+\S+|\s*&$/g, "");
+          if (/\$\{\{/.test(cmd) && !/\$\{\{\s*(matrix|inputs)\./.test(cmd))
+            continue;
+          const role = roleOf(cmd);
+          addCommand(out, { cmd, cwd, source: "ci", role, confidence: role === "start" ? "medium" : "high", evidence: [at(f, line)] });
+        }
+      }
+    }
+  }
+  const gl = w.files.find((x) => x === ".gitlab-ci.yml");
+  if (gl) {
+    const text = read2(path16.join(root, gl));
+    let doc;
+    try {
+      doc = $parse(text);
+    } catch {
+      return;
+    }
+    for (const job of Object.values(doc ?? {})) {
+      for (const key of ["before_script", "script"]) {
+        for (const s of Array.isArray(job?.[key]) ? job[key] : []) {
+          if (typeof s !== "string")
+            continue;
+          for (const l of shellLines(s))
+            addCommand(out, { cmd: l, cwd: ".", source: "ci", confidence: "high", evidence: [at(gl, lineOf(text, l.slice(0, 40)))] });
+        }
+      }
+    }
+  }
+}
+function packageManager(root, dir) {
+  const has2 = (f) => fs16.existsSync(path16.join(root, dir, f)) || fs16.existsSync(path16.join(root, f));
+  if (has2("pnpm-lock.yaml"))
+    return { run: "pnpm", install: "pnpm install --frozen-lockfile" };
+  if (has2("yarn.lock"))
+    return { run: "yarn", install: "yarn install --frozen-lockfile" };
+  if (has2("bun.lockb") || has2("bun.lock"))
+    return { run: "bun run", install: "bun install --frozen-lockfile" };
+  return { run: "npm run", install: has2("package-lock.json") ? "npm ci" : "npm install" };
+}
+var SCRIPT_ROLE = [
+  [/^start$/, "start", "high"],
+  [/^(dev|serve|start:\w+|preview)$/, "start", "medium"],
+  [/^(build|build:\w+|compile)$/, "build", "high"],
+  [/^(test|test:\w+|e2e|e2e:\w+|integration)$/, "test", "high"],
+  [/^(migrate|db:migrate|migration:run|typeorm:migrate|prisma:migrate)$/, "migrate", "high"],
+  [/^(seed|db:seed|seed:\w+|fixtures)$/, "seed", "high"],
+  [/^(setup|bootstrap|postinstall|prepare)$/, "setup", "medium"]
+];
+function scanPackages(root, w, out) {
+  for (const pj of w.files.filter((f) => /(^|\/)package\.json$/.test(f) && f.split("/").length <= 4)) {
+    const text = read2(path16.join(root, pj));
+    let doc;
+    try {
+      doc = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    const d = dirOf(pj);
+    const pm = packageManager(root, d);
+    const scripts = Object.entries(doc.scripts ?? {});
+    if (scripts.length)
+      addCommand(out, { role: "setup", cmd: pm.install, cwd: d, source: "package", confidence: "high", evidence: [pj] });
+    for (const [name, body] of scripts) {
+      const r = SCRIPT_ROLE.find(([re]) => re.test(name));
+      if (!r)
+        continue;
+      const cmd = name === "start" || name === "test" ? `${pm.run === "npm run" ? "npm" : pm.run} ${name}` : `${pm.run} ${name}`;
+      addCommand(out, { role: r[1], cmd, runs: String(body).slice(0, 280), cwd: d, source: "package", confidence: r[2], evidence: [at(pj, lineOf(text, `"${name}"`))] });
+    }
+  }
+}
+function scanMake(root, w, out) {
+  for (const mk of w.files.filter((f) => /(^|\/)(Makefile|makefile|GNUmakefile|justfile|Justfile)$/.test(f) && f.split("/").length <= 2)) {
+    const text = read2(path16.join(root, mk));
+    const tool = /justfile$/i.test(mk) ? "just" : "make";
+    for (const m of text.matchAll(/^([A-Za-z][\w.-]*)(?:\s+[^:=\n]*)?:(?!=)/gm)) {
+      const target = m[1];
+      const r = SCRIPT_ROLE.find(([re]) => re.test(target)) ?? (roleOf(target) ? [/./, roleOf(target), "medium"] : undefined);
+      if (!r)
+        continue;
+      addCommand(out, { role: r[1], cmd: `${tool} ${target}`, cwd: dirOf(mk), source: "make", confidence: "medium", evidence: [at(mk, lineAt2(text, m.index))] });
+    }
+  }
+  const proc = w.files.find((f) => f === "Procfile");
+  if (proc) {
+    const text = read2(path16.join(root, proc));
+    for (const m of text.matchAll(/^(\w+):\s*(.+)$/gm))
+      addCommand(out, { role: m[1] === "release" ? "migrate" : "start", cmd: m[2], cwd: ".", source: "procfile", confidence: m[1] === "web" ? "high" : "medium", evidence: [at(proc, lineAt2(text, m.index))] });
+  }
+}
+function scanDocker(root, w, out) {
+  for (const df of w.files.filter((f) => /(^|\/)(Dockerfile|[\w.-]+\.Dockerfile|Dockerfile\.[\w.-]+)$/.test(f)).slice(0, 20)) {
+    const raw = read2(path16.join(root, df));
+    const text = raw.replace(/\\(\r?\n)/g, (m) => " ".repeat(m.length));
+    const last = {};
+    for (const m of text.matchAll(/^\s*(RUN|CMD|ENTRYPOINT|EXPOSE)\s+(.+)$/gim)) {
+      const verb = m[1].toUpperCase();
+      let body = m[2].trim();
+      if (/^\[/.test(body)) {
+        try {
+          body = JSON.parse(body).join(" ");
+        } catch {}
+      }
+      const ev = [at(df, lineAt2(raw, m.index + m[0].search(/\S/)))];
+      if (verb === "RUN")
+        for (const part of body.split(/\s*(?:&&|;)\s*/))
+          addCommand(out, { cmd: part, cwd: ".", source: "dockerfile", confidence: "medium", evidence: ev });
+      else if (verb !== "EXPOSE")
+        last[verb] = { body, ev };
+    }
+    const { ENTRYPOINT: ep, CMD: cmd } = last;
+    const start = ep && cmd ? `${ep.body} ${cmd.body}` : (ep ?? cmd)?.body;
+    if (start)
+      addCommand(out, { role: "start", cmd: start, cwd: ".", source: "dockerfile", confidence: "medium", evidence: (ep ?? cmd).ev });
+  }
+}
+function composeCmd(file, verb, svc) {
+  const dflt = /^(docker-)?compose\.ya?ml$/.test(file);
+  return `docker compose ${dflt ? "" : `-f ${file} `}${verb} ${svc}`;
+}
+function hostPort(ports) {
+  for (const p of ports) {
+    const parts = p.replace(/\$\{\w+:?-(\d+)\}/g, "$1").replace(/^"|"$|\/\w+$/g, "").split(":");
+    const host = parts.length === 3 ? parts[1] : parts.length === 2 ? parts[0] : undefined;
+    if (host && /^\d+$/.test(host))
+      return Number(host);
+  }
+  return;
+}
+var IN_CONTAINER = { postgres: "pg_isready", mysql: "mysqladmin ping --silent", redis: "redis-cli ping", mongodb: "mongosh --quiet --eval 'db.runCommand({ping:1})'" };
+function checkFor(type, port, file, svc, health) {
+  const test = Array.isArray(health) ? health : typeof health === "string" ? ["CMD-SHELL", health] : undefined;
+  if (test && test[0] !== "NONE") {
+    const cmd = test[0] === "CMD-SHELL" ? String(test[1]) : test.slice(test[0] === "CMD" ? 1 : 0).join(" ");
+    if (!/\$\$|\|\|/.test(cmd))
+      return composeCmd(file, "exec -T", `${svc} ${cmd}`);
+  }
+  if (IN_CONTAINER[type])
+    return composeCmd(file, "exec -T", `${svc} ${IN_CONTAINER[type]}`);
+  if (port)
+    return `nc -z 127.0.0.1 ${port}`;
+  return composeCmd(file, "exec -T", `${svc} true`);
+}
+function scanCompose(root, w, out) {
+  const files = w.files.filter((f) => /(^|\/)(docker-)?compose[\w.-]*\.ya?ml$/.test(f) && f.split("/").length <= 3);
+  const seen = new Map;
+  const bases = new Map;
+  for (const f of files.sort((a, b) => a.length - b.length)) {
+    const text = read2(path16.join(root, f));
+    let doc;
+    try {
+      doc = $parse(text);
+    } catch {
+      continue;
+    }
+    const base = files.find((x) => dirOf(x) === dirOf(f) && /(^|\/)(docker-)?compose\.ya?ml$/.test(x)) ?? f;
+    for (const [svc, def] of Object.entries(doc?.services ?? {})) {
+      const line = lineOf(text, new RegExp(`^\\s+["']?${svc.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']?:\\s*$`));
+      const ev = at(f, line);
+      const ports = (def?.ports ?? []).map((p) => typeof p === "object" && p ? `${p.published}:${p.target}` : String(p));
+      const envs = Array.isArray(def?.environment) ? def.environment.map((e) => String(e).split("=")[0]) : Object.keys(def?.environment ?? {});
+      for (const e of envs)
+        addEnv(out, e, "compose", ev);
+      for (const m of JSON.stringify(def ?? {}).matchAll(/\$\{([A-Za-z_]\w*)/g))
+        if (m[1] !== "DOCKER_REGISTRY")
+          addEnv(out, m[1], "compose", ev);
+      if (Array.isArray(def?.volumes) && def.volumes.some((v) => /docker-entrypoint-initdb\.d/.test(String(typeof v === "object" ? v?.target : v))))
+        out.data.push({ kind: "sql-init", path: String(def.volumes.find((v) => /docker-entrypoint-initdb\.d/.test(String(typeof v === "object" ? v?.target : v)))).split(":")[0], confidence: "high", evidence: [ev] });
+      const prev = seen.get(svc);
+      if (prev) {
+        prev.evidence.push(ev);
+        for (const p of ports)
+          if (!prev.ports?.includes(p))
+            prev.ports?.push(p);
+        continue;
+      }
+      const image = typeof def?.image === "string" ? def.image : undefined;
+      if (def?.build) {
+        const build = typeof def.build === "string" ? def.build : [def.build.context, def.build.dockerfile].filter(Boolean).join(" ");
+        const c2 = { name: svc, file: base, build, ports, dependsOn: Array.isArray(def.depends_on) ? def.depends_on : Object.keys(def.depends_on ?? {}), start: composeCmd(base, "up --build", svc), confidence: "medium", evidence: [ev] };
+        out.containers.push(c2);
+        seen.set(svc, c2);
+        if (typeof def.command === "string")
+          addCommand(out, { role: "start", cmd: def.command, cwd: ".", source: "compose", confidence: "medium", evidence: [ev] });
+        continue;
+      }
+      const type = image ? INFRA_IMAGES.find(([re]) => re.test(image))?.[1] ?? "other" : "other";
+      const inf = { name: svc, type, source: "compose", image, ports, start: composeCmd(base, "up -d", svc), stop: composeCmd(base, "stop", svc), check: "", confidence: type === "other" ? "low" : "high", evidence: [ev] };
+      out.infrastructure.push(inf);
+      seen.set(svc, inf);
+      bases.set(inf, { base, health: def?.healthcheck?.test });
+    }
+  }
+  for (const [i, b] of bases)
+    i.check = checkFor(i.type, hostPort(i.ports ?? []), b.base, i.name, b.health);
+  for (const c2 of out.containers) {
+    const p = hostPort(c2.ports);
+    if (p)
+      out.urls.push({ url: `http://localhost:${p}`, for: `compose service ${c2.name}`, confidence: "medium", evidence: c2.evidence.slice(-1) });
+  }
+}
+function scanReadme(root, w, out) {
+  for (const f of w.files.filter((x) => /^(README|CONTRIBUTING|DEVELOPMENT)\.(md|rst)$|^docs\/development\.md$/i.test(x))) {
+    const text = read2(path16.join(root, f));
+    if (!text)
+      continue;
+    let inBlock = false;
+    text.split(`
+`).forEach((l, i) => {
+      if (/^\s*(```|~~~)/.test(l))
+        inBlock = !inBlock;
+      else if (inBlock) {
+        const cmd = l.replace(/^\s*[$>]\s*/, "").trim();
+        if (/^(npm|pnpm|yarn|bun|npx|pip|poetry|uv|python3?|dotnet|docker|docker-compose|make|go|cargo|mvn|\.\/mvnw|gradle|\.\/gradlew|bundle|rails|php|composer|flask|uvicorn)\b/.test(cmd))
+          addCommand(out, { cmd, cwd: ".", source: "readme", confidence: "low", evidence: [at(f, i + 1)] });
+      }
+    });
+  }
+}
+function addEnv(out, name, by, ev, secret = false, envName) {
+  if (!name || ENV_NOISE.test(name))
+    return;
+  let e = out.env.find((x) => x.name === name);
+  if (!e) {
+    const s = secret ? "high" : secretness(name);
+    e = { name, envName, secret: !!s && s !== "low", readBy: [], confidence: s ?? "high", evidence: [], ...TEST_USER.test(name) ? { testUser: true } : {} };
+    out.env.push(e);
+  }
+  if (secret && !e.secret) {
+    e.secret = true;
+    e.confidence = "high";
+  }
+  if (!e.readBy.includes(by))
+    e.readBy.push(by);
+  if (e.evidence.length < 4 && !e.evidence.includes(ev))
+    e.evidence.push(ev);
+}
+function infraFromValue(value) {
+  const v = value.trim().replace(/^["']|["']$/g, "");
+  return URL_SCHEMES.find(([re]) => re.test(v))?.[1];
+}
+function hostOf(value) {
+  const v = value.trim().replace(/^["']|["']$/g, "");
+  const m = /^\w[\w+.-]*:\/\/(?:[^@/]*@)?([^/:?,]+)(?::(\d+))?/.exec(v) ?? /(?:Server|Host|Data Source)=(?:tcp:)?([^;,]+)(?:,(\d+))?/i.exec(v);
+  return m ? `${m[1]}${m[2] ? `:${m[2]}` : ""}` : undefined;
+}
+var isLocal = (h) => !h || /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\(localdb\)|\.|db|postgres|mysql|redis|mongo\w*|sqlserver|host\.docker\.internal)(\\|:|$)/i.test(h);
+function scanEnvExamples(root, w, out) {
+  for (const f of w.files.filter((x) => EXAMPLE_ENV.test(x))) {
+    const text = read2(path16.join(root, f));
+    text.split(`
+`).forEach((l, i) => {
+      const m = /^\s*(?:export\s+)?([A-Za-z_][\w.]*)\s*=\s*(.*)$/.exec(l);
+      if (!m)
+        return;
+      const ev = at(f, i + 1);
+      addEnv(out, m[1], "example", ev);
+      const e = out.env.find((x) => x.name === m[1]);
+      const value = m[2].replace(/\s+#.*$/, "").trim();
+      if (e && value && !/^["']?(changeme|change_me|your[-_\w]*|xxx+|<[^>]*>|\.\.\.|todo|replace[-_\w]*)["']?$/i.test(value))
+        e.exampleValue = true;
+      const type = infraFromValue(value);
+      if (type) {
+        const host = hostOf(value);
+        out.infrastructure.push({ name: m[1], type, source: "env", host, confidence: isLocal(host) ? "high" : "medium", evidence: [ev] });
+      }
+    });
+  }
+}
+function scanAppSettings(root, w, out) {
+  for (const f of w.files.filter((x) => /(^|\/)appsettings(\.[\w-]+)?\.json$/.test(x) && !isTestPath(x.replace(/\.json$/, ".cs")))) {
+    const text = read2(path16.join(root, f)).replace(/^\uFEFF/, "");
+    let doc;
+    try {
+      doc = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    for (const [k, v] of Object.entries(doc?.ConnectionStrings ?? {})) {
+      const type = typeof v === "string" ? infraFromValue(v) ?? (/Initial Catalog|Database=/i.test(v) ? "sqlserver" : undefined) : undefined;
+      const ev = at(f, lineOf(text, `"${k}"`));
+      addEnv(out, `ConnectionStrings:${k}`, "app", ev, false, `ConnectionStrings__${k}`);
+      if (type)
+        out.infrastructure.push({ name: `ConnectionStrings:${k}`, type, source: "appsettings", host: hostOf(v), confidence: "medium", evidence: [ev] });
+    }
+  }
+  for (const f of w.files.filter((x) => /(^|\/)Properties\/launchSettings\.json$/.test(x))) {
+    const text = read2(path16.join(root, f)).replace(/^\uFEFF/, "");
+    let doc;
+    try {
+      doc = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    const project = f.split("/").slice(-3, -2)[0] ?? f;
+    for (const [name, p] of Object.entries(doc?.profiles ?? {})) {
+      if (p?.commandName !== "Project" || typeof p.applicationUrl !== "string")
+        continue;
+      for (const url of p.applicationUrl.split(";"))
+        out.urls.push({ url, for: `${project} (launch profile ${name})`, confidence: "medium", evidence: [at(f, lineOf(text, `"${name}"`))] });
+    }
+  }
+}
+var HEALTH_ROUTE = /\bMapHealthChecks\(\s*"([^"]+)"|(?:@\w+\.|\b(?:app|router|server|api|fastify|r|mux|e|g)\.)(?:get|route|api_route|MapGet|HandleFunc|Handle|GET|add_api_route)\(\s*["'](\/?[\w/-]+)["']|\bMapGet\(\s*"(\/?[\w/-]+)"|@(?:Get|Request)Mapping\(\s*(?:value\s*=\s*)?"(\/?[\w/-]+)"/g;
+var HEALTH_PATH = /(^|\/|_)(health\w*|ready\w*|livez?|alive|ping|status)$/i;
+var USER_NAME = /(user|admin|login|account|manager|tester)\w*\s*[:=]/i;
+var EMAIL = /["'`]([\w.+-]+@[\w-]+(?:\.[\w-]+)+)["'`]/g;
+var SEED_PATH = /(^|\/)(seeds?|seeders|seeding)(\/|$)|(^|\/)[\w.-]*seed[\w.-]*\.\w+$/i;
+function scanSources(root, w, out) {
+  const dirs = out.testProjects.filter((t) => t.status !== "excluded").flatMap((t) => {
+    const p = t.path.replace(/ \(.*\)$/, "");
+    return p !== "." && !/\.\w+$/.test(p) ? [p] : t.evidence.slice(1).map((e) => dirOf(e.replace(/:\d+.*$/, "")));
+  });
+  const functionalDir = (f) => !/(^|\/)unit(s|tests?)?\//i.test(f) && dirs.some((d) => d === "." || f.startsWith(`${d}/`));
+  const sources = w.files.filter((f) => SOURCE_EXT.test(f) && !/\.min\.js$|\.d\.ts$|(^|\/)(migrations?|wwwroot|static|public|assets)\//i.test(f)).slice(0, MAX_SOURCES);
+  for (const f of sources) {
+    const text = read2(path16.join(root, f));
+    if (!text || text.length > MAX_BYTES)
+      continue;
+    const test = isTestPath(f) || /(^|\/)(tests?|e2e|spec|__tests__|testing)\//i.test(f);
+    for (const r of ENV_READS) {
+      if (!r.exts.test(f))
+        continue;
+      for (const m of text.matchAll(r.re)) {
+        const lineStart = text.lastIndexOf(`
+`, m.index) + 1;
+        if (/^\s*(\/\/|#|\*|--)/.test(text.slice(lineStart, m.index)))
+          continue;
+        let name = m.slice(1).find(Boolean);
+        let envName;
+        if (r.config) {
+          if (/GetConnectionString/.test(m[0]))
+            name = `ConnectionStrings:${name}`;
+          envName = name.includes(":") || name.includes(".") ? name.replace(/[:.]/g, "__") : undefined;
+          if (/\.java$|\.kt$/.test(f))
+            envName = name.replace(/[.-]/g, "_").toUpperCase();
+        }
+        addEnv(out, name, test ? "tests" : "app", at(f, lineAt2(text, m.index)), false, envName);
+      }
+    }
+    if (!test) {
+      for (const m of text.matchAll(HEALTH_ROUTE)) {
+        const p = `/${(m[1] ?? m[2] ?? m[3] ?? m[4]).replace(/^\//, "")}`;
+        if (!HEALTH_PATH.test(p))
+          continue;
+        if (!out.health.some((h) => h.path === p))
+          out.health.push({ path: p, confidence: "high", evidence: [at(f, lineAt2(text, m.index))] });
+      }
+    }
+    const seed = SEED_PATH.test(f) && !test;
+    const lines = text.split(`
+`);
+    for (const m of text.matchAll(EMAIL)) {
+      const ln = lineAt2(text, m.index);
+      const line = lines[ln - 1] ?? "";
+      if (/^\s*(\/\/|#|\*|--)/.test(line))
+        continue;
+      const named = USER_NAME.test(line);
+      const near = lines.slice(Math.max(0, ln - 4), ln + 3).some((l) => /password|log\s?in|sign\s?in|credential/i.test(l));
+      const confidence = seed ? "high" : !test && named ? "medium" : test && functionalDir(f) && (named || near) ? "low" : undefined;
+      if (!confidence || out.data.some((d) => d.kind === "user" && d.login === m[1]))
+        continue;
+      if (out.data.filter((d) => d.kind === "user").length >= 12)
+        break;
+      out.data.push({ kind: "user", path: f, login: m[1], confidence, evidence: [at(f, ln)] });
+    }
+  }
+}
+function scanData(root, w, out) {
+  const dirs = new Map;
+  for (const f of w.files) {
+    if (/(^|\/)node_modules\//.test(f))
+      continue;
+    let kind;
+    let key = "";
+    const mig = /^(.*?(?:^|\/)(?:migrations|alembic\/versions|db\/migrate|Migrations))\//i.exec(f);
+    const fix = /^(.*?(?:^|\/)(?:fixtures|testdata\/fixtures|test-data|seed-data))\//i.exec(f);
+    if (mig)
+      [kind, key] = ["migrations", mig[1]];
+    else if (fix)
+      [kind, key] = ["fixtures", fix[1]];
+    else if (SEED_PATH.test(f) && /\.(\w+)$/.test(f) && !/\.(md|txt|lock)$/.test(f) && !isTestPath(f))
+      [kind, key] = ["seed", f];
+    if (!kind)
+      continue;
+    const d = dirs.get(key) ?? dirs.set(key, { kind, n: 0, first: f }).get(key);
+    d.n++;
+  }
+  for (const [p, d] of [...dirs].slice(0, 25))
+    out.data.push({ kind: d.kind, path: p, confidence: d.kind === "seed" ? "medium" : "high", evidence: [d.n > 1 ? `${p}/ (${d.n} files)` : d.first] });
+}
+function addFramework(out, f) {
+  const same = out.frameworks.find((x) => x.name === f.name && x.role === f.role);
+  if (same) {
+    if (same.evidence.length < 3 && !same.evidence.includes(f.evidence[0]))
+      same.evidence.push(f.evidence[0]);
+    return;
+  }
+  out.frameworks.push(f);
+}
+function dep(out, name, ev, version) {
+  const fw = FRAMEWORKS.find(([re]) => re.test(name));
+  if (fw)
+    addFramework(out, { name, role: fw[2], version, confidence: "high", evidence: [ev] });
+  const db = DB_DRIVERS.find(([re]) => re.test(name));
+  if (db && !out.infrastructure.some((i) => i.source === "dependency" && i.type === db[1]))
+    out.infrastructure.push({ name: db[1], type: db[1], source: "dependency", confidence: "low", evidence: [`${ev} ${name}`] });
+}
+function scanManifests(root, w, out) {
+  for (const f of w.files) {
+    const base = path16.posix.basename(f);
+    if (base === "package.json" && f.split("/").length <= 4) {
+      const text = read2(path16.join(root, f));
+      try {
+        const doc = JSON.parse(text);
+        for (const [n, v] of Object.entries({ ...doc.dependencies, ...doc.devDependencies }))
+          dep(out, n, at(f, lineOf(text, `"${n}"`)), String(v));
+        if (doc.engines?.node)
+          addFramework(out, { name: "node", role: "toolchain", version: String(doc.engines.node), confidence: "high", evidence: [at(f, lineOf(text, '"node"'))] });
+      } catch {}
+    } else if (/^requirements[\w.-]*\.txt$|^pyproject\.toml$|^Pipfile$|^setup\.cfg$/.test(base)) {
+      const text = read2(path16.join(root, f));
+      text.split(`
+`).forEach((l, i) => {
+        const m = /^\s*["']?([A-Za-z][\w.-]*)(?:\[[\w,]+\])?\s*(?:[=<>~!]=?|["',]|$)/.exec(l);
+        if (m && !/^(name|version|description|requires|python|readme|license|authors?|dependencies|packages)$/i.test(m[1]))
+          dep(out, m[1].toLowerCase(), at(f, i + 1));
+      });
+      const py = /requires-python\s*=\s*["']([^"']+)/.exec(text);
+      if (py)
+        addFramework(out, { name: "python", role: "toolchain", version: py[1], confidence: "high", evidence: [at(f, lineOf(text, "requires-python"))] });
+    } else if (/\.(csproj|fsproj)$/.test(base)) {
+      const text = read2(path16.join(root, f));
+      const sdk = /Sdk="(Microsoft\.NET\.Sdk\.\w+|Aspire\.AppHost\.Sdk[^"]*)"/.exec(text);
+      if (sdk)
+        addFramework(out, { name: sdk[1].replace(/\/.*$/, ""), role: "app", confidence: "high", evidence: [at(f, lineAt2(text, sdk.index))] });
+      for (const m of text.matchAll(/<PackageReference\s+Include="([^"]+)"/g))
+        dep(out, m[1], at(f, lineAt2(text, m.index)));
+    } else if (base === "global.json") {
+      const text = read2(path16.join(root, f));
+      const v = /"version"\s*:\s*"([^"]+)"/.exec(text);
+      if (v)
+        addFramework(out, { name: "dotnet", role: "toolchain", version: v[1], confidence: "high", evidence: [at(f, lineAt2(text, v.index))] });
+    } else if (base === "pom.xml" || /^build\.gradle(\.kts)?$/.test(base)) {
+      const text = read2(path16.join(root, f));
+      for (const [re, n, role] of [[/spring-boot/, "spring-boot", "app"], [/quarkus/, "quarkus", "app"], [/micronaut/, "micronaut", "app"], [/junit-jupiter|junit/, "junit", "test"], [/testcontainers/, "testcontainers", "test"], [/rest-assured/, "rest-assured", "test"], [/selenium/, "selenium", "test"], [/postgresql/, "org.postgresql", ""], [/mysql-connector/, "mysql-connector-j", ""]]) {
+        const i = text.search(re);
+        if (i < 0)
+          continue;
+        if (role)
+          addFramework(out, { name: n, role, confidence: "high", evidence: [at(f, lineAt2(text, i))] });
+        else
+          dep(out, n, at(f, lineAt2(text, i)));
+      }
+    } else if (base === "Gemfile" || base === "composer.json" || base === "go.mod" || base === "Cargo.toml") {
+      const text = read2(path16.join(root, f));
+      const re = base === "Gemfile" ? /^\s*gem\s+["']([\w-]+)/gm : base === "composer.json" ? /"([\w-]+\/[\w-]+)"\s*:/g : base === "go.mod" ? /^\s*(?:require\s+)?([\w.-]+\/[\w./-]+)\s+v/gm : /^([\w-]+)\s*=/gm;
+      for (const m of text.matchAll(re))
+        dep(out, m[1], at(f, lineAt2(text, m.index)));
+    }
+  }
+}
+function dedupe2(out) {
+  const seen = new Set;
+  const infra = [];
+  for (const i of out.infrastructure) {
+    if (i.source === "dependency" && out.infrastructure.some((o) => o.source !== "dependency" && o.type === i.type))
+      continue;
+    const same = infra.find((o) => o.source === i.source && o.name === i.name && o.type === i.type);
+    if (same)
+      same.evidence.push(...i.evidence.filter((e) => !same.evidence.includes(e)));
+    else
+      infra.push(i);
+  }
+  out.infrastructure = infra;
+  for (const h of out.health) {
+    const file = h.evidence[0].replace(/:\d+$/, "");
+    const svc = out.services.find((s) => s.evidence?.[0] && file.startsWith(`${dirOf(s.evidence[0])}/`));
+    if (svc)
+      h.for = svc.name;
+  }
+  out.adapters = [...new Set(out.testProjects.filter((t) => t.status !== "excluded").map((t) => t.adapter))];
+  out.urls = out.urls.filter((u) => !seen.has(u.url) && seen.add(u.url));
+  out.env.sort((a, b) => Number(b.secret) - Number(a.secret) || a.name.localeCompare(b.name));
+}
+var norm2 = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+function existingConfig(root, out) {
+  const file = path16.join(root, ".witness", "witness.toml");
+  if (!fs16.existsSync(file))
+    return null;
+  const text = read2(file);
+  const rel = path16.relative(root, file);
+  const rendered = /^#.*\bmorph\b/i.test(text.split(`
+`)[0] ?? "");
+  let cfg;
+  try {
+    cfg = loadConfig(file);
+  } catch (e) {
+    if (!(e instanceof ConfigError))
+      throw e;
+    const all = out.testProjects.filter((t) => t.status !== "excluded").map((t) => t.path);
+    return { file: rel, rendered, error: e.message, suites: [], services: [], dependencies: [], required: [], missing: { testProjects: all, infrastructure: out.infrastructure.map((i) => i.name), secrets: out.env.filter((x) => x.secret).map((x) => x.name) }, unmatched: { suites: [], dependencies: [] } };
+  }
+  const comments = text.split(`
+`).map((l) => /(?:^|\s)#(.*)$/.exec(l)?.[1] ?? "").join(`
+`);
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const named = (x) => new RegExp(`(^|[^\\w:./-])${esc(x)}($|[^\\w/-])`, "m").test(comments);
+  const matched = new Set;
+  for (const t of out.testProjects) {
+    if (t.status === "excluded")
+      continue;
+    const proj = t.evidence[0]?.replace(/:\d+.*$/, "");
+    const s = cfg.suites.find((x) => proj && x.cmd.includes(proj) || x.adapter === t.adapter && path16.posix.normalize(x.cwd) === path16.posix.normalize(t.suite?.cwd ?? ".") && (x.cmd.includes(t.path) || t.suite?.cwd !== "." || cfg.suites.filter((y) => y.adapter === t.adapter).length === 1));
+    if (s) {
+      t.configured = s.name;
+      matched.add(s.name);
+    } else if (named(t.path))
+      t.configured = "comment";
+  }
+  for (const svc of out.services) {
+    const s = cfg.services.find((x) => norm2(x.name) === norm2(svc.name) || svc.evidence?.[0] && (x.start ?? "").includes(svc.evidence[0]));
+    if (s)
+      svc.configured = s.name;
+  }
+  const depMatched = new Set;
+  for (const i of out.infrastructure) {
+    const d = cfg.dependencies.find((x) => norm2(x.name) === norm2(i.name) || norm2(x.name) === norm2(i.type) || [x.start, x.check].some((c2) => c2 && new RegExp(`\\b${i.name.replace(/[.*+?^${}()|[\]\\:]/g, "\\$&")}\\b`).test(c2)));
+    if (d) {
+      i.configured = d.name;
+      depMatched.add(d.name);
+    } else if (named(i.name))
+      i.configured = "comment";
+  }
+  const envFile = cfg.envFile ? parseEnvFile(read2(path16.resolve(root, cfg.envFile))) : {};
+  const given = [
+    ["required", new Set(cfg.required)],
+    ["env file", new Set(Object.keys(envFile))],
+    ["env", new Set([...cfg.services.flatMap((s) => Object.keys(s.env)), ...cfg.suites.flatMap((s) => Object.keys(s.env))])]
+  ];
+  for (const e of out.env) {
+    const names = [e.name, e.envName].filter(Boolean);
+    e.configured = given.find(([, set]) => names.some((n) => set.has(n)))?.[0] ?? (names.some(named) ? "comment" : undefined);
+  }
+  return {
+    file: rel,
+    rendered,
+    suites: cfg.suites.map((s) => s.name),
+    services: cfg.services.map((s) => s.name),
+    dependencies: cfg.dependencies.map((d) => d.name),
+    required: cfg.required,
+    missing: {
+      testProjects: out.testProjects.filter((t) => t.status !== "excluded" && !t.configured).map((t) => t.path),
+      infrastructure: out.infrastructure.filter((i) => !i.configured && i.source !== "dependency" && i.source !== "ci" && i.type !== "telemetry" && !(i.source === "env" && out.infrastructure.some((o) => o.configured && o.type === i.type))).map((i) => i.name),
+      secrets: out.env.filter((e) => e.secret && !e.configured && e.readBy.some((r) => r !== "ci")).map((e) => e.name)
+    },
+    unmatched: { suites: cfg.suites.filter((s) => !matched.has(s.name)).map((s) => s.name), dependencies: cfg.dependencies.filter((d) => !depMatched.has(d.name)).map((d) => d.name) }
+  };
+}
+function scanCommand(root) {
+  const r = scan(root);
+  process.stdout.write(JSON.stringify(r, null, 2) + `
+`);
+  const n = (xs) => xs.length;
+  const fn = r.testProjects.filter((t) => t.status === "functional").length;
+  process.stderr.write(`witness  scan: ${fn} functional test project(s), ${r.testProjects.filter((t) => t.status === "needs-filter").length} needing a filter, ${r.testProjects.filter((t) => t.status === "excluded").length} excluded; ${n(r.commands)} command(s), ${n(r.infrastructure)} infrastructure, ${r.env.filter((e) => e.secret).length} secret(s) of ${n(r.env)} env name(s)${r.config ? `; config ${r.config.file}${r.config.error ? " (invalid)" : ""}` : "; no config yet"}. Nothing written.
+`);
+  return 0;
+}
+
+// src/skills.ts
+import * as fs17 from "node:fs";
+import * as os2 from "node:os";
+import * as path17 from "node:path";
 import { fileURLToPath } from "node:url";
 var PROFILES = ["standalone", "morph"];
 var isProfile = (p) => PROFILES.includes(p);
@@ -15967,9 +16796,9 @@ var MARKER = ".installed-by-witness";
 var ANY_MARKER = /<!--\s*(if|else|endif)\b/;
 var MARKER_LINE = /^\s*<!--\s*(?:if\s+(\S+)|(else)|(endif))\s*-->\s*$/;
 function skillsDir() {
-  const here = path16.dirname(fileURLToPath(import.meta.url));
-  const candidates = [process.env.WITNESS_SKILLS_DIR, path16.resolve(here, "..", "skills"), path16.resolve(here, "skills")].filter(Boolean);
-  return candidates.find((d) => fs16.existsSync(path16.join(d, "test-change", "SKILL.md"))) ?? null;
+  const here = path17.dirname(fileURLToPath(import.meta.url));
+  const candidates = [process.env.WITNESS_SKILLS_DIR, path17.resolve(here, "..", "skills"), path17.resolve(here, "skills")].filter(Boolean);
+  return candidates.find((d) => fs17.existsSync(path17.join(d, "test-change", "SKILL.md"))) ?? null;
 }
 function frontmatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
@@ -15984,9 +16813,9 @@ function frontmatter(text) {
   return out;
 }
 function listSkills(dir) {
-  return fs16.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && fs16.existsSync(path16.join(dir, e.name, "SKILL.md"))).map((e) => {
-    const fm = frontmatter(fs16.readFileSync(path16.join(dir, e.name, "SKILL.md"), "utf8"));
-    return { name: fm.name ?? e.name, description: fm.description ?? "", dir: path16.join(dir, e.name) };
+  return fs17.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && fs17.existsSync(path17.join(dir, e.name, "SKILL.md"))).map((e) => {
+    const fm = frontmatter(fs17.readFileSync(path17.join(dir, e.name, "SKILL.md"), "utf8"));
+    return { name: fm.name ?? e.name, description: fm.description ?? "", dir: path17.join(dir, e.name) };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 function renderLines(text, profile, file = "SKILL.md") {
@@ -16045,39 +16874,39 @@ function renderSkill(text, profile, file) {
 `);
 }
 function walk(dir, rel = "") {
-  return fs16.readdirSync(path16.join(dir, rel), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(dir, path16.join(rel, e.name)) : [path16.join(rel, e.name)]);
+  return fs17.readdirSync(path17.join(dir, rel), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(dir, path17.join(rel, e.name)) : [path17.join(rel, e.name)]);
 }
 function renderSkillFiles(src, profile, prefix = "") {
   const files = {};
   for (const s of listSkills(src)) {
-    const dir = `${prefix}${path16.basename(s.dir)}`;
+    const dir = `${prefix}${path17.basename(s.dir)}`;
     for (const f of walk(s.dir)) {
-      const file = path16.join(s.dir, f);
-      let text = fs16.readFileSync(file, "utf8");
+      const file = path17.join(s.dir, f);
+      let text = fs17.readFileSync(file, "utf8");
       if (f.endsWith(".md"))
-        text = renderSkill(text, profile, path16.relative(process.cwd(), file));
+        text = renderSkill(text, profile, path17.relative(process.cwd(), file));
       if (f === "SKILL.md" && prefix)
         text = text.replace(/^(---\r?\n[\s\S]*?^name:\s*).*$/m, `$1${prefix}${s.name}`);
-      files[path16.join(dir, f)] = text;
+      files[path17.join(dir, f)] = text;
     }
   }
   return files;
 }
 function writeFiles(dest, files) {
   for (const [rel, content] of Object.entries(files)) {
-    const file = path16.join(dest, rel);
-    fs16.mkdirSync(path16.dirname(file), { recursive: true });
-    fs16.writeFileSync(file, content);
+    const file = path17.join(dest, rel);
+    fs17.mkdirSync(path17.dirname(file), { recursive: true });
+    fs17.writeFileSync(file, content);
   }
 }
 function renderedDir(profile) {
-  const cache = process.env.XDG_CACHE_HOME || path16.join(os2.homedir(), ".cache");
-  return path16.join(cache, "witness", "skills", profile);
+  const cache = process.env.XDG_CACHE_HOME || path17.join(os2.homedir(), ".cache");
+  return path17.join(cache, "witness", "skills", profile);
 }
 function renderToCache(src, profile) {
   const out = renderedDir(profile);
   const files = renderSkillFiles(src, profile);
-  fs16.rmSync(out, { recursive: true, force: true });
+  fs17.rmSync(out, { recursive: true, force: true });
   writeFiles(out, files);
   return out;
 }
@@ -16087,26 +16916,26 @@ function installSkills(src, dest, o) {
     throw new Error(`--link installs the standalone skills only; copy the ${profile} profile instead`);
   const files = o.link ? {} : renderSkillFiles(src, profile, o.prefix);
   const linkFrom = o.link ? renderToCache(src, profile) : "";
-  fs16.mkdirSync(dest, { recursive: true });
+  fs17.mkdirSync(dest, { recursive: true });
   const skills = listSkills(src);
   for (const s of skills) {
-    const target = path16.join(dest, `${o.prefix}${path16.basename(s.dir)}`);
-    const st = fs16.lstatSync(target, { throwIfNoEntry: false });
-    if (st && !st.isSymbolicLink() && !fs16.existsSync(path16.join(target, MARKER)))
+    const target = path17.join(dest, `${o.prefix}${path17.basename(s.dir)}`);
+    const st = fs17.lstatSync(target, { throwIfNoEntry: false });
+    if (st && !st.isSymbolicLink() && !fs17.existsSync(path17.join(target, MARKER)))
       throw new Error(`${target} exists and was not installed by witness; move it away or pick another --prefix`);
   }
   const out = [];
   for (const s of skills) {
-    const base = path16.basename(s.dir);
-    const target = path16.join(dest, `${o.prefix}${base}`);
-    fs16.rmSync(target, { recursive: true, force: true });
+    const base = path17.basename(s.dir);
+    const target = path17.join(dest, `${o.prefix}${base}`);
+    fs17.rmSync(target, { recursive: true, force: true });
     if (o.link) {
-      fs16.symlinkSync(path16.join(linkFrom, base), target, "dir");
+      fs17.symlinkSync(path17.join(linkFrom, base), target, "dir");
       out.push({ name: s.name, path: target });
       continue;
     }
-    fs16.mkdirSync(target);
-    fs16.writeFileSync(path16.join(target, MARKER), "");
+    fs17.mkdirSync(target);
+    fs17.writeFileSync(path17.join(target, MARKER), "");
     out.push({ name: `${o.prefix}${s.name}`, path: target });
   }
   writeFiles(dest, files);
@@ -16153,7 +16982,7 @@ function skillsCommand(sub, o) {
         return 64;
       }
       const prefix = o.prefix ?? "witness-";
-      const done = installSkills(src, path16.resolve(o.dir), { link: o.link, prefix, profile });
+      const done = installSkills(src, path17.resolve(o.dir), { link: o.link, prefix, profile });
       for (const d of done)
         o.log(`skills  ${o.link ? "linked" : "installed"} ${d.name} (${profile}) -> ${d.path}`);
       if (o.link && prefix)
@@ -16184,6 +17013,7 @@ Usage:
   witness status [run-id|latest]
   witness report [run-id|latest] [--format md|json]
   witness init                                    write .witness/witness.example.toml guessed from the repo
+  witness init --scan                             print the repo's facts as JSON (confidence, evidence); writes nothing
   witness plan check [file] [--draft] [--no-list] validate a test plan (default .witness/plan.yaml)
   witness lint [files...] [--plan file]           static checks on test files (default: changed test files)
   witness skills path [--profile p] | list        render the agent skills and print where / what they are
@@ -16194,7 +17024,7 @@ Common: --json (machine output on stdout) · --config <path> (default .witness/w
         --run-dir-root <path> (default .witness/runs)
 Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout · 5 interrupted · 64 usage`;
 var VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix", "profile"]);
-var BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link"]);
+var BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link", "scan"]);
 var REPEAT = new Set(["suite", "select"]);
 function splitIds(v) {
   const parts = [];
@@ -16262,14 +17092,14 @@ function parseArgs(argv) {
 }
 function configPath(flags) {
   if (typeof flags.config === "string")
-    return path17.resolve(flags.config);
+    return path18.resolve(flags.config);
   const found = findConfig(process.cwd());
   if (!found)
     throw new ConfigError("", "no .witness/witness.toml here or in a parent folder; run `witness init`");
   return found;
 }
 function runRoot(flags, root) {
-  return typeof flags["run-dir-root"] === "string" ? path17.resolve(flags["run-dir-root"]) : path17.join(root, ".witness", "runs");
+  return typeof flags["run-dir-root"] === "string" ? path18.resolve(flags["run-dir-root"]) : path18.join(root, ".witness", "runs");
 }
 async function main(argv) {
   let args;
@@ -16298,19 +17128,19 @@ ${HELP}
   const needsConfig = ["check", "run", "up", "down"].includes(cmd);
   try {
     if (cmd === "init")
-      return initCommand(process.cwd(), json);
+      return flags.scan ? scanCommand(process.cwd()) : initCommand(process.cwd(), json);
     if (cmd === "skills")
       return skillsCommand(pos[0], { dir: flags.dir, link: !!flags.link, prefix: flags.prefix, profile: flags.profile, json, log: (s) => process.stderr.write(`witness  ${s}
 `) });
     if (cmd === "lint") {
-      const cp = typeof flags.config === "string" ? path17.resolve(flags.config) : findConfig(process.cwd());
+      const cp = typeof flags.config === "string" ? path18.resolve(flags.config) : findConfig(process.cwd());
       const lintCfg = cp ? loadConfig(cp) : undefined;
       const root = lintCfg?.root ?? process.cwd();
-      const dflt = path17.join(root, ".witness", "plan.yaml");
-      const planFile = typeof flags.plan === "string" ? path17.resolve(flags.plan) : fs17.existsSync(dflt) ? dflt : undefined;
+      const dflt = path18.join(root, ".witness", "plan.yaml");
+      const planFile = typeof flags.plan === "string" ? path18.resolve(flags.plan) : fs18.existsSync(dflt) ? dflt : undefined;
       let plan;
       if (planFile) {
-        const r = parsePlan(fs17.readFileSync(planFile, "utf8"), { draft: true });
+        const r = parsePlan(fs18.readFileSync(planFile, "utf8"), { draft: true });
         if (!r.plan)
           throw new UsageError(`${planFile} is not a valid plan; run \`witness plan check\``);
         plan = r.plan;
@@ -16321,14 +17151,14 @@ ${HELP}
     if (cmd === "plan") {
       if (pos[0] !== "check")
         throw new UsageError(`usage: witness plan check [file]`);
-      const cp = typeof flags.config === "string" ? path17.resolve(flags.config) : findConfig(process.cwd());
+      const cp = typeof flags.config === "string" ? path18.resolve(flags.config) : findConfig(process.cwd());
       const planCfg = cp ? loadConfig(cp) : undefined;
-      const file = path17.resolve(pos[1] ?? path17.join(planCfg?.root ?? process.cwd(), ".witness", "plan.yaml"));
+      const file = path18.resolve(pos[1] ?? path18.join(planCfg?.root ?? process.cwd(), ".witness", "plan.yaml"));
       return await planCheckCommand(file, planCfg, { draft: !!flags.draft, list: !flags["no-list"], json, log: (s) => process.stderr.write(`witness  ${s}
 `) });
     }
     if (cmd === "status" || cmd === "report") {
-      const cp = typeof flags.config === "string" ? path17.resolve(flags.config) : findConfig(process.cwd());
+      const cp = typeof flags.config === "string" ? path18.resolve(flags.config) : findConfig(process.cwd());
       const root = cp ? rootFor(cp) : process.cwd();
       const rr2 = runRoot(flags, root);
       if (cmd === "status")
@@ -16388,7 +17218,7 @@ ${HELP}
   return EXIT_USAGE2;
 }
 var EXIT_USAGE2 = 64;
-var self = process.argv[1] ? fs17.realpathSync(process.argv[1]) : "";
+var self = process.argv[1] ? fs18.realpathSync(process.argv[1]) : "";
 if (self.endsWith("cli.ts") || self.endsWith("witness.mjs")) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
     process.stderr.write(`witness  internal error: ${e.stack ?? e}
