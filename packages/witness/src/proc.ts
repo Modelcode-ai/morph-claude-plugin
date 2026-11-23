@@ -126,7 +126,27 @@ export async function runCapture(cmd: string, opts: CaptureOpts): Promise<{ code
   return { code: timedOut ? null : code, out, timedOut };
 }
 
+/** Probe a URL; `localhost` is tried on 127.0.0.1 and on ::1, since a server may listen on only one of them. */
 export async function httpProbe(url: string, status?: number, timeoutMs = 3000): Promise<{ ok: boolean; detail: string }> {
+  let u: URL | undefined;
+  try {
+    u = new URL(url);
+  } catch {
+    u = undefined;
+  }
+  if (u?.hostname !== "localhost") return probeOnce(url, status, timeoutMs);
+  const v4 = new URL(url);
+  v4.hostname = "127.0.0.1";
+  const a = await probeOnce(v4.href, status, timeoutMs);
+  if (a.ok) return a;
+  const v6 = new URL(url);
+  v6.hostname = "[::1]";
+  const b = await probeOnce(v6.href, status, timeoutMs);
+  if (b.ok) return b;
+  return /^HTTP/.test(a.detail) || !/^HTTP/.test(b.detail) ? a : b;
+}
+
+async function probeOnce(url: string, status?: number, timeoutMs = 3000): Promise<{ ok: boolean; detail: string }> {
   try {
     const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
     await r.body?.cancel().catch(() => {});

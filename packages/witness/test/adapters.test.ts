@@ -49,12 +49,12 @@ describe("adapter table", () => {
   });
 
   test("list output parsers", () => {
-    assert.deepEqual(ADAPTERS.pytest.list!.parse("tests/a.py::test_x\ntests/a.py::TestY::test_z[1]\n\n2 tests collected in 0.01s\n"), ["tests/a.py::test_x", "tests/a.py::TestY::test_z[1]"]);
-    assert.deepEqual(ADAPTERS.dotnet.list!.parse("Test run for /x/UnitTests.dll (.NETCoreApp,Version=v8.0)\nThe following Tests are available:\n    Ns.BasketTests.AddsItem\n    Ns.OrderTests.Create(quantity: 3)\n"), ["Ns.BasketTests#AddsItem", "Ns.OrderTests#Create(quantity: 3)"]);
-    assert.deepEqual(ADAPTERS.go.list!.parse("TestA\nTestB\nok  \texample.com/x\t0.01s\nTestC\nok  \texample.com/y\t0.01s\n"), ["example.com/x#TestA", "example.com/x#TestB", "example.com/y#TestC"]);
-    assert.deepEqual(ADAPTERS.playwright.list!.parse("Listing tests:\n  [chromium] › a.spec.ts:3:5 › pay › card\n  [firefox] › a.spec.ts:3:5 › pay › card\nTotal: 2 tests in 1 file\n"), ["a.spec.ts > pay > card [chromium]", "a.spec.ts > pay > card [firefox]"]);
-    assert.deepEqual(ADAPTERS.phpunit.list!.parse("Available test(s):\n - Tests\\CartTest::testAdd\n"), ["Tests\\CartTest#testAdd"]);
-    assert.equal(ADAPTERS.vitest.list!.cmd("npx vitest run --dir src"), "npx vitest list --dir src");
+    assert.deepEqual(ADAPTERS.pytest.list!.parse!("tests/a.py::test_x\ntests/a.py::TestY::test_z[1]\n\n2 tests collected in 0.01s\n"), ["tests/a.py::test_x", "tests/a.py::TestY::test_z[1]"]);
+    assert.deepEqual(ADAPTERS.dotnet.list!.parse!("Test run for /x/UnitTests.dll (.NETCoreApp,Version=v8.0)\nThe following Tests are available:\n    Ns.BasketTests.AddsItem\n    Ns.OrderTests.Create(quantity: 3)\n"), ["Ns.BasketTests#AddsItem", "Ns.OrderTests#Create(quantity: 3)"]);
+    assert.deepEqual(ADAPTERS.go.list!.parse!("TestA\nTestB\nok  \texample.com/x\t0.01s\nTestC\nok  \texample.com/y\t0.01s\n"), ["example.com/x#TestA", "example.com/x#TestB", "example.com/y#TestC"]);
+    assert.deepEqual(ADAPTERS.playwright.list!.parse!("Listing tests:\n  [chromium] › a.spec.ts:3:5 › pay › card\n  [firefox] › a.spec.ts:3:5 › pay › card\nTotal: 2 tests in 1 file\n"), ["a.spec.ts > pay > card [chromium]", "a.spec.ts > pay > card [firefox]"]);
+    assert.deepEqual(ADAPTERS.phpunit.list!.parse!("Available test(s):\n - Tests\\CartTest::testAdd\n"), ["Tests\\CartTest#testAdd"]);
+    assert.equal(ADAPTERS.vitest.list!.rewrite!("npx vitest run --dir src"), "npx vitest list --dir src");
   });
 
   test("id helpers", () => {

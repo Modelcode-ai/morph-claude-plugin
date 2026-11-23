@@ -1,12 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ADAPTERS, type Adapter, appendArgs, selectCommand, stableId } from "./adapters.ts";
+import { ADAPTERS, type Adapter, addArgs, fillSelect, hasSelectVar, selectCommand, stableId } from "./adapters.ts";
 import { type Config, type Suite, substitute } from "./config.ts";
 import { type Diagnosis, diagnose } from "./diagnosis.ts";
+import { listSuiteTests, type TestList, writeListCache } from "./listing.ts";
 import type { Progress } from "./output.ts";
 import { parseReportFile } from "./parsers/index.ts";
 import type { ParsedFile } from "./parsers/types.ts";
-import { childEnv, killGroup, runCapture, spawnGroup } from "./proc.ts";
+import { childEnv, killGroup, spawnGroup } from "./proc.ts";
 import { fromReruns, missing, reconcile, type ReconcileResult, type SuiteEnd, type SuiteSummary, suiteLevel, summarize, type TestRecord, toRecord } from "./reconcile.ts";
 import type { RunDir } from "./rundir.ts";
 import type { Stack } from "./stack.ts";
@@ -120,18 +121,41 @@ function dirSize(dir: string): number {
   return n;
 }
 
-/** Build the command a suite runs: select, report args, per-test timeout. */
+/** The per-test timeout args: the suite's per_test_timeout_arg, else the adapter's flag. */
+export function perTestTimeoutArgs(suite: Suite, adapter: Adapter, cwd: string, cmd: string): string | null {
+  if (!suite.perTestTimeoutMs) return null;
+  if (suite.perTestTimeoutArg) return suite.perTestTimeoutArg.replace(/\{s\}/g, String(Math.ceil(suite.perTestTimeoutMs / 1000))).replace(/\{ms\}/g, String(suite.perTestTimeoutMs));
+  return adapter.perTestTimeout?.(suite.perTestTimeoutMs, cwd, cmd) ?? null;
+}
+
+/** Build the command a suite runs: select, report args, per-test timeout; runner args go where `${WITNESS_SELECT}` is, else at the end. */
 export function suiteCommand(suite: Suite, adapter: Adapter, vars: Record<string, string | undefined>, reportDir: string, select?: string[], cwd = "."): string {
   let cmd = substitute(suite.cmd, vars);
+  let selection: string | undefined;
   if (select?.length) {
-    const sel = selectCommand(adapter, cmd, select, suite.select ? substitute(suite.select, vars) : undefined);
-    if (!sel) throw new Error(`suite ${suite.name}: adapter ${adapter.name} cannot select single tests; add select = "... {ids}" to the suite`);
-    cmd = sel;
+    const fail = () => new Error(`suite ${suite.name}: adapter ${adapter.name} cannot select single tests in this command; put \${WITNESS_SELECT} where the runner's arguments go, or add select = "... {ids}" to the suite`);
+    if (!suite.select && hasSelectVar(cmd)) {
+      if (!adapter.selectArgs) throw fail();
+      selection = adapter.selectArgs(select);
+    } else cmd = selectCommand(adapter, cmd, select, suite.select ? substitute(suite.select, vars) : undefined) ?? (() => { throw fail(); })();
   }
-  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd))) cmd = appendArgs(cmd, adapter.reportArgs(reportDir, cwd, cmd));
-  const ptt = suite.perTestTimeoutMs && adapter.perTestTimeout ? adapter.perTestTimeout(suite.perTestTimeoutMs, cwd, cmd) : null;
-  if (ptt) cmd = appendArgs(cmd, ptt);
-  return cmd;
+  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd))) cmd = addArgs(cmd, adapter.reportArgs(reportDir, cwd, cmd));
+  const ptt = perTestTimeoutArgs(suite, adapter, cwd, cmd);
+  if (ptt) cmd = addArgs(cmd, ptt);
+  return fillSelect(cmd, selection);
+}
+
+/** Whether witness can run a subset of this suite's tests. */
+export function canSelect(suite: Suite, adapter: Adapter, vars: Record<string, string | undefined> = {}): boolean {
+  if (suite.select) return true;
+  const cmd = substitute(suite.cmd, vars);
+  if (hasSelectVar(cmd)) return !!adapter.selectArgs;
+  return !!selectCommand(adapter, cmd, ["x"]);
+}
+
+/** The plugin the framework says is missing (a report formatter, a timeout plugin), from the suite's output. */
+export function missingPlugin(adapter: Adapter, output: string, perTestTimeout: boolean) {
+  return adapter.plugins?.find((p) => p.needed(perTestTimeout) && p.missing.test(output));
 }
 
 export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | undefined, retries: number): Promise<SuiteRun> {
@@ -156,17 +180,25 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   const hint = adapter.reportHint?.(cwd, cmd);
   const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
   const output = !usable && exec.end === "exit" && !exitCodeOnly ? readFrom(log, logStart) : "";
-  const broken = output && exec.code !== 0 ? buildFailure(output, exec.code) : undefined;
-  if (!expected && !usable && !hint && !broken && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
-    expected = await listTests(ctx, suite, adapter, cwd, log);
+  const plugin = output && exec.code !== 0 ? missingPlugin(adapter, output, !!suite.perTestTimeoutMs) : undefined;
+  const broken = output && exec.code !== 0 ? (plugin ? output.split(/\r?\n/).find((l) => plugin.missing.test(l))?.trim().slice(0, 500) : buildFailure(output, exec.code)) : undefined;
+  let listed: TestList | undefined;
+  if (!expected && !usable && !hint && !broken && exec.end === "exit" && !(suite.adapter === "generic" && !suite.report)) {
+    listed = await listTests(ctx, suite, cwd, log);
+    expected = listed.ids;
   }
   let res: ReconcileResult = broken
-    ? { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it" }
-    : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
+    ? plugin
+      ? { tests: [suiteLevel(adapter, suite.name, exec.code, `${plugin.name} is missing: ${broken}`)], state: "error", cause: "setup_failed", note: `${plugin.name} is missing`, evidence: broken, hint: plugin.hint }
+      : { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it" }
+    : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly, selected: !!select?.length });
+  if (!select?.length && !p && exec.end === "exit" && usable && !files.some((f) => f.error) && (res.state === "passed" || res.state === "failed"))
+    writeListCache(ctx.cfg.root, suite, ctx.run.runId, ctx.run.status.commit, res.tests.filter((t) => t.obtained === "report").map((t) => t.id.slice(adapter.name.length + 1)));
 
   if (res.rerun?.length && !ctx.abort.aborted) {
-    if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select) && !hint) {
-      ctx.progress.line(`${p}suite  ${suite.name} · ${res.cause === "report_unreadable" ? "report unreadable" : "no report"}; rerunning ${res.rerun.length} test(s) one at a time`);
+    const selectable = canSelect(suite, adapter, vars);
+    if (res.rerun.length <= MAX_RERUNS && selectable && !hint) {
+      ctx.progress.line(`${p}suite  ${suite.name} · ${res.cause === "report_unreadable" ? "report unreadable" : "no report"}; rerunning ${res.rerun.length} test(s) one at a time (${listed?.detail ?? "list: --select"})`);
       const results = [];
       for (const [i, id] of res.rerun.entries()) {
         if (ctx.abort.aborted) break;
@@ -188,13 +220,17 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
         results.push({ id, exitCode: e.code, files: got, timedOut: e.end !== "exit" });
       }
       const ids = res.rerun;
-      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause!) : { ...res, rerun: undefined, tests: ids.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", `no report from the suite (exit code ${exec.code}), nor when one test ran alone`)) };
+      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause!, listed?.source === "last-report" ? listed.detail : undefined) : { ...res, rerun: undefined, tests: ids.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", `no report from the suite (exit code ${exec.code}), nor when one test ran alone`)) };
+      if (listed) res.note = `${res.note} · ${listed.detail}`;
     } else {
-      res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
+      const why = !selectable ? "this suite can't select single tests" : hint ? "the suite can't write a per-test report" : `more than ${MAX_RERUNS} tests`;
+      res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}; no per-test reruns: ${why}`)] };
     }
+  } else if (res.cause && (res.cause === "report_missing" || res.cause === "report_unreadable") && listed && !listed.ids) {
+    res.note = `${res.note} · ${listed.detail}`;
   }
 
-  if (retries > 0 && res.state === "failed" && exec.end === "exit" && !exec.died && (adapter.select || suite.select)) {
+  if (retries > 0 && res.state === "failed" && exec.end === "exit" && !exec.died && canSelect(suite, adapter, vars)) {
     await retryFailed(ctx, suite, adapter, cwd, vars, reportDir, res.tests, retries);
     if (!res.tests.some((t) => t.status === "failed")) res = { ...res, state: "passed" };
   }
@@ -334,15 +370,11 @@ function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, rep
   return uniq.map((f) => parseReportFile(f, adapter.format, cwd));
 }
 
-async function listTests(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, log: string): Promise<string[] | undefined> {
-  const base = substitute(suite.cmd, ctx.stack.vars());
-  const cmd = adapter.list!.cmd(base);
-  if (!cmd) return undefined;
+async function listTests(ctx: SuiteCtx, suite: Suite, cwd: string, log: string): Promise<TestList> {
   ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · listing tests to see what the run left out`);
-  const r = await runCapture(cmd, { cwd, env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: log.replace(/\.log$/, ".list.log"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
-  if (r.code !== 0) return undefined;
-  const ids = adapter.list!.parse(r.out);
-  return ids.length ? ids : undefined;
+  const l = await listSuiteTests(suite, { root: ctx.cfg.root, cwd, vars: ctx.stack.vars(), env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), log: log.replace(/\.log$/, ".list.log"), scratch: path.join(ctx.outDir, "reports", suite.name, "list"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
+  ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · ${l.ids ? `${l.ids.length} test(s), ` : ""}${l.detail}`);
+  return l;
 }
 
 async function retryFailed(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, vars: Record<string, string | undefined>, reportDir: string, tests: TestRecord[], retries: number) {

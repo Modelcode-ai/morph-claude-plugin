@@ -266,7 +266,17 @@ export class Stack {
       return /^HTTP [1-4]\d\d$/.test(h.detail) ? { ok: true, detail: h.detail } : h;
     }
     const vars = this.vars(ls);
-    if (r.http) return httpProbe(substitute(r.http, vars), r.status);
+    if (r.http) {
+      const url = substitute(r.http, vars);
+      const res = await httpProbe(url, r.status);
+      const v4 = `//127.0.0.1:${ls.port}`;
+      if (res.ok || !ls.ownedByUs || !ls.port || !url.includes(v4) || ls.url !== `http:${v4}` || /^HTTP/.test(res.detail)) return res;
+      const r6 = await httpProbe(url.replace(v4, `//[::1]:${ls.port}`), r.status);
+      if (!r6.ok) return res;
+      ls.url = `http://[::1]:${ls.port}`;
+      this.o.progress.line(`boot   ${ls.svc.name} · answers on ::1 (IPv6 loopback) only, not on 127.0.0.1; its URL is ${ls.url}`);
+      return r6;
+    }
     const env = childEnv(this.o.baseEnv, { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv(), ...mapValues(ls.svc.env, (v) => substitute(v, vars)) });
     const res = await runCapture(substitute(r.cmd!, vars), { cwd: path.resolve(this.o.root, ls.svc.cwd), env, timeoutMs: 10_000 });
     return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split("\n").pop() || `exit code ${res.code}` };
@@ -352,7 +362,9 @@ async function heldReadyPort(url: string, allocated: number): Promise<number | u
   }
   const port = Number(u.port || (u.protocol === "https:" ? 443 : 80));
   if (port === allocated || !LOCAL.has(u.hostname)) return undefined;
-  return (await portAnswers(u.hostname === "localhost" || u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, ""), port)) ? port : undefined;
+  const hosts = u.hostname === "localhost" ? ["127.0.0.1", "::1"] : u.hostname === "0.0.0.0" ? ["127.0.0.1"] : [u.hostname.replace(/^\[|\]$/g, "")];
+  for (const h of hosts) if (await portAnswers(h, port)) return port;
+  return undefined;
 }
 
 function mapValues(o: Record<string, string>, f: (v: string) => string): Record<string, string> {

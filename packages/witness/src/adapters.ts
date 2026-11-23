@@ -35,10 +35,33 @@ export interface Adapter {
   reportGlobs: ReportGlob[];
   /** The report is the suite's stdout (go test -json). */
   fromStdout?: boolean;
+  /** Runner args that run only `ids`; what `${WITNESS_SELECT}` becomes. */
+  selectArgs?: (ids: string[]) => string;
+  /** Rewrites the command when appending selectArgs is not enough (pytest's positional paths). */
   select?: (cmd: string, ids: string[]) => string | null;
-  list?: { cmd: (cmd: string) => string | null; parse: (out: string) => string[] };
+  list?: NativeList;
   perTestTimeout?: (ms: number, cwd: string, cmd: string) => string | null;
+  /** Report or timeout plugins the framework needs; `missing` matches the error it prints without them. */
+  plugins?: Plugin[];
   id: (c: RawCase) => string;
+}
+
+export interface NativeList {
+  /** Turns the suite command into a listing command (vitest list, go -list); null when it can't. */
+  rewrite?: (cmd: string) => string | null;
+  args?: string;
+  /** "adapter": parse the output; "report": the listing writes the adapter's report (every test unrun). */
+  format: "adapter" | "report";
+  parse?: (out: string) => string[];
+}
+
+export interface Plugin {
+  name: string;
+  needed: (perTestTimeout: boolean) => boolean;
+  /** Args for a cheap command that fails the same way when the plugin is missing. */
+  probeArgs?: string;
+  missing: RegExp;
+  hint: string;
 }
 
 export function normFile(f: string | undefined, cwd?: string): string | undefined {
@@ -59,6 +82,25 @@ export function appendArgs(cmd: string, args: string): string {
   if (/^\s*npm\s+(test|t|run\s+\S+|run-script\s+\S+)\b/.test(cmd) && !/\s--(\s|$)/.test(cmd)) return `${cmd} -- ${args}`;
   return `${cmd} ${args}`;
 }
+
+const SELECT_VAR = /\$\{WITNESS_SELECT(?::-([^}]*))?\}/;
+
+export const hasSelectVar = (cmd: string) => SELECT_VAR.test(cmd);
+
+/** Add runner args where they belong: just before `${WITNESS_SELECT}` when the command has it, else at the end. */
+export function addArgs(cmd: string, args: string): string {
+  if (!args) return cmd;
+  const m = SELECT_VAR.exec(cmd);
+  return m ? `${cmd.slice(0, m.index)}${args} ${cmd.slice(m.index)}` : appendArgs(cmd, args);
+}
+
+/** Replace `${WITNESS_SELECT}` with the selection, or with its `:-default` (else nothing) when running everything. */
+export function fillSelect(cmd: string, selection?: string): string {
+  return cmd.replace(new RegExp(SELECT_VAR.source, "g"), (_m, dflt: string | undefined) => selection ?? dflt ?? "").replace(/[ \t]+$/, "");
+}
+
+/** A title pattern no test has: jest then reports every test as skipped without running it. */
+export const NO_TEST = "^witness-list-only: no test has this name$";
 
 function classHash(c: RawCase): string {
   const cls = c.classname ? clean(c.classname) : "";
@@ -127,7 +169,7 @@ function fullTitleRegex(ids: string[], sep: string): string {
   return `(${parts.map(escapeRegExp).join("|")})$`;
 }
 
-function goSelect(cmd: string, ids: string[]): string {
+function goSelectArgs(ids: string[]): string {
   const names = ids.map((id) => splitClassHash(id)[1]);
   const top = [...new Set(names.map((n) => n.split("/")[0]))];
   const subs = names.filter((n) => n.includes("/"));
@@ -135,7 +177,7 @@ function goSelect(cmd: string, ids: string[]): string {
   if (subs.length && top.length === 1 && subs.length === names.length) {
     run += `/^(${subs.map((n) => escapeRegExp(n.split("/").slice(1).join("/"))).join("|")})$`;
   }
-  return appendArgs(cmd, `-run ${shq(run)}`);
+  return `-run ${shq(run)}`;
 }
 
 function parseLines(out: string, re: RegExp, map: (m: RegExpExecArray) => string): string[] {
@@ -239,12 +281,11 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d) => `--junitxml=${shq(path.join(d, "junit.xml"))} -o junit_family=xunit1`,
     reportMarker: /--junit-?xml/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
+    selectArgs: (ids) => ids.map(shq).join(" "),
     select: pytestSelect,
-    list: {
-      cmd: (cmd) => appendArgs(cmd, "--collect-only -q"),
-      parse: (out) => parseLines(out, /^(\S+\.py::\S.*)$/, (m) => m[1].trim()),
-    },
+    list: { args: "--collect-only -q", format: "adapter", parse: (out) => parseLines(out, /^(\S+\.py::\S.*)$/, (m) => m[1].trim()) },
     perTestTimeout: (ms) => `--timeout=${Math.ceil(ms / 1000)}`,
+    plugins: [{ name: "pytest-timeout", needed: (ptt) => ptt, probeArgs: "--collect-only -q --timeout=1", missing: /unrecognized arguments:.*--timeout/, hint: "per_test_timeout needs the pytest-timeout plugin: add pytest-timeout to the test requirements and install it" }],
     id: pytestId,
   },
   "junit-maven": {
@@ -254,8 +295,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
       { base: "cwd", glob: "**/target/surefire-reports/TEST-*.xml" },
       { base: "cwd", glob: "**/target/failsafe-reports/TEST-*.xml" },
     ],
-    select: (cmd, ids) =>
-      appendArgs(cmd, `${shq(`-Dtest=${ids.map((id) => { const [c, m] = splitClassHash(id); return `${c}#${stripParams(m)}`; }).join(",")}`)} -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false`),
+    selectArgs: (ids) => `${shq(`-Dtest=${ids.map((id) => { const [c, m] = splitClassHash(id); return `${c}#${stripParams(m)}`; }).join(",")}`)} -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false`,
     perTestTimeout: (ms) => shq(`-Djunit.jupiter.execution.timeout.default=${Math.ceil(ms / 1000)} s`),
     id: classHash,
   },
@@ -263,7 +303,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     name: "junit-gradle",
     format: "junit",
     reportGlobs: [{ base: "cwd", glob: "**/build/test-results/**/*.xml" }],
-    select: (cmd, ids) => appendArgs(cmd, ids.map((id) => { const [c, m] = splitClassHash(id); return `--tests ${shq(`${c}.${stripParams(m)}`)}`; }).join(" ")),
+    selectArgs: (ids) => ids.map((id) => { const [c, m] = splitClassHash(id); return `--tests ${shq(`${c}.${stripParams(m)}`)}`; }).join(" "),
     id: classHash,
   },
   dotnet: {
@@ -280,9 +320,10 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
       { base: "report-dir", glob: "**/*.trx" },
       { base: "cwd", glob: "**/TestResults/**/*.trx" },
     ],
-    select: (cmd, ids) => appendArgs(cmd, `--filter ${shq(ids.map((id) => { const [c, m] = splitClassHash(id); return `FullyQualifiedName=${c}.${stripParams(m)}`; }).join("|"))}`),
+    selectArgs: (ids) => `--filter ${shq(ids.map((id) => { const [c, m] = splitClassHash(id); return `FullyQualifiedName=${c}.${stripParams(m)}`; }).join("|"))}`,
     list: {
-      cmd: (cmd) => appendArgs(cmd, "--list-tests"),
+      args: "--list-tests",
+      format: "adapter",
       parse: (out) => {
         const ids: string[] = [];
         let on = false;
@@ -303,7 +344,8 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d) => `--json --outputFile=${shq(path.join(d, "jest.json"))}`,
     reportMarker: /--json\b/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],
-    select: (cmd, ids) => appendArgs(cmd, `-t ${shq(fullTitleRegex(ids, " "))}`),
+    selectArgs: (ids) => `-t ${shq(fullTitleRegex(ids, " "))}`,
+    list: { args: `--testNamePattern=${shq(NO_TEST)}`, format: "report" },
     perTestTimeout: (ms) => `--testTimeout=${ms}`,
     id: titled,
   },
@@ -313,9 +355,10 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d) => `--reporter=default --reporter=junit --outputFile.junit=${shq(path.join(d, "junit.xml"))}`,
     reportMarker: /--reporter[= ]junit/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
-    select: (cmd, ids) => appendArgs(cmd, `-t ${shq(fullTitleRegex(ids, " "))}`),
+    selectArgs: (ids) => `-t ${shq(fullTitleRegex(ids, " "))}`,
     list: {
-      cmd: (cmd) => (/\bvitest\s+run\b/.test(cmd) ? cmd.replace(/\bvitest\s+run\b/, "vitest list") : /\bvitest\b/.test(cmd) ? cmd.replace(/\bvitest\b/, "vitest list") : null),
+      rewrite: (cmd) => (/\bvitest\s+run\b/.test(cmd) ? cmd.replace(/\bvitest\s+run\b/, "vitest list") : /\bvitest\b/.test(cmd) ? cmd.replace(/\bvitest\b/, "vitest list") : null),
+      format: "adapter",
       parse: (out) => parseLines(out, /^(\S+\.[cm]?[jt]sx? > .+)$/, (m) => m[1].trim()),
     },
     perTestTimeout: (ms) => `--testTimeout=${ms}`,
@@ -328,11 +371,8 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportEnv: (d) => ({ PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(d, "playwright.json"), PLAYWRIGHT_JSON_OUTPUT_FILE: path.join(d, "playwright.json") }),
     reportMarker: /--reporter/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],
-    select: (cmd, ids) => {
-      const files = [...new Set(ids.map((id) => id.split(" > ")[0]))];
-      return appendArgs(cmd, `${files.map(shq).join(" ")} --grep ${shq(fullTitleRegex(ids, " "))}`);
-    },
-    list: { cmd: (cmd) => appendArgs(cmd, "--list"), parse: playwrightListParse },
+    selectArgs: (ids) => `${[...new Set(ids.map((id) => id.split(" > ")[0]))].map(shq).join(" ")} --grep ${shq(fullTitleRegex(ids, " "))}`,
+    list: { args: "--list", format: "adapter", parse: playwrightListParse },
     perTestTimeout: (ms) => `--timeout=${ms}`,
     id: titled,
   },
@@ -343,9 +383,11 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportMarker: /\s-json\b/,
     reportGlobs: [],
     fromStdout: true,
-    select: goSelect,
+    selectArgs: goSelectArgs,
     list: {
-      cmd: (cmd) => (/\bgo\s+test\b/.test(cmd) ? cmd.replace(/\s-json\b/, "").replace(/\s-run\s+\S+/, "") + " -list ." : null),
+      rewrite: (cmd) => (/\bgo\s+test\b/.test(cmd) ? cmd.replace(/\s-json\b/, "").replace(/\s-run\s+\S+/, "") : null),
+      args: "-list .",
+      format: "adapter",
       parse: goListParse,
     },
     id: classHash,
@@ -356,7 +398,8 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d) => `--reporter xunit --reporter-option output=${shq(path.join(d, "mocha.xml"))}`,
     reportMarker: /--reporter\b/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
-    select: (cmd, ids) => appendArgs(cmd, `--grep ${shq(fullTitleRegex(ids, " "))}`),
+    selectArgs: (ids) => `--grep ${shq(fullTitleRegex(ids, " "))}`,
+    list: { args: "--dry-run", format: "report" },
     perTestTimeout: (ms) => `--timeout ${ms}`,
     id: titled,
   },
@@ -366,7 +409,9 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d) => `--format progress --format RspecJunitFormatter --out ${shq(path.join(d, "rspec.xml"))}`,
     reportMarker: /RspecJunitFormatter/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
-    select: (cmd, ids) => appendArgs(cmd, ids.map((id) => `-e ${shq(id.split(" > ").slice(1).join(" > "))}`).join(" ")),
+    selectArgs: (ids) => ids.map((id) => `-e ${shq(id.split(" > ").slice(1).join(" > "))}`).join(" "),
+    list: { args: "--dry-run", format: "report" },
+    plugins: [{ name: "rspec_junit_formatter", needed: () => true, probeArgs: "--dry-run --format RspecJunitFormatter --out /dev/null", missing: /RspecJunitFormatter|Formatter '?RspecJunitFormatter'? unknown/, hint: 'witness reads rspec results through the rspec_junit_formatter gem: add gem "rspec_junit_formatter" to the Gemfile (test group) and bundle install' }],
     id: (c) => [normFile(c.file) ?? c.classname, clean(c.name)].filter(Boolean).join(" > "),
   },
   phpunit: {
@@ -375,15 +420,13 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d) => `--log-junit ${shq(path.join(d, "phpunit.xml"))}`,
     reportMarker: /--log-junit/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
-    select: (cmd, ids) => {
+    selectArgs: (ids) => {
       const pat = ids.map((id) => { const [c, m] = splitClassHash(id); return `${escapeRegExp(c)}::${escapeRegExp(stripParams(m).replace(/ with data set .*$/, ""))}`; });
-      return appendArgs(cmd, `--filter ${shq(`/(${pat.join("|")})( with data set .*)?$/`)}`);
+      return `--filter ${shq(`/(${pat.join("|")})( with data set .*)?$/`)}`;
     },
-    list: {
-      cmd: (cmd) => appendArgs(cmd, "--list-tests"),
-      parse: (out) => parseLines(out, /^\s*-\s+(\S+)::(\S+)/, (m) => `${m[1]}#${m[2]}`),
-    },
-    perTestTimeout: (ms) => `--default-time-limit=${Math.ceil(ms / 1000)}`,
+    list: { args: "--list-tests", format: "adapter", parse: (out) => parseLines(out, /^\s*-\s+(\S+)::(\S+)/, (m) => `${m[1]}#${m[2]}`) },
+    perTestTimeout: (ms) => `--enforce-time-limit --default-time-limit=${Math.ceil(ms / 1000)}`,
+    plugins: [{ name: "phpunit/php-invoker", needed: (ptt) => ptt, missing: /php-invoker|pcntl extension is required/i, hint: "phpunit enforces per-test time limits only with the phpunit/php-invoker package and the pcntl extension: composer require --dev phpunit/php-invoker" }],
     id: classHash,
   },
   generic: {
@@ -396,12 +439,14 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
 
 export const stableId = (adapter: AdapterName, id: string) => `${adapter}:${id}`;
 
-/** The command that runs only `ids`: the suite's own select template wins over the adapter. */
+/** The command that runs only `ids`: the suite's select template, else `${WITNESS_SELECT}`, else the adapter's rewrite. */
 export function selectCommand(adapter: Adapter, cmd: string, ids: string[], template?: string): string | null {
   if (template) {
-    if (template.includes("{ids}")) return template.replace("{ids}", ids.map(shq).join(" "));
-    if (template.includes("{id}") && ids.length === 1) return template.replace("{id}", shq(ids[0]));
+    if (template.includes("{ids}")) return template.replace("{ids}", () => ids.map(shq).join(" "));
+    if (template.includes("{id}") && ids.length === 1) return template.replace("{id}", () => shq(ids[0]));
     return null;
   }
-  return adapter.select ? adapter.select(cmd, ids) : null;
+  if (hasSelectVar(cmd)) return adapter.selectArgs ? fillSelect(cmd, adapter.selectArgs(ids)) : null;
+  if (adapter.select) return adapter.select(cmd, ids);
+  return adapter.selectArgs ? appendArgs(cmd, adapter.selectArgs(ids)) : null;
 }

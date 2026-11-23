@@ -50,9 +50,21 @@ export interface Suite {
   cmd: string;
   timeoutMs: number;
   perTestTimeoutMs?: number;
+  /** Runner args for the per-test timeout when the adapter has no flag: `{s}` seconds, `{ms}` milliseconds. */
+  perTestTimeoutArg?: string;
   report?: string;
   select?: string;
+  list?: ListTemplate;
   env: Record<string, string>;
+}
+
+export type ListFormat = "lines" | "report" | "adapter";
+
+export interface ListTemplate {
+  cmd: string;
+  /** lines: one id per line; report: the command writes a report (to $WITNESS_REPORT_DIR or `report`); adapter: the adapter's own list parser. */
+  format: ListFormat;
+  report?: string;
 }
 
 export interface Config {
@@ -83,7 +95,8 @@ const KEYS = {
   dependency: ["name", "check", "check_http", "start", "stop", "timeout"],
   service: ["name", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for"],
   ready: ["http", "cmd", "status", "timeout"],
-  suite: ["name", "kind", "service", "adapter", "cwd", "cmd", "timeout", "per_test_timeout", "report", "select", "env"],
+  suite: ["name", "kind", "service", "adapter", "cwd", "cmd", "timeout", "per_test_timeout", "per_test_timeout_arg", "report", "select", "list", "env"],
+  list: ["cmd", "format", "report"],
   run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace"],
 };
 
@@ -289,9 +302,13 @@ export function parseConfig(doc: Obj, file: string): Config {
     if (!(adapter in ADAPTERS)) throw new ConfigError(`${where}.adapter`, `unknown adapter "${adapter}"; one of ${Object.keys(ADAPTERS).join(", ")}`);
     const kind = str(s, "kind", where);
     if (kind !== "api" && kind !== "ui") throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected "api" or "ui", got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
+    const pttArg = str(s, "per_test_timeout_arg", where);
+    if (pttArg && !/\{s\}|\{ms\}/.test(pttArg)) throw new ConfigError(`${where}.per_test_timeout_arg`, 'needs {s} or {ms} where the timeout goes, e.g. "-timeout {s}s"');
     return {
       name,
       kind,
+      perTestTimeoutArg: pttArg,
+      list: parseList(s.list, `${where}.list`, adapter as AdapterName),
       services: s.service === undefined ? undefined : strList(s, "service", where),
       adapter: adapter as AdapterName,
       cwd: str(s, "cwd", where) ?? ".",
@@ -330,6 +347,20 @@ export function parseConfig(doc: Obj, file: string): Config {
   return cfg;
 }
 
+function parseList(v: unknown, where: string, adapter: AdapterName): ListTemplate | undefined {
+  if (v === undefined || v === "") return undefined;
+  const native = ADAPTERS[adapter].list?.parse ? "adapter" : "lines";
+  if (typeof v === "string") return { cmd: v, format: native };
+  if (!isObj(v)) throw new ConfigError(where, 'expected a command, or { cmd = "...", format = "lines" | "report" | "adapter" }');
+  checkKeys(v, KEYS.list, where);
+  const cmd = str(v, "cmd", where, true)!;
+  const raw = str(v, "format", where) ?? native;
+  const format = raw === "junit" ? "report" : raw;
+  if (format !== "lines" && format !== "report" && format !== "adapter") throw new ConfigError(`${where}.format`, `expected "lines", "report" or "adapter", got "${raw}"`);
+  if (format === "adapter" && !ADAPTERS[adapter].list?.parse) throw new ConfigError(`${where}.format`, `the ${adapter} adapter has no list parser; use "lines" (one id per line) or "report"`);
+  return { cmd, format, report: str(v, "report", where) };
+}
+
 function validateRefs(cfg: Config) {
   const names = new Set<string>();
   for (const s of cfg.services) {
@@ -360,6 +391,7 @@ function validateRefs(cfg: Config) {
   }
   for (const s of cfg.suites) {
     refs(`suite.${s.name}.cmd`, s.cmd);
+    refs(`suite.${s.name}.list`, s.list?.cmd);
     for (const [k, v] of Object.entries(s.env)) refs(`suite.${s.name}.env.${k}`, v);
   }
 }

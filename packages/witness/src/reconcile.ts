@@ -55,6 +55,8 @@ export interface ReconcileInput {
   cwd: string;
   /** No report was asked for (generic adapter without `report`): the exit code is the result. */
   exitCodeOnly?: boolean;
+  /** `expected` is a --select: skipped rows for other tests are the filter's doing, not results. */
+  selected?: boolean;
 }
 
 export interface ReconcileResult {
@@ -70,6 +72,9 @@ export interface ReconcileResult {
 
 const SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
 
+/** The framework stopped the test at its own per-test time limit. */
+export const TEST_TIMEOUT = /^Failed: Timeout >[\d.]+s|Exceeded timeout of \d+ ?ms for a test|Timeout of \d+ms exceeded|Test timeout of \d+ms exceeded|Test timed out in \d+ms|execution timed out after \d+|timed out after \d+ (?:ms|milliseconds|seconds)|Execution aborted after \d+ seconds?|panic: test timed out after/i;
+
 const cleanId = (adapter: Adapter, id: string) => (id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id);
 
 export function toRecord(c: RawCase, adapter: Adapter, suite: string, cwd: string, obtained: Obtained = "report"): TestRecord {
@@ -79,6 +84,7 @@ export function toRecord(c: RawCase, adapter: Adapter, suite: string, cwd: strin
   const r: TestRecord = { id: stableId(adapter.name, local), name: local, suite, adapter: adapter.name, status: c.status, durationMs: c.durationMs, obtained };
   if (c.statusDetail) r.statusDetail = c.statusDetail;
   else if (c.status === "failed" && SETUP_FAILURE.test(c.message ?? "")) r.statusDetail = "error";
+  else if (c.status === "failed" && TEST_TIMEOUT.test(`${c.message ?? ""}\n${(c.trace ?? "").slice(0, 2000)}`)) r.statusDetail = "timeout";
   if (c.message) r.message = c.message;
   if (c.trace) r.trace = c.trace;
   if (file) r.filePath = file;
@@ -139,6 +145,10 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
   const unreadable = inp.files.filter((f) => f.error);
   let tests = dedupe(inp.files.flatMap((f) => f.cases.map((c) => toRecord(c, adapter, suite, cwd))));
   const expected = (inp.expected ?? []).map((id) => stableId(adapter.name, cleanId(adapter, id)));
+  if (inp.selected && expected.length) {
+    const want = new Set(expected);
+    tests = tests.filter((t) => (t.status !== "skipped" && t.status !== "pending") || [...want].some((id) => presentIn(new Set([t.id]), id)));
+  }
 
   if (end === "interrupted" || end === "service_died" || end === "timeout" || end === "stalled") {
     const have = new Set(tests.map((t) => t.id));
@@ -182,7 +192,8 @@ export function missing(id: string, adapter: Adapter, suite: string, detail: Sta
 }
 
 /** Results of rerunning tests one at a time after the suite's own report was unusable. */
-export function fromReruns(results: { id: string; exitCode: number | null; files: ParsedFile[]; timedOut?: boolean }[], adapter: Adapter, suite: string, cwd: string, originalExit: number | null, cause: Cause): ReconcileResult {
+/** `fromLastReport` names the old report the ids came from: a test it lists that is gone now is missing, not failed. */
+export function fromReruns(results: { id: string; exitCode: number | null; files: ParsedFile[]; timedOut?: boolean }[], adapter: Adapter, suite: string, cwd: string, originalExit: number | null, cause: Cause, fromLastReport?: string): ReconcileResult {
   const tests: TestRecord[] = [];
   for (const r of results) {
     const sid = stableId(adapter.name, r.id);
@@ -191,7 +202,9 @@ export function fromReruns(results: { id: string; exitCode: number | null; files
     const params = cases.filter((c) => presentIn(new Set([c.id]), sid));
     const hit = exact ?? (params.length ? { ...params[0], id: sid, status: params.some((c) => c.status === "failed") ? ("failed" as const) : params[0].status } : cases.length === 1 ? { ...cases[0], id: sid } : undefined);
     if (hit) tests.push(hit);
-    else if (r.timedOut || r.exitCode !== 0) {
+    else if (fromLastReport && !r.timedOut) {
+      tests.push({ id: sid, name: r.id, suite, adapter: adapter.name, status: "other", statusDetail: "missing", durationMs: 0, obtained: "per-test-rerun", message: `run alone: exit code ${r.exitCode} and not in its report; the id comes from an earlier report (${fromLastReport.replace(/^list: /, "")}), so the test may have been renamed or deleted` });
+    } else if (r.timedOut || r.exitCode !== 0) {
       const t: TestRecord = { id: sid, name: r.id, suite, adapter: adapter.name, status: "failed", durationMs: 0, obtained: "per-test-rerun", message: r.timedOut ? "timed out when run alone" : `run alone: exit code ${r.exitCode}` };
       if (r.timedOut) t.statusDetail = "timeout";
       tests.push(t);

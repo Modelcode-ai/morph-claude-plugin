@@ -1,9 +1,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ADAPTERS } from "./adapters.ts";
-import { type Config, loadEnv } from "./config.ts";
+import { ADAPTERS, addArgs, fillSelect } from "./adapters.ts";
+import { type Config, loadEnv, substitute } from "./config.ts";
 import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { functionalWarnings } from "./functional.ts";
+import { type Capabilities, capabilities, capabilityLine, listSuiteTests } from "./listing.ts";
 import { color, outcomeColor, Progress } from "./output.ts";
 import { childEnv, groupAlive, killGroup, runCapture } from "./proc.ts";
 import { EXIT } from "./reconcile.ts";
@@ -26,13 +27,18 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   const upTo = STAGES.indexOf(o.stage ?? "suite");
   const report: { stage: Stage; ok: boolean; detail: string; diagnosis?: Diagnosis }[] = [];
   const warnings = functionalWarnings(cfg);
+  const caps: Capabilities[] = pickSuites(cfg, o.suites).map((s) => capabilities(s, cfg.root, path.resolve(cfg.root, s.cwd), { stallMs: cfg.run.stallMs }));
   const done = (code: number) => {
-    if (o.json) process.stdout.write(JSON.stringify({ ok: code === 0, stages: report, warnings }, null, 2) + "\n");
+    if (o.json) process.stdout.write(JSON.stringify({ ok: code === 0, stages: report, warnings, capabilities: caps }, null, 2) + "\n");
     return code;
   };
   report.push({ stage: "config", ok: true, detail: `${cfg.services.length} service(s), ${cfg.suites.length} suite(s), adapters: ${[...new Set(cfg.suites.map((s) => s.adapter))].join(", ") || "-"}` });
   p.line(`check  config · ok · ${report[0].detail}`);
   for (const w of warnings) p.line(color.yellow(`check  warn · ${w.message}`));
+  for (const c of caps) {
+    p.line(`check  suite ${c.suite} · ${capabilityLine(c)}`);
+    for (const x of c.consequences) p.plain(`         - ${x}`);
+  }
   if (upTo < 1) {
     p.plain(color.green("CHECK ok · config"));
     return done(0);
@@ -109,17 +115,30 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
         code = Math.max(code, EXIT.error);
         continue;
       }
-      const listCmd = ad.list?.cmd(s.cmd);
-      if (listCmd) {
-        const r = await runCapture(listCmd, { cwd: path.resolve(root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.list.log`), abort, track: run.tracker("list", s.name) });
-        const ids = r.code === 0 ? ad.list!.parse(r.out) : [];
-        if (ids.length) {
-          report.push({ stage: "suite", ok: true, detail: `${s.name}: ${ids.length} test(s) listed` });
-          p.line(`check  suite ${s.name} · ${ids.length} test(s) listed, e.g. ${s.adapter}:${ids[0]}`);
-          continue;
-        }
-        p.line(`check  suite ${s.name} · listing gave no tests (exit ${r.code}); doing a smoke run`);
+      const cwd = path.resolve(root, s.cwd);
+      const cenv = childEnv(env, stack.serviceUrlEnv());
+      let pluginMissing = false;
+      for (const pl of ad.plugins ?? []) {
+        if (!pl.needed(!!s.perTestTimeoutMs) || !pl.probeArgs) continue;
+        const r = await runCapture(fillSelect(addArgs(substitute(s.cmd, stack.vars()), pl.probeArgs)), { cwd, env: cenv, timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.plugins.log`), abort, track: run.tracker("list", s.name) });
+        if (r.code === 0 || !pl.missing.test(r.out)) continue;
+        const d = diagnose({ stage: "suite", cause: "setup_failed", suite: s.name, command: s.cmd, evidence: r.out.split(/\r?\n/).find((l) => pl.missing.test(l))?.trim(), extraTry: [pl.hint] });
+        report.push({ stage: "suite", ok: false, detail: `${s.name}: ${pl.name} is missing`, diagnosis: d });
+        p.line(color.red(`check  suite ${s.name} · ${pl.name} is missing: ${pl.hint}`));
+        printDiag(p, d);
+        code = Math.max(code, EXIT.error);
+        pluginMissing = true;
       }
+      if (pluginMissing) continue;
+      const l = await listSuiteTests(s, { root: cfg.root, cwd, vars: stack.vars(), env: cenv, log: run.file("logs", `${s.name}.list.log`), scratch: run.file("reports", s.name, "list"), abort, track: run.tracker("list", s.name) });
+      const cap = caps.find((c) => c.suite === s.name);
+      if (cap) cap.list = l.detail.replace(/^list: /, "");
+      if (l.ids && l.source !== "last-report") {
+        report.push({ stage: "suite", ok: true, detail: `${s.name}: ${l.ids.length} test(s) listed (${l.detail})` });
+        p.line(`check  suite ${s.name} · ${l.ids.length} test(s) listed (${l.detail}), e.g. ${s.adapter}:${l.ids[0]}`);
+        continue;
+      }
+      p.line(`check  suite ${s.name} · ${l.detail}; doing a smoke run`);
       const r = await runSuite(ctx, s, undefined, 0);
       const ok = r.summary.state === "passed" || r.summary.state === "failed";
       report.push({ stage: "suite", ok, detail: `${s.name}: ${r.summary.state}`, diagnosis: r.diagnosis });

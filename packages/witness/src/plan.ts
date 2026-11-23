@@ -2,8 +2,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { LineCounter, parseDocument } from "yaml";
 import { ADAPTERS, type AdapterName } from "./adapters.ts";
-import { closest, type Config, loadEnv, substitute, type Suite } from "./config.ts";
-import { childEnv, runCapture } from "./proc.ts";
+import { closest, type Config, loadEnv, type Suite } from "./config.ts";
+import { type ListSource, listSuiteTests } from "./listing.ts";
+import { childEnv } from "./proc.ts";
+import { readUp } from "./stack.ts";
 import { shq } from "./util.ts";
 
 export type PlanKind = "new" | "changed" | "parity";
@@ -119,6 +121,8 @@ export interface Listing {
   ids?: string[];
   error?: string;
   log?: string;
+  source?: ListSource;
+  detail?: string;
 }
 
 export const splitId = (t: string): [AdapterName, string] => {
@@ -142,23 +146,30 @@ const methodOnlyMatch = (adapter: AdapterName, listed: string, wanted: string) =
 
 const lastSegment = (id: string) => norm(id.split(/::|#| > /).pop() ?? id).replace(/[[(].*$/, "");
 
+/** Service URLs for listing without booting: the ones `witness up` left running, else an address nothing answers on. */
+function listingUrls(cfg: Config): Record<string, string> {
+  const up = readUp(cfg.root);
+  const vars: Record<string, string> = {};
+  for (const s of cfg.services) {
+    const url = up?.root === cfg.root ? up.services[s.name]?.url : undefined;
+    vars[`${s.name}.url`] = url ?? "http://127.0.0.1:9";
+    vars[`WITNESS_${s.name.toUpperCase().replace(/-/g, "_")}_URL`] = url ?? "http://127.0.0.1:9";
+  }
+  return vars;
+}
+
 /** List the tests of every suite whose adapter the plan references. */
-export async function listSuites(cfg: Config, adapters: Set<AdapterName>, logDir: string, onStart?: (s: Suite) => void): Promise<Listing[]> {
+export async function listSuites(cfg: Config, adapters: Set<AdapterName>, logDir: string, onStart?: (s: Suite) => void, onDone?: (s: Suite, l: Listing) => void): Promise<Listing[]> {
   const { env } = loadEnv(cfg);
+  const urls = listingUrls(cfg);
+  const urlEnv = Object.fromEntries(Object.entries(urls).filter(([k]) => !k.includes(".")));
   const out: Listing[] = [];
   for (const s of cfg.suites.filter((x) => adapters.has(x.adapter))) {
-    const ad = ADAPTERS[s.adapter];
-    const cmd = ad.list?.cmd(substitute(s.cmd, { ...env, CHECKOUT: cfg.root }));
-    if (!cmd) {
-      out.push({ suite: s.name, adapter: s.adapter, error: `the ${s.adapter} adapter can't list tests` });
-      continue;
-    }
     onStart?.(s);
-    const log = path.join(logDir, `${s.name}.list.log`);
-    const r = await runCapture(cmd, { cwd: path.resolve(cfg.root, s.cwd), env: childEnv(env), timeoutMs: 5 * 60_000, log });
-    const ids = r.code === 0 ? ad.list!.parse(r.out) : [];
-    if (r.code !== 0 || !ids.length) out.push({ suite: s.name, adapter: s.adapter, error: r.timedOut ? "listing timed out" : `listing failed (exit ${r.code}${r.code === 0 ? ", no tests in the output" : ""})`, log });
-    else out.push({ suite: s.name, adapter: s.adapter, ids, log });
+    const l = await listSuiteTests(s, { root: cfg.root, cwd: path.resolve(cfg.root, s.cwd), vars: { ...env, CHECKOUT: cfg.root, ...urls }, env: childEnv(env, urlEnv), log: path.join(logDir, `${s.name}.list.log`), scratch: path.join(logDir, "list", s.name) });
+    const listing: Listing = { suite: s.name, adapter: s.adapter, ids: l.ids, error: l.ids ? undefined : l.error, log: l.log, source: l.source, detail: l.detail };
+    onDone?.(s, listing);
+    out.push(listing);
   }
   return out;
 }
@@ -185,7 +196,8 @@ export function matchTests(plan: Plan, cfg: Config | undefined, listings: Listin
       const listed = ls.filter((l) => l.ids);
       const hits = listed.filter((l) => l.ids!.some((x) => idMatches(x, id))).map((l) => l.suite);
       if (hits.length) {
-        checks.push({ item: item.id, test: t, state: "found", suites: hits });
+        const old = listed.find((l) => hits.includes(l.suite) && l.source === "last-report");
+        checks.push({ item: item.id, test: t, state: "found", suites: hits, ...(old ? { detail: old.detail } : {}) });
         continue;
       }
       const loose = listed.filter((l) => l.ids!.some((x) => methodOnlyMatch(ad, x, id))).map((l) => l.suite);
@@ -232,14 +244,16 @@ export async function planCheckCommand(file: string, cfg: Config | undefined, o:
   const rel = path.relative(process.cwd(), file) || file;
   const { plan, problems } = parsePlan(text, { draft: o.draft });
   let checks: TestCheck[] = [];
+  let listingsOut: Listing[] = [];
   if (plan) {
     const adapters = new Set(plan.items.flatMap((i) => i.tests.map((t) => splitId(t)[0])));
     let listings: Listing[] = [];
     if (cfg && o.list && adapters.size) {
-      listings = await listSuites(cfg, adapters, path.join(cfg.root, ".witness", "check", "plan"), (s) => o.log(`plan  listing tests of suite ${s.name} (${s.adapter}) ...`));
+      listings = await listSuites(cfg, adapters, path.join(cfg.root, ".witness", "check", "plan"), (s) => o.log(`plan  listing tests of suite ${s.name} (${s.adapter}) ...`), (s, l) => o.log(`plan  suite ${s.name}: ${l.ids ? `${l.ids.length} test(s) · ` : ""}${l.detail}`));
     } else if (cfg && !o.list) {
       listings = cfg.suites.filter((s) => adapters.has(s.adapter)).map((s) => ({ suite: s.name, adapter: s.adapter, error: "listing skipped (--no-list)" }));
     }
+    listingsOut = listings;
     const m = matchTests(plan, cfg, listings, o.draft);
     checks = m.checks;
     problems.push(...m.problems);
@@ -256,6 +270,6 @@ export async function planCheckCommand(file: string, cfg: Config | undefined, o:
   const count = (s: TestState) => checks.filter((c) => c.state === s).length;
   const summary = plan ? `${plan.items.length} item(s), ${checks.length} test ref(s): ${count("found")} found, ${count("missing")} missing, ${count("unverified")} unverified` : `${errors.length} error(s)`;
   o.log(`PLAN ${errors.length ? "invalid" : "ok"} · ${summary}`);
-  if (o.json) process.stdout.write(JSON.stringify({ ok: !errors.length, file, items: plan?.items ?? [], tests: checks, problems }, null, 2) + "\n");
+  if (o.json) process.stdout.write(JSON.stringify({ ok: !errors.length, file, items: plan?.items ?? [], tests: checks, problems, listings: listingsOut.map((l) => ({ suite: l.suite, adapter: l.adapter, source: l.source, detail: l.detail, ids: l.ids, error: l.error })) }, null, 2) + "\n");
   return errors.length ? 1 : 0;
 }
