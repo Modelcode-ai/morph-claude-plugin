@@ -109,10 +109,10 @@ export function summarize(name: string, state: SuiteState, tests: TestRecord[]):
   return s;
 }
 
-export function suiteLevel(adapter: Adapter, suite: string, exitCode: number | null, message: string): TestRecord {
+export function suiteLevel(adapter: Adapter, suite: string, exitCode: number | null, message: string, exitCodeOnly = false): TestRecord {
   const ok = exitCode === 0;
   const r: TestRecord = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? "passed" : "failed", durationMs: 0, obtained: "suite-level", message };
-  if (!ok) r.statusDetail = "error";
+  if (!ok && !exitCodeOnly) r.statusDetail = "error";
   return r;
 }
 
@@ -145,7 +145,7 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
   }
 
   if (inp.exitCodeOnly) {
-    return { tests: [suiteLevel(adapter, suite, exitCode, `exit code ${exitCode}`)], state: exitCode === 0 ? "passed" : "failed" };
+    return { tests: [suiteLevel(adapter, suite, exitCode, `exit code ${exitCode}`, true)], state: exitCode === 0 ? "passed" : "failed" };
   }
   const cause: Cause = unreadable.length ? "report_unreadable" : "report_missing";
   const note = unreadable.length ? `report unreadable: ${unreadable[0].error}` : inp.files.length ? "report lists no tests" : "no report written";

@@ -26,7 +26,9 @@ export interface Adapter {
   name: AdapterName;
   format: ReportFormat;
   /** Args that make the framework write a machine report into dir. */
-  reportArgs?: (dir: string, cwd: string) => string;
+  reportArgs?: (dir: string, cwd: string, cmd: string) => string;
+  /** Why no report could be requested, and how to fix it; shown when the report is missing. */
+  reportHint?: (cwd: string, cmd: string) => string | undefined;
   reportEnv?: (dir: string) => Record<string, string>;
   /** When the command already matches, the user wired the report; append nothing. */
   reportMarker?: RegExp;
@@ -35,7 +37,7 @@ export interface Adapter {
   fromStdout?: boolean;
   select?: (cmd: string, ids: string[]) => string | null;
   list?: { cmd: (cmd: string) => string | null; parse: (out: string) => string[] };
-  perTestTimeout?: (ms: number, cwd: string) => string | null;
+  perTestTimeout?: (ms: number, cwd: string, cmd: string) => string | null;
   id: (c: RawCase) => string;
 }
 
@@ -175,29 +177,46 @@ function playwrightListParse(out: string): string[] {
   return [...new Set(rows.map((r) => (multi && r.project ? `${r.rest} [${r.project}]` : r.rest)))];
 }
 
-export type DotnetMode = "vstest" | "mtp" | "mtp-xunit";
+export type DotnetMode = "vstest" | "mtp" | "mtp-xunit" | "mtp-none";
 
-/** global.json `test.runner` decides VSTest vs Microsoft.Testing.Platform; xunit v3 has its own TRX flag. */
-export function dotnetMode(cwd: string): DotnetMode {
-  let mtp = false;
-  const lookups: string[] = [];
-  for (let d = path.resolve(cwd); ; d = path.dirname(d)) {
-    lookups.push(d);
-    const gj = path.join(d, "global.json");
-    if (fs.existsSync(gj)) {
-      try {
-        mtp = /Microsoft\.Testing\.Platform/.test(JSON.parse(fs.readFileSync(gj, "utf8"))?.test?.runner ?? "");
-      } catch {
-        mtp = false;
-      }
+function readUp(start: string, name: string): { text: string; dirs: string[] } {
+  const dirs: string[] = [];
+  let text = "";
+  for (let d = path.resolve(start); ; d = path.dirname(d)) {
+    dirs.push(d);
+    const f = path.join(d, name);
+    if (fs.existsSync(f)) {
+      text = fs.readFileSync(f, "utf8");
       break;
     }
     if (path.dirname(d) === d || fs.existsSync(path.join(d, ".git"))) break;
   }
+  return { text, dirs };
+}
+
+export function dotnetProject(cwd: string, cmd: string): string | undefined {
+  const m = /--project[ =]+["']?([^\s"']+)/.exec(cmd) ?? /(?:^|\s)["']?([^\s"']+\.(?:cs|fs|vb)proj)\b/.exec(cmd);
+  return m ? path.resolve(cwd, m[1]) : undefined;
+}
+
+/** VSTest vs Microsoft.Testing.Platform (global.json test.runner), and which TRX flag the test project supports. */
+export function dotnetMode(cwd: string, cmd = ""): DotnetMode {
+  const gj = readUp(cwd, "global.json").text;
+  let mtp = false;
+  try {
+    mtp = /Microsoft\.Testing\.Platform/.test(JSON.parse(gj || "{}")?.test?.runner ?? "");
+  } catch {
+    mtp = false;
+  }
   if (!mtp) return "vstest";
-  const props = lookups.map((d) => path.join(d, "Directory.Packages.props")).find((f) => fs.existsSync(f));
-  const text = props ? fs.readFileSync(props, "utf8") : "";
-  return /"xunit\.v3"/.test(text) ? "mtp-xunit" : "mtp";
+  const proj = dotnetProject(cwd, cmd);
+  if (proj && fs.existsSync(proj)) {
+    const text = fs.readFileSync(proj, "utf8") + readUp(path.dirname(proj), "Directory.Build.props").text;
+    if (/"xunit\.v3(\.mtp-v\d)?"/.test(text)) return "mtp-xunit";
+    if (/Microsoft\.Testing\.Extensions\.TrxReport|Sdk="MSTest\.Sdk|Include="MSTest"|Include="TUnit"/.test(text)) return "mtp";
+    return "mtp-none";
+  }
+  return /"xunit\.v3"/.test(readUp(cwd, "Directory.Packages.props").text) ? "mtp-xunit" : "mtp";
 }
 
 export const ADAPTERS: Record<AdapterName, Adapter> = {
@@ -237,10 +256,15 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   dotnet: {
     name: "dotnet",
     format: "trx",
-    reportArgs: (d, cwd) => {
-      const mode = dotnetMode(cwd);
+    reportArgs: (d, cwd, cmd) => {
+      const mode = dotnetMode(cwd, cmd);
+      if (mode === "mtp-none") return "";
       return `${mode === "vstest" ? "--logger trx" : mode === "mtp-xunit" ? "--report-xunit-trx" : "--report-trx"} --results-directory ${shq(d)}`;
     },
+    reportHint: (cwd, cmd) =>
+      dotnetMode(cwd, cmd) === "mtp-none"
+        ? `this Microsoft.Testing.Platform project has no TRX reporter: add <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" /> to ${path.relative(cwd, dotnetProject(cwd, cmd) ?? "the test project") || "the test project"}`
+        : undefined,
     reportMarker: /--logger[ =:]+["']?trx|--report-(xunit-)?trx/,
     reportGlobs: [
       { base: "report-dir", glob: "**/*.trx" },
@@ -260,7 +284,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
         return [...new Set(ids)];
       },
     },
-    perTestTimeout: (ms, cwd) => (dotnetMode(cwd) === "vstest" ? `--blame-hang-timeout ${Math.ceil(ms / 1000)}s` : null),
+    perTestTimeout: (ms, cwd, cmd) => (dotnetMode(cwd, cmd) === "vstest" ? `--blame-hang-timeout ${Math.ceil(ms / 1000)}s` : null),
     id: classHash,
   },
   jest: {

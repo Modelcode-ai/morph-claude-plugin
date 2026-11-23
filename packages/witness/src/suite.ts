@@ -70,8 +70,8 @@ export function suiteCommand(suite: Suite, adapter: Adapter, vars: Record<string
     if (!sel) throw new Error(`suite ${suite.name}: adapter ${adapter.name} cannot select single tests; add select = "... {ids}" to the suite`);
     cmd = sel;
   }
-  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd))) cmd = appendArgs(cmd, adapter.reportArgs(reportDir, cwd));
-  const ptt = suite.perTestTimeoutMs && adapter.perTestTimeout ? adapter.perTestTimeout(suite.perTestTimeoutMs, cwd) : null;
+  if (adapter.reportArgs && !suite.report && !(adapter.reportMarker && adapter.reportMarker.test(cmd))) cmd = appendArgs(cmd, adapter.reportArgs(reportDir, cwd, cmd));
+  const ptt = suite.perTestTimeoutMs && adapter.perTestTimeout ? adapter.perTestTimeout(suite.perTestTimeoutMs, cwd, cmd) : null;
   if (ptt) cmd = appendArgs(cmd, ptt);
   return cmd;
 }
@@ -93,14 +93,15 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   const files = collect(ctx, suite, adapter, cwd, reportDir, log, t0);
   let expected = select;
   const usable = files.some((f) => f.cases.length);
-  if (!expected && !usable && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
+  const hint = adapter.reportHint?.(cwd, cmd);
+  if (!expected && !usable && !hint && exec.end === "exit" && adapter.list && !(suite.adapter === "generic" && !suite.report)) {
     expected = await listTests(ctx, suite, adapter, cwd, log);
   }
   const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
   let res: ReconcileResult = reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly });
 
   if (res.rerun?.length && !ctx.abort.aborted) {
-    if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select)) {
+    if (res.rerun.length <= MAX_RERUNS && (adapter.select || suite.select) && !hint) {
       ctx.progress.line(`${p}suite  ${suite.name} · ${res.cause === "report_unreadable" ? "report unreadable" : "no report"}; rerunning ${res.rerun.length} test(s) one at a time`);
       const results = [];
       for (const [i, id] of res.rerun.entries()) {
@@ -113,9 +114,15 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
           exec.died = e.died;
           break;
         }
-        results.push({ id, exitCode: e.code, files: collect(ctx, suite, adapter, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), Date.now() - e.ms), timedOut: e.end !== "exit" });
+        const got = collect(ctx, suite, adapter, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), Date.now() - e.ms);
+        if (i === 0 && !got.some((f) => f.cases.length)) {
+          ctx.progress.line(`${p}suite  ${suite.name} · a single test run alone wrote no report either; not rerunning the rest`);
+          results.length = 0;
+          break;
+        }
+        results.push({ id, exitCode: e.code, files: got, timedOut: e.end !== "exit" });
       }
-      res = fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause!);
+      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause!) : { ...res, rerun: undefined, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
     } else {
       res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
     }
@@ -133,7 +140,8 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   let diagnosis: Diagnosis | undefined;
   if (exec.died) diagnosis = exec.died;
   else if (res.cause && res.state !== "failed" && res.state !== "passed") {
-    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence: res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : undefined });
+    const h = res.cause === "report_missing" ? hint : undefined;
+    diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence: h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : undefined), extraTry: h ? [h] : undefined });
   }
   ctx.run.event("suite_finished", { suite: suite.name, state: summary.state, exit_code: exec.code, end: exec.end, cause: res.cause, passed: summary.passed, failed: summary.failed, ms: Date.now() - t0 }, `${p}suite ${suite.name} ${summary.state}`);
   const counts = [`${summary.passed} passed`, `${summary.failed} failed`, summary.error && `${summary.error} error`, summary.missing && `${summary.missing} missing`, summary.skipped && `${summary.skipped} skipped`].filter(Boolean).join(", ");
