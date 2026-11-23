@@ -355,7 +355,13 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
       { base: "report-dir", glob: "**/*.trx" },
       { base: "cwd", glob: "**/TestResults/**/*.trx" },
     ],
-    selectArgs: (ids) => `--filter ${shq(ids.map((id) => { const [c, m] = splitClassHash(id); return `FullyQualifiedName=${c}.${stripParams(m)}`; }).join("|"))}`,
+    selectArgs: (ids) => `--filter ${shq(dotnetFilter(ids))}`,
+    // a second --filter is rejected (MSTest: "expects at most 1 arguments"), so the selection is ANDed into the suite's own
+    select: (cmd, ids) => {
+      const m = /--filter(?:\s+|=)(?:'([^']*)'|"([^"]*)"|([^\s'"]+))/.exec(cmd);
+      if (!m) return appendArgs(cmd, `--filter ${shq(dotnetFilter(ids))}`);
+      return `${cmd.slice(0, m.index)}--filter ${shq(`(${m[1] ?? m[2] ?? m[3]})&(${dotnetFilter(ids)})`)}${cmd.slice(m.index + m[0].length)}`;
+    },
     list: {
       args: "--list-tests",
       format: "adapter",
@@ -469,6 +475,10 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     id: classHash,
   },
 };
+
+function dotnetFilter(ids: string[]): string {
+  return ids.map((id) => { const [c, m] = splitClassHash(id); return `FullyQualifiedName=${c}.${stripParams(m)}`; }).join("|");
+}
 
 export const stableId = (adapter: AdapterName, id: string) => `${adapter}:${id}`;
 

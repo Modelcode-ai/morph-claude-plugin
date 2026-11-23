@@ -9489,10 +9489,13 @@ var ADAPTERS = {
       { base: "report-dir", glob: "**/*.trx" },
       { base: "cwd", glob: "**/TestResults/**/*.trx" }
     ],
-    selectArgs: (ids) => `--filter ${shq(ids.map((id) => {
-      const [c, m] = splitClassHash(id);
-      return `FullyQualifiedName=${c}.${stripParams(m)}`;
-    }).join("|"))}`,
+    selectArgs: (ids) => `--filter ${shq(dotnetFilter(ids))}`,
+    select: (cmd, ids) => {
+      const m = /--filter(?:\s+|=)(?:'([^']*)'|"([^"]*)"|([^\s'"]+))/.exec(cmd);
+      if (!m)
+        return appendArgs(cmd, `--filter ${shq(dotnetFilter(ids))}`);
+      return `${cmd.slice(0, m.index)}--filter ${shq(`(${m[1] ?? m[2] ?? m[3]})&(${dotnetFilter(ids)})`)}${cmd.slice(m.index + m[0].length)}`;
+    },
     list: {
       args: "--list-tests",
       format: "adapter",
@@ -9612,6 +9615,12 @@ var ADAPTERS = {
     id: classHash
   }
 };
+function dotnetFilter(ids) {
+  return ids.map((id) => {
+    const [c, m] = splitClassHash(id);
+    return `FullyQualifiedName=${c}.${stripParams(m)}`;
+  }).join("|");
+}
 var stableId = (adapter, id) => `${adapter}:${id}`;
 function selectCommand(adapter, cmd, ids, template) {
   if (template) {

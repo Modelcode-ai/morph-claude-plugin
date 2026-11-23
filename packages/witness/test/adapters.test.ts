@@ -40,6 +40,7 @@ describe("adapter table", () => {
     assert.equal(selectCommand(ADAPTERS["junit-maven"], "mvn verify", ["com.a.FooTest#bar(String)[1]"]), "mvn verify '-Dtest=com.a.FooTest#bar' -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false");
     assert.equal(selectCommand(ADAPTERS["junit-gradle"], "./gradlew test", ["com.a.FooTest#bar()"]), "./gradlew test --tests com.a.FooTest.bar");
     assert.equal(selectCommand(ADAPTERS.dotnet, "dotnet test", ["Ns.C#M(x: 1)", "Ns.C#N"]), "dotnet test --filter 'FullyQualifiedName=Ns.C.M|FullyQualifiedName=Ns.C.N'");
+    assert.equal(selectCommand(ADAPTERS.dotnet, "dotnet test --filter 'FullyQualifiedName!~Api.DependencyTests' -v q", ["Ns.C#M"]), "dotnet test --filter '(FullyQualifiedName!~Api.DependencyTests)&(FullyQualifiedName=Ns.C.M)' -v q");
     assert.equal(selectCommand(ADAPTERS.go, "go test ./...", ["example.com/x#TestA/sub"]), "go test ./... -run '^(TestA)$/^(sub)$'");
     assert.equal(selectCommand(ADAPTERS.jest, "npx jest", ["src/a.test.js > cart > adds"]), "npx jest -t '(cart adds)$'");
     assert.equal(selectCommand(ADAPTERS.playwright, "npx playwright test", ["a.spec.ts > pay > card [chromium]"]), "npx playwright test a.spec.ts --grep '(pay card)$'");
