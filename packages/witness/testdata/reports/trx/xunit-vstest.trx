@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TestRun id="5c1b7b5e-1111-4b5e-9a4e-000000000001" name="runner@mac 2026-11-20 10:00:00" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2026-11-20T10:00:00.0000000+00:00" queuing="2026-11-20T10:00:00.0000000+00:00" start="2026-11-20T10:00:00.0000000+00:00" finish="2026-11-20T10:00:03.5000000+00:00" />
+  <TestSettings name="default" id="00000000-0000-0000-0000-000000000000"><Deployment runDeploymentRoot="runner_mac_2026-11-20_10_00_00" /></TestSettings>
+  <Results>
+    <UnitTestResult executionId="e1" testId="t1" testName="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem.AddsBasketItemIfNotPresent" computerName="mac" duration="00:00:00.0123450" startTime="2026-11-20T10:00:01.0000000+00:00" endTime="2026-11-20T10:00:01.0123450+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e1" />
+    <UnitTestResult executionId="e2" testId="t2" testName="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem.IncrementsQuantityOfItemIfPresent" computerName="mac" duration="00:00:00.0040000" startTime="2026-11-20T10:00:01.0000000+00:00" endTime="2026-11-20T10:00:01.0040000+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Failed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e2">
+      <Output>
+        <ErrorInfo>
+          <Message>Assert.Equal() Failure: Values differ
+Expected: 2
+Actual:   1</Message>
+          <StackTrace>   at Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem.IncrementsQuantityOfItemIfPresent() in /src/tests/UnitTests/ApplicationCore/Entities/BasketTests/BasketAddItem.cs:line 31</StackTrace>
+        </ErrorInfo>
+      </Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="e3" testId="t3" testName="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests.CreateOrder(quantity: 3)" computerName="mac" duration="00:00:01.5000000" startTime="2026-11-20T10:00:01.0000000+00:00" endTime="2026-11-20T10:00:02.5000000+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e3" />
+    <UnitTestResult executionId="e4" testId="t4" testName="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests.Skipped" computerName="mac" duration="00:00:00" startTime="2026-11-20T10:00:01.0000000+00:00" endTime="2026-11-20T10:00:01.0000000+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="NotExecuted" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e4">
+      <Output><StdOut>Skipped: requires docker</StdOut></Output>
+    </UnitTestResult>
+    <UnitTestResult executionId="e5" testId="t5" testName="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests.HangsForever" computerName="mac" duration="00:00:30.0000000" startTime="2026-11-20T10:00:01.0000000+00:00" endTime="2026-11-20T10:00:31.0000000+00:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Timeout" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e5" />
+  </Results>
+  <TestDefinitions>
+    <UnitTest name="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem.AddsBasketItemIfNotPresent" storage="/src/tests/unittests/bin/debug/net8.0/unittests.dll" id="t1"><Execution id="e1" /><TestMethod codeBase="/src/tests/UnitTests/bin/Debug/net8.0/UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem" name="AddsBasketItemIfNotPresent" /></UnitTest>
+    <UnitTest name="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem.IncrementsQuantityOfItemIfPresent" storage="/src/tests/unittests/bin/debug/net8.0/unittests.dll" id="t2"><Execution id="e2" /><TestMethod codeBase="/src/tests/UnitTests/bin/Debug/net8.0/UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="Microsoft.eShopWeb.UnitTests.ApplicationCore.Entities.BasketTests.BasketAddItem" name="IncrementsQuantityOfItemIfPresent" /></UnitTest>
+    <UnitTest name="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests.CreateOrder(quantity: 3)" storage="/src/tests/unittests/bin/debug/net8.0/unittests.dll" id="t3"><Execution id="e3" /><TestMethod codeBase="/src/tests/UnitTests/bin/Debug/net8.0/UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests" name="CreateOrder" /></UnitTest>
+    <UnitTest name="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests.Skipped" storage="/src/tests/unittests/bin/debug/net8.0/unittests.dll" id="t4"><Execution id="e4" /><TestMethod codeBase="/src/tests/UnitTests/bin/Debug/net8.0/UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests" name="Skipped" /></UnitTest>
+    <UnitTest name="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests.HangsForever" storage="/src/tests/unittests/bin/debug/net8.0/unittests.dll" id="t5"><Execution id="e5" /><TestMethod codeBase="/src/tests/UnitTests/bin/Debug/net8.0/UnitTests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="Microsoft.eShopWeb.UnitTests.ApplicationCore.Services.OrderServiceTests" name="HangsForever" /></UnitTest>
+  </TestDefinitions>
+  <TestEntries />
+  <TestLists><TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" /></TestLists>
+  <ResultSummary outcome="Failed"><Counters total="5" executed="4" passed="2" failed="1" error="0" timeout="1" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="1" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" /></ResultSummary>
+</TestRun>

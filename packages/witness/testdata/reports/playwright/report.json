@@ -1,0 +1,79 @@
+{
+  "config": { "rootDir": "/repo/e2e", "version": "1.48.2", "projects": [{ "name": "chromium" }, { "name": "firefox" }] },
+  "suites": [
+    {
+      "title": "checkout.spec.ts",
+      "file": "checkout.spec.ts",
+      "line": 0,
+      "column": 0,
+      "specs": [
+        {
+          "title": "guest can open cart",
+          "ok": true,
+          "file": "checkout.spec.ts",
+          "line": 3,
+          "tests": [
+            { "projectName": "chromium", "expectedStatus": "passed", "status": "expected", "results": [{ "status": "passed", "duration": 812, "retry": 0, "attachments": [] }] },
+            { "projectName": "firefox", "expectedStatus": "passed", "status": "expected", "results": [{ "status": "passed", "duration": 990, "retry": 0, "attachments": [] }] }
+          ]
+        }
+      ],
+      "suites": [
+        {
+          "title": "payment",
+          "file": "checkout.spec.ts",
+          "line": 10,
+          "specs": [
+            {
+              "title": "pays with card",
+              "ok": false,
+              "file": "checkout.spec.ts",
+              "line": 11,
+              "tests": [
+                {
+                  "projectName": "chromium",
+                  "expectedStatus": "passed",
+                  "status": "unexpected",
+                  "results": [
+                    {
+                      "status": "timedOut",
+                      "duration": 30000,
+                      "retry": 0,
+                      "error": { "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m", "stack": "Error: Test timeout of 30000ms exceeded." },
+                      "errors": [{ "message": "Test timeout of 30000ms exceeded." }],
+                      "attachments": [
+                        { "name": "screenshot", "contentType": "image/png", "path": "/repo/e2e/test-results/checkout-payment-pays-with-card-chromium/test-failed-1.png" },
+                        { "name": "trace", "contentType": "application/zip", "path": "/repo/e2e/test-results/checkout-payment-pays-with-card-chromium/trace.zip" }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "projectName": "firefox",
+                  "expectedStatus": "passed",
+                  "status": "flaky",
+                  "results": [
+                    { "status": "failed", "duration": 1200, "retry": 0, "error": { "message": "expect(received).toBe(expected)" }, "attachments": [] },
+                    { "status": "passed", "duration": 1100, "retry": 1, "attachments": [{ "name": "video", "contentType": "video/webm", "path": "/repo/e2e/test-results/x/video.webm" }] }
+                  ]
+                }
+              ]
+            },
+            {
+              "title": "pays with paypal",
+              "ok": true,
+              "file": "checkout.spec.ts",
+              "line": 30,
+              "tests": [
+                { "projectName": "chromium", "expectedStatus": "skipped", "status": "skipped", "annotations": [{ "type": "skip" }], "results": [{ "status": "skipped", "duration": 0, "retry": 0 }] },
+                { "projectName": "firefox", "expectedStatus": "skipped", "status": "skipped", "results": [] }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": { "startTime": "2026-11-20T10:00:00.000Z", "duration": 34000, "expected": 2, "skipped": 2, "unexpected": 1, "flaky": 1 }
+}

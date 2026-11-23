@@ -1,0 +1,2 @@
+<?xml version="1.0"?>
+<testsuites><testsuite name="x"><testcase name="a" classname="A"><failure message="boom">trace

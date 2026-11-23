@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="rspec" tests="2" skipped="0" failures="1" errors="0" time="0.31" timestamp="2026-11-20T10:00:00+00:00" hostname="mac">
+<properties><property name="seed" value="1234"/></properties>
+<testcase classname="spec.requests.orders_spec" name="Orders GET /orders returns 200" file="./spec/requests/orders_spec.rb" time="0.1"></testcase>
+<testcase classname="spec.requests.orders_spec" name="Orders POST /orders rejects bad input" file="./spec/requests/orders_spec.rb" time="0.2"><failure message="expected: 422 got: 500" type="RSpec::Expectations::ExpectationNotMetError">Failure/Error: expect(response).to have_http_status(422)
+  expected: 422
+  got: 500</failure></testcase>
+</testsuite>

@@ -1,0 +1,2 @@
+<testsuites><testsuite name="ui"><testcase classname="checkout.spec.ts" name="checkout &gt; pays" time="3.2"><failure message="locator.click: Timeout 5000ms exceeded">Error: locator.click: Timeout 5000ms exceeded</failure><system-out>[[ATTACHMENT|test-results/checkout-pays/test-failed-1.png]]
+[[ATTACHMENT|test-results/checkout-pays/trace.zip]]</system-out></testcase></testsuite></testsuites>
