@@ -76,6 +76,7 @@ test("plan: listed ids match exactly or as parametrized cases", () => {
   assert.ok(idMatches("tests/a.py::test_x", "tests/a.py::test_x"));
   assert.ok(idMatches("tests/a.py::test_x[1-2]", "tests/a.py::test_x"));
   assert.ok(idMatches("Ns.C#M(a: 1)", "Ns.C#M"));
+  assert.ok(idMatches('Ns.C#M ("a=1")', "Ns.C#M"));
   assert.ok(!idMatches("tests/a.py::test_xy", "tests/a.py::test_x"));
 });
 
@@ -120,6 +121,15 @@ function repoWithPlan(plan: string) {
   fs.writeFileSync(path.join(dir, ".witness", "plan.yaml"), plan);
   return dir;
 }
+
+test("plan: dotnet suites that list bare method names (MSTest) match on the method", () => {
+  const plan = parsePlan(`version: 1\nsource: s\nitems:\n  - {id: P1, behavior: b, expect: e, kind: parity, tests: ["dotnet:Api.ListTests#ReturnsFirst10", "dotnet:Api.ListTests#Missing"]}\n`).plan!;
+  const c = cfg(`[{"name":"publicapi","adapter":"dotnet","cmd":"dotnet test"}]`);
+  const { checks, problems } = matchTests(plan, c, [{ suite: "publicapi", adapter: "dotnet", ids: ["ReturnsFirst10", 'ReturnsBadRequest ("x")'] }], false);
+  assert.deepEqual(checks.map((x) => x.state), ["found", "missing"]);
+  assert.match(checks[0].detail!, /method name only/);
+  assert.doesNotMatch(problems[0].message, /did you mean/);
+});
 
 test("plan check CLI: exit 0 when every test is listed, 1 when one is missing", async () => {
   const dir = repoWithPlan(CONTRACT_EXAMPLE);

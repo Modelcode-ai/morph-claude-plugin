@@ -131,8 +131,13 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 export function idMatches(listed: string, wanted: string): boolean {
   const a = norm(listed);
   const b = norm(wanted);
-  return a === b || a.startsWith(`${b}[`) || a.startsWith(`${b}(`);
+  return a === b || a.startsWith(`${b}[`) || a.startsWith(`${b}(`) || a.startsWith(`${b} (`);
 }
+
+const CLASS_HASH = new Set<AdapterName>(["dotnet", "junit-maven", "junit-gradle", "phpunit", "generic"]);
+
+/** MSTest (and some runners) list bare method names; match those on the method part of Class#method. */
+const methodOnlyMatch = (adapter: AdapterName, listed: string, wanted: string) => CLASS_HASH.has(adapter) && !listed.includes("#") && wanted.includes("#") && idMatches(listed, wanted.slice(wanted.lastIndexOf("#") + 1));
 
 const lastSegment = (id: string) => norm(id.split(/::|#| > /).pop() ?? id).replace(/[[(].*$/, "");
 
@@ -182,6 +187,11 @@ export function matchTests(plan: Plan, cfg: Config | undefined, listings: Listin
         checks.push({ item: item.id, test: t, state: "found", suites: hits });
         continue;
       }
+      const loose = listed.filter((l) => l.ids!.some((x) => methodOnlyMatch(ad, x, id))).map((l) => l.suite);
+      if (loose.length) {
+        checks.push({ item: item.id, test: t, state: "found", suites: loose, detail: "matched on the method name only: this suite lists tests without class names" });
+        continue;
+      }
       if (!listed.length) {
         const why = ls.map((l) => `${l.suite}: ${l.error}`).join("; ");
         checks.push({ item: item.id, test: t, state: "unverified", suites: owners.map((s) => s.name), detail: why });
@@ -189,7 +199,7 @@ export function matchTests(plan: Plan, cfg: Config | undefined, listings: Listin
         continue;
       }
       const seg = lastSegment(id);
-      const near = listed.flatMap((l) => l.ids!.filter((x) => lastSegment(x) === seg).map((x) => `${ad}:${x}`)).slice(0, 3);
+      const near = listed.flatMap((l) => l.ids!.filter((x) => (!CLASS_HASH.has(ad) || x.includes("#")) && lastSegment(x) === seg).map((x) => `${ad}:${x}`)).slice(0, 3);
       const n = listed.reduce((a, l) => a + l.ids!.length, 0);
       checks.push({ item: item.id, test: t, state: "missing", suites: [] });
       problems.push({
@@ -237,7 +247,7 @@ export async function planCheckCommand(file: string, cfg: Config | undefined, o:
   const errors = problems.filter((p) => p.level === "error");
   for (const p of problems) o.log(`plan  ${p.level === "error" ? "ERROR" : "warn "} ${rel}${p.line ? `:${p.line}` : ""} ${p.where}: ${p.message}`);
   if (plan) {
-    for (const c of checks.filter((c) => c.state === "found")) o.log(`plan  ok    ${c.item} ${c.test} (suite ${c.suites.join(", ")})`);
+    for (const c of checks.filter((c) => c.state === "found")) o.log(`plan  ok    ${c.item} ${c.test} (suite ${c.suites.join(", ")}${c.detail ? `; ${c.detail}` : ""})`);
     for (const i of plan.items.filter((i) => !i.tests.length)) o.log(`plan  todo  ${i.id} ${i.behavior}`);
   }
   const count = (s: TestState) => checks.filter((c) => c.state === s).length;
