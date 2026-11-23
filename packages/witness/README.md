@@ -70,6 +70,40 @@ for adapters that can't select tests on their own), `service.origin_for` (which 
 `role = "origin"` service stands in for; defaults to the name minus `-origin`) and
 `run.kill_grace` (SIGTERM to SIGKILL delay, default 5s).
 
+## Test plans, lint and agent skills
+
+```bash
+bin/witness plan check [.witness/plan.yaml] [--draft] [--no-list]
+bin/witness lint [files or folders...] [--plan file]
+bin/witness skills path | list
+bin/witness skills install --dir .claude/skills [--link] [--prefix witness-]
+```
+
+`plan check` validates `.witness/plan.yaml` (schema, unique item ids, `<adapter>:<id>` test ids) and
+lists each suite whose adapter the plan uses, to confirm every referenced test exists. `--draft`
+turns "not written yet" and "no tests" into warnings (the plan is written before the tests).
+Suites that list bare method names (MSTest) match on the method part of `Class#method`. It ends
+with a ready `witness run --select '<suite>:<adapter>:<id>,...'` line for the tests it found.
+
+`lint` with no files checks the test files changed in the working tree plus the files the plan
+names. Rules: `no-assertion` (a warning when the test says it only checks that nothing raises),
+`swallowed-exception` (catch-all handlers in a test body that neither rethrow, assert, skip nor
+record), `long-sleep` (fixed waits over 5s in a test body; sleeps inside functions the test defines,
+such as fake hangs, are ignored) and, when a plan exists, `error-status-only` (a plan item that
+expects success whose test asserts only a 4xx/5xx status). Languages: Python, JS/TS, C#, Java/Kotlin,
+Go, Ruby, PHP. Silence one finding with `witness-lint: ignore[rule]` on that line or the line above.
+
+`--select` also accepts `<suite>:<adapter>:<id>` when several suites share an adapter; with
+`--select` and no `--suite`, only the suites that own the selected tests run.
+
+The agent skills live in `skills/` (`test-change` is the entry point; then `init`, `plan`, `write`,
+`verify`, `triage`). They are plain procedures that name no agent-specific tool;
+`npm run check:skills` (also part of `npm test`) enforces that and an 800-word budget.
+`npm run build:plugin` generates `harness/claude/`, a Claude Code plugin and local marketplace with
+the same skills (`claude plugin marketplace add packages/witness/harness/claude`, then
+`claude plugin install witness@witness-local`). For other agents, `witness skills install --dir <dir>`
+copies them as `witness-<name>` (or links them with `--link`, keeping their own names).
+
 ## Adapters
 
 | adapter | report witness asks for | select one test | list |
@@ -119,6 +153,8 @@ npm install
 npm test                 # node --test, about 20s
 npm run typecheck
 npm run build            # bun -> dist/witness.mjs (commit it)
+npm run build:plugin     # skills -> harness/claude (commit it)
+npm run check:skills     # word budget and no harness-specific tool names
 ```
 
 Fixtures live in `testdata/`: report corpus per framework (including broken files) under
