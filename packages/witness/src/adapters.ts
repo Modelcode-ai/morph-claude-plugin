@@ -115,7 +115,7 @@ function pytestSelect(cmd: string, ids: string[]): string | null {
 const stripParams = (m: string) => m.replace(/[([].*$/, "");
 
 function splitClassHash(id: string): [string, string] {
-  const i = id.lastIndexOf("#");
+  const i = id.indexOf("#");
   return i < 0 ? ["", id] : [id.slice(0, i), id.slice(i + 1)];
 }
 
