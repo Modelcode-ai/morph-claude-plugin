@@ -62,7 +62,19 @@ const PATTERNS: Pattern[] = [
 const NO_REFINE = new Set<Cause>(["bad_config", "missing_env", "stalled", "suite_timeout"]);
 const RETRYABLE = new Set<Cause>(["port_in_use", "network", "service_died", "stalled", "suite_timeout", "ready_timeout", "dependency_unreachable"]);
 
-const lastMeaningful = (lines: string[]) => [...lines].reverse().find((l) => !/^\s*\$ /.test(l) && l.trim().length > 1)?.trim();
+const FRAME = /^\s+(at\s|File "|\.\.\. \d+ more)|^\s+\S+\.go:\d+/;
+const ERRORISH = /exception|error|fatal|panic|unhandled|traceback/i;
+
+/** The error line of the last command's output, skipping stack frames; else its last line. */
+function lastMeaningful(lines: string[], preferError: boolean): string | undefined {
+  let start = 0;
+  lines.forEach((l, i) => {
+    if (/^\s*\$ /.test(l)) start = i + 1;
+  });
+  const cand = lines.slice(start).filter((l) => l.trim().length > 1 && !FRAME.test(l));
+  const pool = cand.length ? cand : lines.filter((l) => !/^\s*\$ /.test(l) && l.trim().length > 1);
+  return ((preferError ? [...pool].reverse().find((l) => ERRORISH.test(l) && !/\b0 (Error\(s\)|errors?)\b/i.test(l)) : undefined) ?? pool.at(-1))?.trim();
+}
 
 /** Turn a failure into cause + evidence + next commands, using the log tail to refine the cause. */
 export function diagnose(inp: DiagnoseInput): Diagnosis {
@@ -80,7 +92,7 @@ export function diagnose(inp: DiagnoseInput): Diagnosis {
       break;
     }
   }
-  evidence ??= lastMeaningful(lines)?.slice(0, 500);
+  evidence ??= lastMeaningful(lines, cause !== "stalled" && cause !== "suite_timeout")?.slice(0, 500);
   const d: Diagnosis = {
     stage: inp.stage,
     cause,

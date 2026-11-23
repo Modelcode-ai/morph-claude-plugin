@@ -11,6 +11,14 @@ const log = (text: string) => {
   return f;
 };
 
+test("evidence is the exception line of the last command, not a stack frame or build summary", () => {
+  const text = "$ dotnet build\n    0 Error(s)\nBuild succeeded.\n$ dotnet run\nUnhandled exception. System.InvalidOperationException: CatalogRegion is not configured\n   at Program.<Main>$(String[] args) in Program.cs:line 88\n   at Program.<Main>(String[] args)\n";
+  assert.equal(diagnose({ stage: "boot", cause: "exited_before_ready", service: "web", log: log(text) }).evidence, "Unhandled exception. System.InvalidOperationException: CatalogRegion is not configured");
+  const py = 'Traceback (most recent call last):\n  File "app.py", line 3, in <module>\n    main()\nKeyError: \'DATABASE_URL\'\n';
+  assert.equal(diagnose({ stage: "boot", cause: "exited_before_ready", service: "api", log: log(py) }).evidence, "KeyError: 'DATABASE_URL'");
+  assert.equal(diagnose({ stage: "boot", cause: "exited_before_ready", service: "api", log: log("starting\nbye\n") }).evidence, "bye");
+});
+
 describe("diagnosis heuristics", () => {
   const cases: [string, string, string, RegExp][] = [
     ["exited_before_ready", "Error: listen EADDRINUSE: address already in use :::3000\n", "port_in_use", /EADDRINUSE/],
