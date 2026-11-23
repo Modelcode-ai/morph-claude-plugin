@@ -158,7 +158,7 @@ copies them as `witness-<name>` (or links them with `--link`, keeping their own 
 | pytest | `--junitxml` (xunit1, for file paths) | node ids replace positional args | `--collect-only -q` | `--timeout` (pytest-timeout) |
 | junit-maven | surefire/failsafe XML from `target/` | `-Dtest=Class#method` | last report | `-Djunit.jupiter.execution.timeout.default` |
 | junit-gradle | `build/test-results/**/*.xml` | `--tests Class.method` | last report | - |
-| dotnet | TRX: `--logger trx` (VSTest), `--report-xunit-trx` (xunit v3 on MTP), `--report-trx` (MTP + TrxReport) | `--filter FullyQualifiedName=...` | `--list-tests` | `--blame-hang-timeout` (VSTest only) |
+| dotnet | TRX: `--logger trx` (VSTest), `--report-xunit-trx` (xunit v3 on MTP), `--report-trx` (MTP + TrxReport) | `--filter FullyQualifiedName=...`, ANDed into a `--filter` already in `cmd` | `--list-tests` | `--blame-hang-timeout` (VSTest only) |
 | jest | `--json --outputFile` (parsed natively) | `-t` | a run whose `-t` matches nothing (every test reported skipped) | `--testTimeout --forceExit` |
 | vitest | `--reporter=junit` | `-t` | the same trick as jest | `--testTimeout` |
 | playwright | JSON reporter | file + `--grep` | `--list` | `--timeout` |
