@@ -1,6 +1,6 @@
 ---
 name: test-change
-description: Prove that a code change works by running the repo's own tests through witness, which boots the app and records results you can trust. Use after implementing a feature, fix or refactor, or whenever you are asked to test, verify or validate a change. Runs the init, plan, write, verify and triage skills in order.
+description: Prove that a code change works by running the repo's own tests through witness, which boots the app and records results you can trust. Use when the user asks to use witness, after implementing a feature, fix or refactor, or when asked to test, verify or validate a change. Runs the init, plan, write, verify and triage skills in order.
 ---
 
 # Test a change with witness
@@ -22,13 +22,18 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
   for that kind of test.
 - Work in the checkout you were given. Do not push, open pull requests or change CI.
 <!-- if morph -->
+- Temporary files go in `$MCODE_DIR/scratch/`, not the shared `/tmp`.
+<!-- else -->
+- Temporary files (scan output, logs, backups) go in `.witness/scratch/`, which git ignores, never
+  in `/tmp`.
+<!-- endif -->
+<!-- if morph -->
 - No one answers questions here. Wherever a skill says to ask or tell the user, record a blocker
   for your final report instead (what is needed, witness's cause and evidence line, what you
   tried) and go on with the work that does not depend on it.
 - When morph rendered `.witness/witness.toml` from the project's lifecycle config (its first
   line says so), morph renders it again before each run until it is edited; then your version is
   kept. Edit it only to fix what `witness check` or a diagnosis shows is wrong.
-- Temporary files go in `$MCODE_DIR/scratch/`, not the shared `/tmp`.
 - Commit your tests, `.witness/plan.yaml` and `.witness/witness.toml`, never `.witness/runs/`.
 <!-- endif -->
 
@@ -36,9 +41,8 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 `witness check` and `witness run` can take many minutes (builds, app boot, browser tests).
 
-- Start them so a short timeout cannot cut them off and you can read their output as they run:
-  in the background if your environment can show its output later, otherwise redirected to a
-  file in `.witness/scratch/` (git ignores it), for example
+- Start them so a short timeout cannot cut them off and you can read their output as it comes:
+  in the background, or redirected to `.witness/scratch/`, for example
   `witness run > .witness/scratch/run.out 2>&1`.
 - Progress lines start with `witness  [mm:ss]`. A heartbeat line appears at least once a minute,
   so silence for several minutes means the command itself is stuck.
@@ -47,20 +51,26 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 - The run is over when the line `witness  VERDICT <outcome> · ...` appears and the process exits.
   Act on that line and the exit code: 0 passed, 1 failed, 2 error, 3 mistrial, 4 stalled or timed
   out, 5 interrupted, 64 wrong usage.
-- Never start a second `witness run` or `witness check` in the same checkout while one is still
-  going; witness refuses with a lock error.
+- Run one `witness run` or `witness check` at a time per checkout; a second one fails on a lock.
 
 ## Steps
 
 1. Check the tool: run `witness --version`.
    <!-- if morph -->
    If `witness` is not on the PATH but `$WITNESS` is set, run every `witness <args>` in these
-   skills as `node "$WITNESS" <args>`. If neither works, stop with a blocker.
+   skills as `node "$WITNESS" <args>`, written out in full (not kept in a variable). If neither
+   works, stop with a blocker.
    <!-- else -->
    If the command is missing, stop and tell the user that witness is not installed.
    <!-- endif -->
 2. Setup: if `.witness/witness.toml` does not exist, or `witness check --stage config` fails,
+   <!-- if morph -->
    follow the `init` skill. Continue only when `witness check` passes.
+   <!-- else -->
+   tell the user (quote the error) and follow the `init` skill, which settles each setup decision
+   with the user. Those are the only questions this skill asks. Continue only when `witness check`
+   passes.
+   <!-- endif -->
 3. Plan: follow the `plan` skill. It ends with `.witness/plan.yaml` passing
    `witness plan check --draft`.
 4. Write tests: follow the `write` skill. It ends with `witness lint` clean, `witness plan check`
@@ -80,7 +90,8 @@ Finish with a short report:
 - Code you fixed because a test showed a bug.
 - Any change you made to `.witness/witness.toml` or the env file, and why.
 <!-- if morph -->
-- What is not covered, and each blocker with what is needed and the diagnosis lines.
+- What is not covered, and each blocker with what is needed and the diagnosis lines, including
+  every setup decision `init` made by default.
 <!-- else -->
 - What is not covered, and anything that blocked you.
 <!-- endif -->

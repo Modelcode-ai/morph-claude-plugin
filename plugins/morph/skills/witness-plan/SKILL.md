@@ -1,6 +1,6 @@
 ---
 name: witness-plan
-description: Write the test plan for a change in .witness/plan.yaml - the behaviors it must have, where each expectation came from, and which tests prove each one. Use before writing or running tests for a change, as the first step of test-change.
+description: Write the test plan for a change in .witness/plan.yaml - the behaviors it must have, where each expectation came from, and which tests prove each one. Use when asked for a test plan (for example with witness), before writing or running tests for a change, and as the first step of test-change.
 ---
 
 # Plan the tests for a change

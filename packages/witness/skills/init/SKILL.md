@@ -14,8 +14,10 @@ Unit and integration tests belong to the project's own build and test scripts.
 
 ## Facts first
 
-Run `witness init --scan`. It writes nothing and prints JSON facts, each with a `confidence` and
-its `evidence` (file:line or manifest):
+Run `witness init`: it writes `.witness/witness.example.toml`, `.witness/.gitignore` and
+`.witness/scratch/`, where your temporary files go (git ignores it; never use `/tmp`). Then run
+`witness init --scan > .witness/scratch/scan.json`: JSON facts, each with a `confidence` and its
+`evidence` (file:line or manifest):
 
 - `testProjects`: functional, needs-filter or excluded, with the reason and the proposed suite;
 - `commands` (setup, build, start, test, migrate, seed) from CI, package scripts, Makefiles,
@@ -23,9 +25,11 @@ its `evidence` (file:line or manifest):
 - `infrastructure`: compose services with candidate commands, database URLs in env examples;
 - `env`: the names the app, tests, CI and compose read, secrets flagged (values never printed);
 - `data`: seeds, fixtures, migrations, test users; `frameworks` and `adapters`;
+- `machine`: the toolchains, SDKs, Docker and test browsers this machine has;
 - `config`: what an existing `.witness/witness.toml` covers, and what is `missing` or `unmatched`.
 
-Open the evidence a decision rests on before you rely on it. Prefer CI's commands.
+Open the evidence a decision rests on before you rely on it. Prefer CI's commands. Never say this
+machine lacks something unless `machine` or a command you ran shows it.
 
 ## Deciding
 

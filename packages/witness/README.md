@@ -21,7 +21,7 @@ project's own build and test scripts.
 Needs Node 22.18+ (the sources use type stripping; the bundle is tested on the same version).
 
 ```bash
-bin/witness init                      # .witness/witness.example.toml: functional suites guessed from the repo
+bin/witness init                      # .witness/witness.example.toml (functional suites guessed from the repo), .gitignore, scratch/
 bin/witness init --scan               # the repo's facts as JSON, each with confidence and evidence; writes nothing
 bin/witness check                     # config -> deps -> boot -> list tests (or a smoke run)
 bin/witness check --stage boot --against main   # does main boot? (temporary worktree, this .witness/)
@@ -132,6 +132,7 @@ file or a manifest):
 | `env` | names the app, the tests, CI (`secrets.X`), compose and env examples read: `secret`, `testUser`, `readBy`, `exampleValue` (an example file sets a real value), `envName` for .NET and Spring config keys. Values are never printed |
 | `data` | seeds, fixtures, migrations, compose init scripts, and test users (logins from seeds, constants and functional tests) |
 | `frameworks`, `adapters` | app and test frameworks and toolchain versions; the witness adapters of the candidate suites |
+| `machine` | for the repo's toolchains: whether each tool is on the PATH, the installed .NET SDKs, whether the Docker daemon answers, and the Playwright browsers downloaded (`PLAYWRIGHT_BROWSERS_PATH` or the per-OS cache) |
 | `config` | when `.witness/witness.toml` exists: its suites, services, dependencies and required names, what the scan found that it does not cover (`missing`), and entries the scan can't tie to the repo (`unmatched`). Covered facts carry `configured`: the entry's name, or `"comment"` when only a comment in the config names it (a recorded choice). `rendered` is true when morph wrote it |
 
 Readiness: `ready` is required for every started service (an `external` service without one is

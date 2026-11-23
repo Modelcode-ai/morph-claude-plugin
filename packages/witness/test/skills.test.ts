@@ -133,7 +133,7 @@ test("skills check script exits 0 on the real skills and 1 on bad ones", async (
 test("skills: path renders a profile, list and frontmatter", async () => {
   assert.equal(skillsDir(), SKILLS);
   assert.deepEqual(listSkills(SKILLS).map((s) => s.name), NAMES);
-  assert.match(frontmatter(fs.readFileSync(path.join(SKILLS, "test-change", "SKILL.md"), "utf8")).description, /Use after implementing/);
+  assert.match(frontmatter(fs.readFileSync(path.join(SKILLS, "test-change", "SKILL.md"), "utf8")).description, /Use when the user asks to use witness, after implementing/);
   const env = cacheEnv();
   const p = await witness(PKG, ["skills", "path"], { env });
   assert.equal(p.code, 0, p.stderr);

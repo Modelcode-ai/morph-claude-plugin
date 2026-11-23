@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { scan } from "../src/scan.ts";
+import { machineFacts, type ScanResult, scan } from "../src/scan.ts";
 import { PKG, witness } from "./helpers.ts";
 
 const FIX = path.join(PKG, "testdata", "scan");
@@ -155,6 +155,22 @@ test("init --scan prints JSON, writes nothing, and plain init still writes the e
   const w = await witness(dir, ["init"]);
   assert.equal(w.code, 0, w.stderr);
   assert.ok(fs.existsSync(path.join(dir, ".witness", "witness.example.toml")));
+  assert.equal(fs.readFileSync(path.join(dir, ".witness", "scratch", ".gitignore"), "utf8"), "*\n");
+});
+
+test("scan: machine facts say which tools are on PATH and which Playwright browsers are downloaded", () => {
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "witness-bin-"));
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "witness-pw-"));
+  fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\n", { mode: 0o755 });
+  fs.mkdirSync(path.join(cache, "chromium-1248"));
+  fs.mkdirSync(path.join(cache, "ffmpeg-1011"));
+  fs.mkdirSync(path.join(cache, ".links"));
+  const out = { adapters: ["playwright", "pytest"], frameworks: [], containers: [], infrastructure: [], commands: [] } as unknown as ScanResult;
+  const facts = machineFacts(out, { PATH: bin, PLAYWRIGHT_BROWSERS_PATH: cache, HOME: cache });
+  assert.deepEqual(facts.map((f) => [f.tool, f.found]), [["node", true], ["python3", false], ["playwright-browsers", true]]);
+  assert.deepEqual(facts.at(-1)!.installed, ["chromium-1248", "ffmpeg-1011"]);
+  fs.rmSync(path.join(cache, "chromium-1248"), { recursive: true });
+  assert.equal(machineFacts(out, { PATH: bin, PLAYWRIGHT_BROWSERS_PATH: cache }).at(-1)!.found, false);
 });
 
 test("scan: agent instruction files (CLAUDE.md, AGENTS.md, Copilot, Cursor) give commands at medium confidence, with trailing comments dropped", () => {

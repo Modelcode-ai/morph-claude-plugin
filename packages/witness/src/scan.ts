@@ -1,4 +1,6 @@
+import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { AdapterName } from "./adapters.ts";
@@ -106,6 +108,16 @@ export interface ConfigFact {
   unmatched: { suites: string[]; dependencies: string[] };
 }
 
+/** What this machine has for the repo's toolchains, so a question never guesses it. */
+export interface MachineFact {
+  tool: string;
+  found: boolean;
+  path?: string;
+  /** dotnet: the installed SDKs; playwright: the downloaded browsers; docker: the server version when the daemon answers. */
+  installed?: string[];
+  evidence: string[];
+}
+
 export interface ScanResult {
   version: 1;
   root: string;
@@ -122,6 +134,7 @@ export interface ScanResult {
   env: EnvFact[];
   data: DataFact[];
   frameworks: FrameworkFact[];
+  machine: MachineFact[];
   config: ConfigFact | null;
 }
 
@@ -271,6 +284,7 @@ export function scan(root: string): ScanResult {
     env: [],
     data: [],
     frameworks: [],
+    machine: [],
     config: null,
   };
   for (const s of g.suites) out.testProjects.push({ path: s.project ?? s.cwd, adapter: s.adapter, status: "functional", kind: s.kind, reason: s.why.replace(/^[^:]*: /, ""), suite: { name: s.name, cwd: s.cwd, cmd: s.cmd, hostsApp: s.hostsApp, filtered: !!s.filtered }, confidence: s.confidence ?? "medium", evidence: s.evidence ?? [] });
@@ -290,8 +304,85 @@ export function scan(root: string): ScanResult {
   scanData(root, w, out);
   scanManifests(root, w, out);
   dedupe(out);
+  out.machine = machineFacts(out);
   out.config = existingConfig(root, out);
   return out;
+}
+
+const TOOLS: [string, (o: ScanResult) => boolean][] = [
+  ["dotnet", (o) => o.adapters.includes("dotnet") || o.frameworks.some((f) => f.name === "dotnet")],
+  ["node", (o) => o.adapters.some((a) => ["jest", "vitest", "mocha", "playwright"].includes(a)) || o.frameworks.some((f) => f.name === "node")],
+  ["python3", (o) => o.adapters.includes("pytest") || o.frameworks.some((f) => f.name === "python")],
+  ["java", (o) => o.adapters.some((a) => a.startsWith("junit"))],
+  ["mvn", (o) => o.adapters.includes("junit-maven")],
+  ["go", (o) => o.adapters.includes("go")],
+  ["ruby", (o) => o.adapters.includes("rspec")],
+  ["php", (o) => o.adapters.includes("phpunit")],
+  ["bats", (o) => o.adapters.includes("bats")],
+  ["docker", (o) => o.containers.length > 0 || o.infrastructure.length > 0],
+  ["pwsh", (o) => o.commands.some((c) => /\bpwsh\b/.test(c.cmd))],
+];
+const PLAYWRIGHT = /^(@playwright\/test|playwright|pytest-playwright|Microsoft\.Playwright(\.\w+)?)$/i;
+
+export function onPath(tool: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  for (const dir of (env.PATH ?? "").split(path.delimiter).filter(Boolean))
+    for (const e of exts) {
+      const f = path.join(dir, tool + e);
+      try {
+        if (fs.statSync(f).isFile()) return f;
+      } catch {
+        /* not here */
+      }
+    }
+  return undefined;
+}
+
+/** Where Playwright keeps its browsers (PLAYWRIGHT_BROWSERS_PATH, else the per-OS cache). */
+export function playwrightCache(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.PLAYWRIGHT_BROWSERS_PATH && env.PLAYWRIGHT_BROWSERS_PATH !== "0") return env.PLAYWRIGHT_BROWSERS_PATH;
+  const home = env.HOME ?? os.homedir();
+  if (process.platform === "darwin") return path.join(home, "Library", "Caches", "ms-playwright");
+  if (process.platform === "win32") return path.join(env.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "ms-playwright");
+  return path.join(env.XDG_CACHE_HOME ?? path.join(home, ".cache"), "ms-playwright");
+}
+
+const output = (cmd: string, args: string[], env: NodeJS.ProcessEnv) => {
+  const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 10_000, env });
+  return r.status === 0 ? r.stdout.trim() : undefined;
+};
+
+export function machineFacts(out: ScanResult, env: NodeJS.ProcessEnv = process.env): MachineFact[] {
+  const facts: MachineFact[] = [];
+  for (const [tool, wanted] of TOOLS) {
+    if (!wanted(out)) continue;
+    const p = onPath(tool, env);
+    const f: MachineFact = { tool, found: !!p, ...(p ? { path: p } : {}), evidence: [p ? p : `not on PATH`] };
+    if (p && tool === "dotnet") {
+      const sdks = output(p, ["--list-sdks"], env);
+      if (sdks !== undefined) {
+        f.installed = sdks.split(/\r?\n/).map((l) => l.split(" ")[0]).filter(Boolean);
+        f.evidence.push("dotnet --list-sdks");
+      }
+    }
+    if (p && tool === "docker") {
+      const v = output(p, ["version", "--format", "{{.Server.Version}}"], env);
+      f.installed = v ? [v] : [];
+      f.evidence.push(v ? "docker version: the daemon answers" : "docker version: the daemon does not answer");
+    }
+    facts.push(f);
+  }
+  if (out.adapters.includes("playwright") || out.frameworks.some((f) => PLAYWRIGHT.test(f.name))) {
+    const dir = playwrightCache(env);
+    let browsers: string[] = [];
+    try {
+      browsers = fs.readdirSync(dir).filter((n) => /^(chromium|chromium_headless_shell|chromium-headless-shell|firefox|webkit|ffmpeg)[-_]\d+$/.test(n)).sort();
+    } catch {
+      /* no cache yet */
+    }
+    facts.push({ tool: "playwright-browsers", found: browsers.some((b) => !b.startsWith("ffmpeg")), installed: browsers, evidence: [dir] });
+  }
+  return facts;
 }
 
 function addCommand(out: ScanResult, c: Omit<CommandFact, "role"> & { role?: CommandRole }) {
@@ -894,7 +985,7 @@ export function scanCommand(root: string): number {
   const n = (xs: unknown[]) => xs.length;
   const fn = r.testProjects.filter((t) => t.status === "functional").length;
   process.stderr.write(
-    `witness  scan: ${fn} functional test project(s), ${r.testProjects.filter((t) => t.status === "needs-filter").length} needing a filter, ${r.testProjects.filter((t) => t.status === "excluded").length} excluded; ${n(r.commands)} command(s), ${n(r.infrastructure)} infrastructure, ${r.env.filter((e) => e.secret).length} secret(s) of ${n(r.env)} env name(s)${r.config ? `; config ${r.config.file}${r.config.error ? " (invalid)" : ""}` : "; no config yet"}. Nothing written.\n`,
+    `witness  scan: ${fn} functional test project(s), ${r.testProjects.filter((t) => t.status === "needs-filter").length} needing a filter, ${r.testProjects.filter((t) => t.status === "excluded").length} excluded; ${n(r.commands)} command(s), ${n(r.infrastructure)} infrastructure, ${r.env.filter((e) => e.secret).length} secret(s) of ${n(r.env)} env name(s)${r.machine.some((m) => !m.found) ? `; not on this machine: ${r.machine.filter((m) => !m.found).map((m) => m.tool).join(", ")}` : ""}${r.config ? `; config ${r.config.file}${r.config.error ? " (invalid)" : ""}` : "; no config yet"}. Nothing written.\n`,
   );
   return 0;
 }

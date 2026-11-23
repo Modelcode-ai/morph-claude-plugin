@@ -403,10 +403,13 @@ export function initCommand(root: string, json: boolean): number {
   const gi = path.join(dir, ".gitignore");
   if (!fs.existsSync(gi)) fs.writeFileSync(gi, "runs/\ncheck/\ncache/\nup/\nup.json\nrun.lock\nscratch/\n.env\n");
   else if (!/^scratch\/$/m.test(fs.readFileSync(gi, "utf8"))) fs.appendFileSync(gi, "scratch/\n");
+  const scratch = path.join(dir, "scratch");
+  fs.mkdirSync(scratch, { recursive: true });
+  if (!fs.existsSync(path.join(scratch, ".gitignore"))) fs.writeFileSync(path.join(scratch, ".gitignore"), "*\n");
   if (json) process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + "\n");
   else {
     const w = (s: string) => process.stderr.write(`witness  ${s}\n`);
-    w(`wrote ${example}`);
+    w(`wrote ${example}; temporary files go in ${scratch}/ (git ignores it)`);
     for (const s of g.suites) w(`  suite ${s.name} (${s.adapter}, ${s.kind}${s.hostsApp ? ", starts the app itself" : ""}): ${s.why}`);
     for (const s of g.services) w(`  service ${s.name}: ${s.why}`);
     if (g.needsFilter.length) w("needs a filter (not proposed until you narrow the command):");

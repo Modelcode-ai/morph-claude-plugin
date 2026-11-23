@@ -11,7 +11,8 @@ A question names the decision, your recommendation, its evidence and the other o
 > or HTTP client). Other option: drop the browser suite, which needs Playwright's browsers
 > installed. Shall I go ahead?
 
-Ask the user and wait for the answer. One decision per question. If an answer changes an earlier
+Ask the user and wait for the answer. One decision per question. Recommend the stage's default
+unless the repo's facts or the user's answers argue otherwise; then say why. If an answer changes an earlier
 decision, change the config to match.
 
 ## 1. Scope
@@ -29,8 +30,8 @@ Default: the suites `--scan` proposes. For a project that needs a filter, narrow
 the functional files it lists (a folder, marker, category or tag); if nothing narrows it, leave
 it out.
 
-Record: run `witness init`, then start `.witness/witness.toml` from
-`.witness/witness.example.toml` (or edit the existing config). One `[[suite]]` per project:
+Record: start `.witness/witness.toml` from `.witness/witness.example.toml` (or edit the existing
+config). One `[[suite]]` per project:
 
 - `name`, `kind` and `adapter` (the framework, so witness reads its reports and selects tests);
 - `cwd` and `cmd`: the repo's own test command; witness adds the report flags itself;
@@ -45,7 +46,8 @@ out gets a comment: `# tests/AppHostTests: left out, needs Docker inside Docker 
 Skip when every chosen suite has `service = []`.
 
 Look at: `services`; `commands` with role `start`, `build` and `setup`; `containers`; `urls`;
-`health`; `frameworks` with role `toolchain` (the SDK or runtime version). Commands with source
+`health`; `frameworks` with role `toolchain` (the SDK or runtime version) and `machine` (what is
+installed here). Commands with source
 `agent-docs` come from the repo's instruction files for coding agents and are usually the team's
 current way to run the app; read those files too.
 
@@ -150,7 +152,8 @@ in the report, not the config.
 
 ## 7. Commit
 
-Ask whether to commit `.witness/witness.toml` and `.witness/.gitignore`.
+Ask whether to commit `.witness/witness.toml` and `.witness/.gitignore`, with two options: leave
+them for the user to commit (recommended), or commit them now.
 
 Default: do not commit; the report names the two files to commit.
 

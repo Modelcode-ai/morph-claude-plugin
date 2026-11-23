@@ -255,7 +255,7 @@ const COMMON_ASSERT = /\b(assert|verify|expect|should)(?!ed\b|ation)\w*\s*[(!<]|
 const LANG_ASSERT: Record<Lang, RegExp> = {
   py: /\bpytest\.(raises|fail|warns)\b|\.assert_\w+\s*\(|\bself\.fail\w*\(/,
   js: /\bt\.(is|not|deepEqual|true|false|truthy|falsy|throws\w*|equal|ok|same|match|regex|like|snapshot|pass|fail|notOk)\s*\(|\.should\b|\bfind(All)?By\w+\s*\(/,
-  cs: /\.Should\w*\(|\bShould\.\w+|\.(Received|DidNotReceive|ReceivedWithAnyArgs|DidNotReceiveWithAnyArgs)\s*[(<]|\bMustHaveHappened\w*\(|\bMustNotHaveHappened\w*\(/,
+  cs: /\b(Collection|String|Classic)Assert\.\w+\s*[(<]|\.Should\w*\(|\bShould\.\w+|\.(Received|DidNotReceive|ReceivedWithAnyArgs|DidNotReceiveWithAnyArgs)\s*[(<]|\bMustHaveHappened\w*\(|\bMustNotHaveHappened\w*\(/,
   java: /\bandExpect\s*\(|\.expect\w*\s*\(|\bverify\s*\(/,
   go: /\bt\.(Error|Errorf|Fatal|Fatalf|Fail|FailNow)\s*\(|\b(assert|require)\.\w+\s*\(/,
   rb: /\bexpect\s*\{|\bis_expected\b|\bmust_\w+|\bwont_\w+|\bshould\b|\bflunk\b/,

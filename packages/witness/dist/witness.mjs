@@ -19,7 +19,7 @@ var __toESM = (mod, isNodeMode, target) => {
 var __commonJS = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
 var __require = /* @__PURE__ */ createRequire(import.meta.url);
 
-// node_modules/yaml/dist/nodes/identity.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/identity.js
 var require_identity = __commonJS((exports) => {
   var ALIAS = Symbol.for("yaml.alias");
   var DOC = Symbol.for("yaml.document");
@@ -73,7 +73,7 @@ var require_identity = __commonJS((exports) => {
   exports.isSeq = isSeq;
 });
 
-// node_modules/yaml/dist/visit.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/visit.js
 var require_visit = __commonJS((exports) => {
   var identity = require_identity();
   var BREAK = Symbol("break visit");
@@ -228,7 +228,7 @@ var require_visit = __commonJS((exports) => {
   exports.visitAsync = visitAsync;
 });
 
-// node_modules/yaml/dist/doc/directives.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/doc/directives.js
 var require_directives = __commonJS((exports) => {
   var identity = require_identity();
   var visit = require_visit();
@@ -380,7 +380,7 @@ var require_directives = __commonJS((exports) => {
   exports.Directives = Directives;
 });
 
-// node_modules/yaml/dist/doc/anchors.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/doc/anchors.js
 var require_anchors = __commonJS((exports) => {
   var identity = require_identity();
   var visit = require_visit();
@@ -442,7 +442,7 @@ var require_anchors = __commonJS((exports) => {
   exports.findNewAnchor = findNewAnchor;
 });
 
-// node_modules/yaml/dist/doc/applyReviver.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/doc/applyReviver.js
 var require_applyReviver = __commonJS((exports) => {
   function applyReviver(reviver, obj, key, val) {
     if (val && typeof val === "object") {
@@ -489,7 +489,7 @@ var require_applyReviver = __commonJS((exports) => {
   exports.applyReviver = applyReviver;
 });
 
-// node_modules/yaml/dist/nodes/toJS.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/toJS.js
 var require_toJS = __commonJS((exports) => {
   var identity = require_identity();
   function toJS(value, arg, ctx) {
@@ -516,7 +516,7 @@ var require_toJS = __commonJS((exports) => {
   exports.toJS = toJS;
 });
 
-// node_modules/yaml/dist/nodes/Node.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/Node.js
 var require_Node = __commonJS((exports) => {
   var applyReviver = require_applyReviver();
   var identity = require_identity();
@@ -553,7 +553,7 @@ var require_Node = __commonJS((exports) => {
   exports.NodeBase = NodeBase;
 });
 
-// node_modules/yaml/dist/nodes/Alias.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/Alias.js
 var require_Alias = __commonJS((exports) => {
   var anchors = require_anchors();
   var visit = require_visit();
@@ -661,7 +661,7 @@ var require_Alias = __commonJS((exports) => {
   exports.Alias = Alias;
 });
 
-// node_modules/yaml/dist/nodes/Scalar.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/Scalar.js
 var require_Scalar = __commonJS((exports) => {
   var identity = require_identity();
   var Node = require_Node();
@@ -689,7 +689,7 @@ var require_Scalar = __commonJS((exports) => {
   exports.isScalarValue = isScalarValue;
 });
 
-// node_modules/yaml/dist/doc/createNode.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/doc/createNode.js
 var require_createNode = __commonJS((exports) => {
   var Alias = require_Alias();
   var identity = require_identity();
@@ -761,7 +761,7 @@ var require_createNode = __commonJS((exports) => {
   exports.createNode = createNode;
 });
 
-// node_modules/yaml/dist/nodes/Collection.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/Collection.js
 var require_Collection = __commonJS((exports) => {
   var createNode = require_createNode();
   var identity = require_identity();
@@ -876,7 +876,7 @@ var require_Collection = __commonJS((exports) => {
   exports.isEmptyPath = isEmptyPath;
 });
 
-// node_modules/yaml/dist/stringify/stringifyComment.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/stringifyComment.js
 var require_stringifyComment = __commonJS((exports) => {
   var stringifyComment = (str2) => str2.replace(/^(?!$)(?: $)?/gm, "#");
   function indentComment(comment, indent) {
@@ -893,7 +893,7 @@ var require_stringifyComment = __commonJS((exports) => {
   exports.stringifyComment = stringifyComment;
 });
 
-// node_modules/yaml/dist/stringify/foldFlowLines.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/foldFlowLines.js
 var require_foldFlowLines = __commonJS((exports) => {
   var FOLD_FLOW = "flow";
   var FOLD_BLOCK = "block";
@@ -1030,7 +1030,7 @@ ${indent}${text.slice(fold + 1, end2)}`;
   exports.foldFlowLines = foldFlowLines;
 });
 
-// node_modules/yaml/dist/stringify/stringifyString.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/stringifyString.js
 var require_stringifyString = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var foldFlowLines = require_foldFlowLines();
@@ -1328,7 +1328,7 @@ ${indent}`);
   exports.stringifyString = stringifyString;
 });
 
-// node_modules/yaml/dist/stringify/stringify.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/stringify.js
 var require_stringify = __commonJS((exports) => {
   var anchors = require_anchors();
   var identity = require_identity();
@@ -1448,7 +1448,7 @@ ${ctx.indent}${str2}`;
   exports.stringify = stringify2;
 });
 
-// node_modules/yaml/dist/stringify/stringifyPair.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/stringifyPair.js
 var require_stringifyPair = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -1584,7 +1584,7 @@ ${ctx.indent}`;
   exports.stringifyPair = stringifyPair;
 });
 
-// node_modules/yaml/dist/log.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/log.js
 var require_log = __commonJS((exports) => {
   var node_process = __require("process");
   function debug(logLevel, ...messages) {
@@ -1603,7 +1603,7 @@ var require_log = __commonJS((exports) => {
   exports.warn = warn;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/merge.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/merge.js
 var require_merge = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -1657,7 +1657,7 @@ var require_merge = __commonJS((exports) => {
   exports.merge = merge;
 });
 
-// node_modules/yaml/dist/nodes/addPairToJSMap.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/addPairToJSMap.js
 var require_addPairToJSMap = __commonJS((exports) => {
   var log = require_log();
   var merge = require_merge();
@@ -1718,7 +1718,7 @@ var require_addPairToJSMap = __commonJS((exports) => {
   exports.addPairToJSMap = addPairToJSMap;
 });
 
-// node_modules/yaml/dist/nodes/Pair.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/Pair.js
 var require_Pair = __commonJS((exports) => {
   var createNode = require_createNode();
   var stringifyPair = require_stringifyPair();
@@ -1756,7 +1756,7 @@ var require_Pair = __commonJS((exports) => {
   exports.createPair = createPair;
 });
 
-// node_modules/yaml/dist/stringify/stringifyCollection.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/stringifyCollection.js
 var require_stringifyCollection = __commonJS((exports) => {
   var identity = require_identity();
   var stringify2 = require_stringify();
@@ -1901,7 +1901,7 @@ ${indent}${end}`;
   exports.stringifyCollection = stringifyCollection;
 });
 
-// node_modules/yaml/dist/nodes/YAMLMap.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/YAMLMap.js
 var require_YAMLMap = __commonJS((exports) => {
   var stringifyCollection = require_stringifyCollection();
   var addPairToJSMap = require_addPairToJSMap();
@@ -2028,7 +2028,7 @@ var require_YAMLMap = __commonJS((exports) => {
   exports.findPair = findPair;
 });
 
-// node_modules/yaml/dist/schema/common/map.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/common/map.js
 var require_map = __commonJS((exports) => {
   var identity = require_identity();
   var YAMLMap = require_YAMLMap();
@@ -2047,7 +2047,7 @@ var require_map = __commonJS((exports) => {
   exports.map = map;
 });
 
-// node_modules/yaml/dist/nodes/YAMLSeq.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/nodes/YAMLSeq.js
 var require_YAMLSeq = __commonJS((exports) => {
   var createNode = require_createNode();
   var stringifyCollection = require_stringifyCollection();
@@ -2140,7 +2140,7 @@ var require_YAMLSeq = __commonJS((exports) => {
   exports.YAMLSeq = YAMLSeq;
 });
 
-// node_modules/yaml/dist/schema/common/seq.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/common/seq.js
 var require_seq = __commonJS((exports) => {
   var identity = require_identity();
   var YAMLSeq = require_YAMLSeq();
@@ -2159,7 +2159,7 @@ var require_seq = __commonJS((exports) => {
   exports.seq = seq;
 });
 
-// node_modules/yaml/dist/schema/common/string.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/common/string.js
 var require_string = __commonJS((exports) => {
   var stringifyString = require_stringifyString();
   var string = {
@@ -2175,7 +2175,7 @@ var require_string = __commonJS((exports) => {
   exports.string = string;
 });
 
-// node_modules/yaml/dist/schema/common/null.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/common/null.js
 var require_null = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var nullTag = {
@@ -2190,7 +2190,7 @@ var require_null = __commonJS((exports) => {
   exports.nullTag = nullTag;
 });
 
-// node_modules/yaml/dist/schema/core/bool.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/core/bool.js
 var require_bool = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var boolTag = {
@@ -2211,7 +2211,7 @@ var require_bool = __commonJS((exports) => {
   exports.boolTag = boolTag;
 });
 
-// node_modules/yaml/dist/stringify/stringifyNumber.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/stringifyNumber.js
 var require_stringifyNumber = __commonJS((exports) => {
   function stringifyNumber({ format, minFractionDigits, tag, value }) {
     if (typeof value === "bigint")
@@ -2235,7 +2235,7 @@ var require_stringifyNumber = __commonJS((exports) => {
   exports.stringifyNumber = stringifyNumber;
 });
 
-// node_modules/yaml/dist/schema/core/float.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/core/float.js
 var require_float = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var stringifyNumber = require_stringifyNumber();
@@ -2278,7 +2278,7 @@ var require_float = __commonJS((exports) => {
   exports.floatNaN = floatNaN;
 });
 
-// node_modules/yaml/dist/schema/core/int.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/core/int.js
 var require_int = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2320,7 +2320,7 @@ var require_int = __commonJS((exports) => {
   exports.intOct = intOct;
 });
 
-// node_modules/yaml/dist/schema/core/schema.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/core/schema.js
 var require_schema = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -2345,7 +2345,7 @@ var require_schema = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// node_modules/yaml/dist/schema/json/schema.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/json/schema.js
 var require_schema2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var map = require_map();
@@ -2409,7 +2409,7 @@ var require_schema2 = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/binary.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/binary.js
 var require_binary = __commonJS((exports) => {
   var node_buffer = __require("buffer");
   var Scalar = require_Scalar();
@@ -2464,7 +2464,7 @@ var require_binary = __commonJS((exports) => {
   exports.binary = binary;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/pairs.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/pairs.js
 var require_pairs = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -2539,7 +2539,7 @@ ${cn.comment}` : item.comment;
   exports.resolvePairs = resolvePairs;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/omap.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/omap.js
 var require_omap = __commonJS((exports) => {
   var identity = require_identity();
   var toJS = require_toJS();
@@ -2611,7 +2611,7 @@ var require_omap = __commonJS((exports) => {
   exports.omap = omap;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/bool.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/bool.js
 var require_bool2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   function boolStringify({ value, source }, ctx) {
@@ -2640,7 +2640,7 @@ var require_bool2 = __commonJS((exports) => {
   exports.trueTag = trueTag;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/float.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/float.js
 var require_float2 = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var stringifyNumber = require_stringifyNumber();
@@ -2686,7 +2686,7 @@ var require_float2 = __commonJS((exports) => {
   exports.floatNaN = floatNaN;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/int.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/int.js
 var require_int2 = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   var intIdentify = (value) => typeof value === "bigint" || Number.isInteger(value);
@@ -2762,7 +2762,7 @@ var require_int2 = __commonJS((exports) => {
   exports.intOct = intOct;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/set.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/set.js
 var require_set = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -2845,7 +2845,7 @@ var require_set = __commonJS((exports) => {
   exports.set = set;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/timestamp.js
 var require_timestamp = __commonJS((exports) => {
   var stringifyNumber = require_stringifyNumber();
   function parseSexagesimal(str2, asBigInt) {
@@ -2927,7 +2927,7 @@ var require_timestamp = __commonJS((exports) => {
   exports.timestamp = timestamp;
 });
 
-// node_modules/yaml/dist/schema/yaml-1.1/schema.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/yaml-1.1/schema.js
 var require_schema3 = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -2968,7 +2968,7 @@ var require_schema3 = __commonJS((exports) => {
   exports.schema = schema;
 });
 
-// node_modules/yaml/dist/schema/tags.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/tags.js
 var require_tags = __commonJS((exports) => {
   var map = require_map();
   var _null = require_null();
@@ -3059,7 +3059,7 @@ var require_tags = __commonJS((exports) => {
   exports.getTags = getTags;
 });
 
-// node_modules/yaml/dist/schema/Schema.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/schema/Schema.js
 var require_Schema = __commonJS((exports) => {
   var identity = require_identity();
   var map = require_map();
@@ -3089,7 +3089,7 @@ var require_Schema = __commonJS((exports) => {
   exports.Schema = Schema;
 });
 
-// node_modules/yaml/dist/stringify/stringifyDocument.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/stringify/stringifyDocument.js
 var require_stringifyDocument = __commonJS((exports) => {
   var identity = require_identity();
   var stringify2 = require_stringify();
@@ -3169,7 +3169,7 @@ var require_stringifyDocument = __commonJS((exports) => {
   exports.stringifyDocument = stringifyDocument;
 });
 
-// node_modules/yaml/dist/doc/Document.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/doc/Document.js
 var require_Document = __commonJS((exports) => {
   var Alias = require_Alias();
   var Collection = require_Collection();
@@ -3404,7 +3404,7 @@ var require_Document = __commonJS((exports) => {
   exports.Document = Document;
 });
 
-// node_modules/yaml/dist/errors.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/errors.js
 var require_errors = __commonJS((exports) => {
   class YAMLError extends Error {
     constructor(name, pos, code, message) {
@@ -3469,7 +3469,7 @@ ${pointer}
   exports.prettifyError = prettifyError;
 });
 
-// node_modules/yaml/dist/compose/resolve-props.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/resolve-props.js
 var require_resolve_props = __commonJS((exports) => {
   function resolveProps(tokens, { flow, indicator, next, offset, onError, parentIndent, startOnNewline }) {
     let spaceBefore = false;
@@ -3599,7 +3599,7 @@ var require_resolve_props = __commonJS((exports) => {
   exports.resolveProps = resolveProps;
 });
 
-// node_modules/yaml/dist/compose/util-contains-newline.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/util-contains-newline.js
 var require_util_contains_newline = __commonJS((exports) => {
   function containsNewline(key) {
     if (!key)
@@ -3639,7 +3639,7 @@ var require_util_contains_newline = __commonJS((exports) => {
   exports.containsNewline = containsNewline;
 });
 
-// node_modules/yaml/dist/compose/util-flow-indent-check.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/util-flow-indent-check.js
 var require_util_flow_indent_check = __commonJS((exports) => {
   var utilContainsNewline = require_util_contains_newline();
   function flowIndentCheck(indent, fc, onError) {
@@ -3654,7 +3654,7 @@ var require_util_flow_indent_check = __commonJS((exports) => {
   exports.flowIndentCheck = flowIndentCheck;
 });
 
-// node_modules/yaml/dist/compose/util-map-includes.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/util-map-includes.js
 var require_util_map_includes = __commonJS((exports) => {
   var identity = require_identity();
   function mapIncludes(ctx, items, search) {
@@ -3667,7 +3667,7 @@ var require_util_map_includes = __commonJS((exports) => {
   exports.mapIncludes = mapIncludes;
 });
 
-// node_modules/yaml/dist/compose/resolve-block-map.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/resolve-block-map.js
 var require_resolve_block_map = __commonJS((exports) => {
   var Pair = require_Pair();
   var YAMLMap = require_YAMLMap();
@@ -3774,7 +3774,7 @@ var require_resolve_block_map = __commonJS((exports) => {
   exports.resolveBlockMap = resolveBlockMap;
 });
 
-// node_modules/yaml/dist/compose/resolve-block-seq.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/resolve-block-seq.js
 var require_resolve_block_seq = __commonJS((exports) => {
   var YAMLSeq = require_YAMLSeq();
   var resolveProps = require_resolve_props();
@@ -3822,7 +3822,7 @@ var require_resolve_block_seq = __commonJS((exports) => {
   exports.resolveBlockSeq = resolveBlockSeq;
 });
 
-// node_modules/yaml/dist/compose/resolve-end.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/resolve-end.js
 var require_resolve_end = __commonJS((exports) => {
   function resolveEnd(end, offset, reqSpace, onError) {
     let comment = "";
@@ -3862,7 +3862,7 @@ var require_resolve_end = __commonJS((exports) => {
   exports.resolveEnd = resolveEnd;
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-collection.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/resolve-flow-collection.js
 var require_resolve_flow_collection = __commonJS((exports) => {
   var identity = require_identity();
   var Pair = require_Pair();
@@ -4053,7 +4053,7 @@ var require_resolve_flow_collection = __commonJS((exports) => {
   exports.resolveFlowCollection = resolveFlowCollection;
 });
 
-// node_modules/yaml/dist/compose/compose-collection.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/compose-collection.js
 var require_compose_collection = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -4115,7 +4115,7 @@ var require_compose_collection = __commonJS((exports) => {
   exports.composeCollection = composeCollection;
 });
 
-// node_modules/yaml/dist/compose/resolve-block-scalar.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/resolve-block-scalar.js
 var require_resolve_block_scalar = __commonJS((exports) => {
   var Scalar = require_Scalar();
   function resolveBlockScalar(ctx, scalar, onError) {
@@ -4308,7 +4308,7 @@ var require_resolve_block_scalar = __commonJS((exports) => {
   exports.resolveBlockScalar = resolveBlockScalar;
 });
 
-// node_modules/yaml/dist/compose/resolve-flow-scalar.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/resolve-flow-scalar.js
 var require_resolve_flow_scalar = __commonJS((exports) => {
   var Scalar = require_Scalar();
   var resolveEnd = require_resolve_end();
@@ -4524,7 +4524,7 @@ var require_resolve_flow_scalar = __commonJS((exports) => {
   exports.resolveFlowScalar = resolveFlowScalar;
 });
 
-// node_modules/yaml/dist/compose/compose-scalar.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/compose-scalar.js
 var require_compose_scalar = __commonJS((exports) => {
   var identity = require_identity();
   var Scalar = require_Scalar();
@@ -4602,7 +4602,7 @@ var require_compose_scalar = __commonJS((exports) => {
   exports.composeScalar = composeScalar;
 });
 
-// node_modules/yaml/dist/compose/util-empty-scalar-position.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/util-empty-scalar-position.js
 var require_util_empty_scalar_position = __commonJS((exports) => {
   function emptyScalarPosition(offset, before, pos) {
     if (before) {
@@ -4629,7 +4629,7 @@ var require_util_empty_scalar_position = __commonJS((exports) => {
   exports.emptyScalarPosition = emptyScalarPosition;
 });
 
-// node_modules/yaml/dist/compose/compose-node.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/compose-node.js
 var require_compose_node = __commonJS((exports) => {
   var Alias = require_Alias();
   var identity = require_identity();
@@ -4727,7 +4727,7 @@ var require_compose_node = __commonJS((exports) => {
   exports.composeNode = composeNode;
 });
 
-// node_modules/yaml/dist/compose/compose-doc.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/compose-doc.js
 var require_compose_doc = __commonJS((exports) => {
   var Document = require_Document();
   var composeNode = require_compose_node();
@@ -4767,7 +4767,7 @@ var require_compose_doc = __commonJS((exports) => {
   exports.composeDoc = composeDoc;
 });
 
-// node_modules/yaml/dist/compose/composer.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/compose/composer.js
 var require_composer = __commonJS((exports) => {
   var node_process = __require("process");
   var directives = require_directives();
@@ -4956,7 +4956,7 @@ ${end.comment}` : end.comment;
   exports.Composer = Composer;
 });
 
-// node_modules/yaml/dist/parse/cst-scalar.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/parse/cst-scalar.js
 var require_cst_scalar = __commonJS((exports) => {
   var resolveBlockScalar = require_resolve_block_scalar();
   var resolveFlowScalar = require_resolve_flow_scalar();
@@ -5146,7 +5146,7 @@ var require_cst_scalar = __commonJS((exports) => {
   exports.setScalarValue = setScalarValue;
 });
 
-// node_modules/yaml/dist/parse/cst-stringify.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/parse/cst-stringify.js
 var require_cst_stringify = __commonJS((exports) => {
   var stringify2 = (cst) => ("type" in cst) ? stringifyToken(cst) : stringifyItem(cst);
   function stringifyToken(token) {
@@ -5204,7 +5204,7 @@ var require_cst_stringify = __commonJS((exports) => {
   exports.stringify = stringify2;
 });
 
-// node_modules/yaml/dist/parse/cst-visit.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/parse/cst-visit.js
 var require_cst_visit = __commonJS((exports) => {
   var BREAK = Symbol("break visit");
   var SKIP = Symbol("skip children");
@@ -5263,7 +5263,7 @@ var require_cst_visit = __commonJS((exports) => {
   exports.visit = visit;
 });
 
-// node_modules/yaml/dist/parse/cst.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/parse/cst.js
 var require_cst = __commonJS((exports) => {
   var cstScalar = require_cst_scalar();
   var cstStringify = require_cst_stringify();
@@ -5364,7 +5364,7 @@ var require_cst = __commonJS((exports) => {
   exports.tokenType = tokenType;
 });
 
-// node_modules/yaml/dist/parse/lexer.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/parse/lexer.js
 var require_lexer = __commonJS((exports) => {
   var cst = require_cst();
   function isEmpty(ch) {
@@ -5950,7 +5950,7 @@ var require_lexer = __commonJS((exports) => {
   exports.Lexer = Lexer;
 });
 
-// node_modules/yaml/dist/parse/line-counter.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/parse/line-counter.js
 var require_line_counter = __commonJS((exports) => {
   class LineCounter {
     constructor() {
@@ -5978,7 +5978,7 @@ var require_line_counter = __commonJS((exports) => {
   exports.LineCounter = LineCounter;
 });
 
-// node_modules/yaml/dist/parse/parser.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/parse/parser.js
 var require_parser = __commonJS((exports) => {
   var node_process = __require("process");
   var cst = require_cst();
@@ -6827,7 +6827,7 @@ var require_parser = __commonJS((exports) => {
   exports.Parser = Parser;
 });
 
-// node_modules/yaml/dist/public-api.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/public-api.js
 var require_public_api = __commonJS((exports) => {
   var composer = require_composer();
   var Document = require_Document();
@@ -6921,7 +6921,7 @@ var require_public_api = __commonJS((exports) => {
   exports.stringify = stringify2;
 });
 
-// node_modules/fast-xml-parser/src/util.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/util.js
 var require_util = __commonJS((exports) => {
   var nameStartChar = ":A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD";
   var nameChar = nameStartChar + "\\-.\\d\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
@@ -6989,7 +6989,7 @@ var require_util = __commonJS((exports) => {
   exports.criticalProperties = criticalProperties;
 });
 
-// node_modules/fast-xml-parser/src/validator.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/validator.js
 var require_validator = __commonJS((exports) => {
   var util = require_util();
   var defaultOptions = {
@@ -7294,7 +7294,7 @@ var require_validator = __commonJS((exports) => {
   }
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlparser/OptionsBuilder.js
 var require_OptionsBuilder = __commonJS((exports) => {
   var { DANGEROUS_PROPERTY_NAMES, criticalProperties } = require_util();
   var defaultOnDangerousProperty = (name) => {
@@ -7407,7 +7407,7 @@ var require_OptionsBuilder = __commonJS((exports) => {
   exports.defaultOptions = defaultOptions;
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/xmlNode.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlparser/xmlNode.js
 var require_xmlNode = __commonJS((exports, module) => {
   class XmlNode {
     constructor(tagname) {
@@ -7433,7 +7433,7 @@ var require_xmlNode = __commonJS((exports, module) => {
   module.exports = XmlNode;
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlparser/DocTypeReader.js
 var require_DocTypeReader = __commonJS((exports, module) => {
   var util = require_util();
 
@@ -7717,7 +7717,7 @@ var require_DocTypeReader = __commonJS((exports, module) => {
   module.exports = DocTypeReader;
 });
 
-// node_modules/strnum/strnum.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/strnum/strnum.js
 var require_strnum = __commonJS((exports, module) => {
   var hexRegex = /^[-+]?0x[a-fA-F0-9]+$/;
   var numRegex = /^([\-\+])?(0*)([0-9]*(\.[0-9]*)?)$/;
@@ -7819,7 +7819,7 @@ var require_strnum = __commonJS((exports, module) => {
   module.exports = toNumber;
 });
 
-// node_modules/fast-xml-parser/src/ignoreAttributes.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/ignoreAttributes.js
 var require_ignoreAttributes = __commonJS((exports, module) => {
   function getIgnoreAttributesFn(ignoreAttributes) {
     if (typeof ignoreAttributes === "function") {
@@ -7842,7 +7842,7 @@ var require_ignoreAttributes = __commonJS((exports, module) => {
   module.exports = getIgnoreAttributesFn;
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlparser/OrderedObjParser.js
 var require_OrderedObjParser = __commonJS((exports, module) => {
   var util = require_util();
   var xmlNode = require_xmlNode();
@@ -8436,7 +8436,7 @@ var require_OrderedObjParser = __commonJS((exports, module) => {
   module.exports = OrderedObjParser;
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/node2json.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlparser/node2json.js
 var require_node2json = __commonJS((exports) => {
   function prettify(node, options) {
     return compress(node, options);
@@ -8529,7 +8529,7 @@ var require_node2json = __commonJS((exports) => {
   exports.prettify = prettify;
 });
 
-// node_modules/fast-xml-parser/src/xmlparser/XMLParser.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlparser/XMLParser.js
 var require_XMLParser = __commonJS((exports, module) => {
   var { buildOptions } = require_OptionsBuilder();
   var OrderedObjParser = require_OrderedObjParser();
@@ -8578,7 +8578,7 @@ var require_XMLParser = __commonJS((exports, module) => {
   module.exports = XMLParser;
 });
 
-// node_modules/fast-xml-parser/src/xmlbuilder/orderedJs2Xml.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlbuilder/orderedJs2Xml.js
 var require_orderedJs2Xml = __commonJS((exports, module) => {
   var EOL = `
 `;
@@ -8721,7 +8721,7 @@ var require_orderedJs2Xml = __commonJS((exports, module) => {
   module.exports = toXml;
 });
 
-// node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/xmlbuilder/json2xml.js
 var require_json2xml = __commonJS((exports, module) => {
   var buildFromOrderedJs = require_orderedJs2Xml();
   var getIgnoreAttributesFn = require_ignoreAttributes();
@@ -8971,7 +8971,7 @@ var require_json2xml = __commonJS((exports, module) => {
   module.exports = Builder;
 });
 
-// node_modules/fast-xml-parser/src/fxp.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/fast-xml-parser/src/fxp.js
 var require_fxp = __commonJS((exports, module) => {
   var validator = require_validator();
   var XMLParser = require_XMLParser();
@@ -9656,7 +9656,7 @@ function selectCommand(adapter, cmd, ids, template) {
 import * as fs3 from "node:fs";
 import * as path3 from "node:path";
 
-// node_modules/smol-toml/dist/error.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/error.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -9729,7 +9729,7 @@ ${codeblock}`, options);
   }
 }
 
-// node_modules/smol-toml/dist/primitive.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/primitive.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -9849,7 +9849,7 @@ function parseString(ctx) {
   TomlError.x("unfinished string", ctx, startPtr);
 }
 
-// node_modules/smol-toml/dist/date.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/date.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -9992,7 +9992,7 @@ class TomlDate extends Date {
   }
 }
 
-// node_modules/smol-toml/dist/extract.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/extract.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -10226,7 +10226,7 @@ function readDate(ctx, str, type, unsafeDelim, errPtr, temporalSuffix) {
   }
 }
 
-// node_modules/smol-toml/dist/util.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/util.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -10279,7 +10279,7 @@ function skipVoid(ctx, banNewLines, banComments) {
   }
 }
 
-// node_modules/smol-toml/dist/struct.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/struct.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -10415,7 +10415,7 @@ function parseArray(ctx) {
   TomlError.x("unfinished array", ctx, startPtr);
 }
 
-// node_modules/smol-toml/dist/parse.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/parse.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -10567,7 +10567,7 @@ function parse(toml, options = {}) {
   return res;
 }
 
-// node_modules/smol-toml/dist/stringify.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/stringify.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -10597,7 +10597,7 @@ function parse(toml, options = {}) {
  */
 var HAS_WELLFORMED = !!"".isWellFormed;
 
-// node_modules/smol-toml/dist/index.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/smol-toml/dist/index.js
 /*!
  * Copyright (c) Squirrel Chat et al., All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
@@ -11241,7 +11241,7 @@ import * as path9 from "node:path";
 import * as fs8 from "node:fs";
 import * as path8 from "node:path";
 
-// node_modules/yaml/dist/index.js
+// ../../../eng-10581-agent-docs/packages/witness/node_modules/yaml/dist/index.js
 var composer = require_composer();
 var Document = require_Document();
 var Schema = require_Schema();
@@ -13117,7 +13117,7 @@ var COMMON_ASSERT = /\b(assert|verify|expect|should)(?!ed\b|ation)\w*\s*[(!<]|\b
 var LANG_ASSERT = {
   py: /\bpytest\.(raises|fail|warns)\b|\.assert_\w+\s*\(|\bself\.fail\w*\(/,
   js: /\bt\.(is|not|deepEqual|true|false|truthy|falsy|throws\w*|equal|ok|same|match|regex|like|snapshot|pass|fail|notOk)\s*\(|\.should\b|\bfind(All)?By\w+\s*\(/,
-  cs: /\.Should\w*\(|\bShould\.\w+|\.(Received|DidNotReceive|ReceivedWithAnyArgs|DidNotReceiveWithAnyArgs)\s*[(<]|\bMustHaveHappened\w*\(|\bMustNotHaveHappened\w*\(/,
+  cs: /\b(Collection|String|Classic)Assert\.\w+\s*[(<]|\.Should\w*\(|\bShould\.\w+|\.(Received|DidNotReceive|ReceivedWithAnyArgs|DidNotReceiveWithAnyArgs)\s*[(<]|\bMustHaveHappened\w*\(|\bMustNotHaveHappened\w*\(/,
   java: /\bandExpect\s*\(|\.expect\w*\s*\(|\bverify\s*\(/,
   go: /\bt\.(Error|Errorf|Fatal|Fatalf|Fail|FailNow)\s*\(|\b(assert|require)\.\w+\s*\(/,
   rb: /\bexpect\s*\{|\bis_expected\b|\bmust_\w+|\bwont_\w+|\bshould\b|\bflunk\b/,
@@ -15948,13 +15948,18 @@ scratch/
   else if (!/^scratch\/$/m.test(fs15.readFileSync(gi, "utf8")))
     fs15.appendFileSync(gi, `scratch/
 `);
+  const scratch = path15.join(dir, "scratch");
+  fs15.mkdirSync(scratch, { recursive: true });
+  if (!fs15.existsSync(path15.join(scratch, ".gitignore")))
+    fs15.writeFileSync(path15.join(scratch, ".gitignore"), `*
+`);
   if (json)
     process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + `
 `);
   else {
     const w = (s) => process.stderr.write(`witness  ${s}
 `);
-    w(`wrote ${example}`);
+    w(`wrote ${example}; temporary files go in ${scratch}/ (git ignores it)`);
     for (const s of g.suites)
       w(`  suite ${s.name} (${s.adapter}, ${s.kind}${s.hostsApp ? ", starts the app itself" : ""}): ${s.why}`);
     for (const s of g.services)
@@ -15974,7 +15979,9 @@ scratch/
 }
 
 // src/scan.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
 import * as fs16 from "node:fs";
+import * as os2 from "node:os";
 import * as path16 from "node:path";
 var SKIP2 = new Set([".git", "node_modules", ".witness", ".venv", "venv", "bin", "obj", "target", "build", "dist", "vendor", ".gradle", "__pycache__", ".next", ".nuxt", "coverage", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "out", ".turbo", ".cache", "site-packages"]);
 var KEEP_DOT_DIRS = new Set([".github", ".devcontainer", ".circleci", ".gitlab", ".config", ".cursor"]);
@@ -16114,6 +16121,7 @@ function scan(root) {
     env: [],
     data: [],
     frameworks: [],
+    machine: [],
     config: null
   };
   for (const s of g.suites)
@@ -16135,8 +16143,80 @@ function scan(root) {
   scanData(root, w, out);
   scanManifests(root, w, out);
   dedupe2(out);
+  out.machine = machineFacts(out);
   out.config = existingConfig(root, out);
   return out;
+}
+var TOOLS = [
+  ["dotnet", (o) => o.adapters.includes("dotnet") || o.frameworks.some((f) => f.name === "dotnet")],
+  ["node", (o) => o.adapters.some((a) => ["jest", "vitest", "mocha", "playwright"].includes(a)) || o.frameworks.some((f) => f.name === "node")],
+  ["python3", (o) => o.adapters.includes("pytest") || o.frameworks.some((f) => f.name === "python")],
+  ["java", (o) => o.adapters.some((a) => a.startsWith("junit"))],
+  ["mvn", (o) => o.adapters.includes("junit-maven")],
+  ["go", (o) => o.adapters.includes("go")],
+  ["ruby", (o) => o.adapters.includes("rspec")],
+  ["php", (o) => o.adapters.includes("phpunit")],
+  ["bats", (o) => o.adapters.includes("bats")],
+  ["docker", (o) => o.containers.length > 0 || o.infrastructure.length > 0],
+  ["pwsh", (o) => o.commands.some((c2) => /\bpwsh\b/.test(c2.cmd))]
+];
+var PLAYWRIGHT = /^(@playwright\/test|playwright|pytest-playwright|Microsoft\.Playwright(\.\w+)?)$/i;
+function onPath(tool, env = process.env) {
+  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  for (const dir of (env.PATH ?? "").split(path16.delimiter).filter(Boolean))
+    for (const e of exts) {
+      const f = path16.join(dir, tool + e);
+      try {
+        if (fs16.statSync(f).isFile())
+          return f;
+      } catch {}
+    }
+  return;
+}
+function playwrightCache(env = process.env) {
+  if (env.PLAYWRIGHT_BROWSERS_PATH && env.PLAYWRIGHT_BROWSERS_PATH !== "0")
+    return env.PLAYWRIGHT_BROWSERS_PATH;
+  const home = env.HOME ?? os2.homedir();
+  if (process.platform === "darwin")
+    return path16.join(home, "Library", "Caches", "ms-playwright");
+  if (process.platform === "win32")
+    return path16.join(env.LOCALAPPDATA ?? path16.join(home, "AppData", "Local"), "ms-playwright");
+  return path16.join(env.XDG_CACHE_HOME ?? path16.join(home, ".cache"), "ms-playwright");
+}
+var output = (cmd, args, env) => {
+  const r = spawnSync3(cmd, args, { encoding: "utf8", timeout: 1e4, env });
+  return r.status === 0 ? r.stdout.trim() : undefined;
+};
+function machineFacts(out, env = process.env) {
+  const facts = [];
+  for (const [tool, wanted] of TOOLS) {
+    if (!wanted(out))
+      continue;
+    const p = onPath(tool, env);
+    const f = { tool, found: !!p, ...p ? { path: p } : {}, evidence: [p ? p : `not on PATH`] };
+    if (p && tool === "dotnet") {
+      const sdks = output(p, ["--list-sdks"], env);
+      if (sdks !== undefined) {
+        f.installed = sdks.split(/\r?\n/).map((l) => l.split(" ")[0]).filter(Boolean);
+        f.evidence.push("dotnet --list-sdks");
+      }
+    }
+    if (p && tool === "docker") {
+      const v = output(p, ["version", "--format", "{{.Server.Version}}"], env);
+      f.installed = v ? [v] : [];
+      f.evidence.push(v ? "docker version: the daemon answers" : "docker version: the daemon does not answer");
+    }
+    facts.push(f);
+  }
+  if (out.adapters.includes("playwright") || out.frameworks.some((f) => PLAYWRIGHT.test(f.name))) {
+    const dir = playwrightCache(env);
+    let browsers = [];
+    try {
+      browsers = fs16.readdirSync(dir).filter((n) => /^(chromium|chromium_headless_shell|chromium-headless-shell|firefox|webkit|ffmpeg)[-_]\d+$/.test(n)).sort();
+    } catch {}
+    facts.push({ tool: "playwright-browsers", found: browsers.some((b) => !b.startsWith("ffmpeg")), installed: browsers, evidence: [dir] });
+  }
+  return facts;
 }
 function addCommand(out, c2) {
   const cmd = c2.cmd.trim().replace(/\s+/g, " ");
@@ -16794,14 +16874,14 @@ function scanCommand(root) {
 `);
   const n = (xs) => xs.length;
   const fn = r.testProjects.filter((t) => t.status === "functional").length;
-  process.stderr.write(`witness  scan: ${fn} functional test project(s), ${r.testProjects.filter((t) => t.status === "needs-filter").length} needing a filter, ${r.testProjects.filter((t) => t.status === "excluded").length} excluded; ${n(r.commands)} command(s), ${n(r.infrastructure)} infrastructure, ${r.env.filter((e) => e.secret).length} secret(s) of ${n(r.env)} env name(s)${r.config ? `; config ${r.config.file}${r.config.error ? " (invalid)" : ""}` : "; no config yet"}. Nothing written.
+  process.stderr.write(`witness  scan: ${fn} functional test project(s), ${r.testProjects.filter((t) => t.status === "needs-filter").length} needing a filter, ${r.testProjects.filter((t) => t.status === "excluded").length} excluded; ${n(r.commands)} command(s), ${n(r.infrastructure)} infrastructure, ${r.env.filter((e) => e.secret).length} secret(s) of ${n(r.env)} env name(s)${r.machine.some((m) => !m.found) ? `; not on this machine: ${r.machine.filter((m) => !m.found).map((m) => m.tool).join(", ")}` : ""}${r.config ? `; config ${r.config.file}${r.config.error ? " (invalid)" : ""}` : "; no config yet"}. Nothing written.
 `);
   return 0;
 }
 
 // src/skills.ts
 import * as fs17 from "node:fs";
-import * as os2 from "node:os";
+import * as os3 from "node:os";
 import * as path17 from "node:path";
 import { fileURLToPath } from "node:url";
 var PROFILES = ["standalone", "morph"];
@@ -16917,7 +16997,7 @@ function writeFiles(dest, files) {
   }
 }
 function renderedDir(profile) {
-  const cache = process.env.XDG_CACHE_HOME || path17.join(os2.homedir(), ".cache");
+  const cache = process.env.XDG_CACHE_HOME || path17.join(os3.homedir(), ".cache");
   return path17.join(cache, "witness", "skills", profile);
 }
 function renderToCache(src, profile) {

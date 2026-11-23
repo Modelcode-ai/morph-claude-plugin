@@ -205,6 +205,23 @@ test("lint c#: xunit/nunit/mstest attributes, expression bodies, mocks, Thread.S
   assert.deepEqual(rules("tests/UnitTests/BasketTests.cs", src), ["no-assertion@25", "swallowed-exception@34", "long-sleep@41", "long-sleep@42"]);
 });
 
+test("lint: MSTest CollectionAssert and StringAssert count as assertions", () => {
+  const cs = `public class ListTest {
+    [TestMethod]
+    public async Task FiltersByName() {
+        var r = await client.GetAsync("/api/catalog-items?name=mug");
+        r.EnsureSuccessStatusCode();
+        CollectionAssert.AreEquivalent(new[] { 2 }, ids);
+    }
+    [TestMethod]
+    public void Greets() {
+        StringAssert.Contains(output, "hello");
+    }
+}`;
+  const plan = `version: 1\nsource: s\nitems:\n  - {id: P1, behavior: b, expect: "only items whose name contains mug", kind: new, tests: ["dotnet:Api.ListTest#FiltersByName"]}\n`;
+  assert.deepEqual(rules("tests/ListTest.cs", cs, plan), []);
+});
+
 test("lint java, go, ruby and php", () => {
   const java = `class ApiTest {
   @Test
