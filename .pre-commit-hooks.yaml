@@ -1,7 +1,0 @@
-# pre-commit hook: check claims and the contract without booting anything (well under a second).
-- id: witness-lint
-  name: witness lint
-  entry: witness lint
-  language: system
-  pass_filenames: false
-  files: ^(\.witness/|VERIFY\.md$|src/test/)

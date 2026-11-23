@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Run the witness CLI on the repo in the current directory. Needs Node 22.18+.
+# Delegates to the witness package (packages/witness).
 set -euo pipefail
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-if [[ -d "$DIR/engine/node_modules" ]]; then
-  exec node --no-warnings "$DIR/engine/src/cli.ts" "$@"
-fi
-exec node --no-warnings "$DIR/dist/witness.mjs" "$@"
+exec "$DIR/packages/witness/bin/witness" "$@"
