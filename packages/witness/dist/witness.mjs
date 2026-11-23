@@ -10937,7 +10937,18 @@ var PATTERNS = [
 ];
 var NO_REFINE = new Set(["bad_config", "missing_env", "stalled", "suite_timeout"]);
 var RETRYABLE = new Set(["port_in_use", "network", "service_died", "stalled", "suite_timeout", "ready_timeout", "dependency_unreachable"]);
-var lastMeaningful = (lines) => [...lines].reverse().find((l) => !/^\s*\$ /.test(l) && l.trim().length > 1)?.trim();
+var FRAME = /^\s+(at\s|File "|\.\.\. \d+ more)|^\s+\S+\.go:\d+/;
+var ERRORISH = /exception|error|fatal|panic|unhandled|traceback/i;
+function lastMeaningful(lines, preferError) {
+  let start = 0;
+  lines.forEach((l, i) => {
+    if (/^\s*\$ /.test(l))
+      start = i + 1;
+  });
+  const cand = lines.slice(start).filter((l) => l.trim().length > 1 && !FRAME.test(l));
+  const pool = cand.length ? cand : lines.filter((l) => !/^\s*\$ /.test(l) && l.trim().length > 1);
+  return ((preferError ? [...pool].reverse().find((l) => ERRORISH.test(l) && !/\b0 (Error\(s\)|errors?)\b/i.test(l)) : undefined) ?? pool.at(-1))?.trim();
+}
 function diagnose(inp) {
   const lines = inp.log ? tailLines(inp.log, 200) : [];
   let cause = inp.cause;
@@ -10956,7 +10967,7 @@ function diagnose(inp) {
       break;
     }
   }
-  evidence ??= lastMeaningful(lines)?.slice(0, 500);
+  evidence ??= lastMeaningful(lines, cause !== "stalled" && cause !== "suite_timeout")?.slice(0, 500);
   const d = {
     stage: inp.stage,
     cause,
@@ -11340,6 +11351,14 @@ function suiteLevel(adapter, suite, exitCode, message, exitCodeOnly = false) {
     r.statusDetail = "error";
   return r;
 }
+function presentIn(ids, id) {
+  if (ids.has(id))
+    return true;
+  for (const x of ids)
+    if (x.startsWith(`${id}(`) || x.startsWith(`${id} (`) || x.startsWith(`${id}[`))
+      return true;
+  return false;
+}
 function reconcile(inp) {
   const { adapter, suite, exitCode, end, cwd } = inp;
   const unreadable = inp.files.filter((f) => f.error);
@@ -11348,7 +11367,7 @@ function reconcile(inp) {
   if (end === "interrupted" || end === "service_died" || end === "timeout" || end === "stalled") {
     const have = new Set(tests.map((t) => t.id));
     for (const id of expected)
-      if (!have.has(id))
+      if (!presentIn(have, id))
         tests.push(missing(id, adapter, suite, end === "timeout" || end === "stalled" ? "timeout" : "missing"));
     const state = end === "interrupted" ? "interrupted" : end === "service_died" ? "error" : end === "timeout" ? "timeout" : "stalled";
     const cause2 = end === "service_died" ? "service_died" : end === "timeout" ? "suite_timeout" : end === "stalled" ? "stalled" : undefined;
@@ -11358,7 +11377,7 @@ function reconcile(inp) {
   }
   if (tests.length) {
     const have = new Set(tests.map((t) => t.id));
-    const absent = expected.filter((id) => !have.has(id));
+    const absent = expected.filter((id) => !presentIn(have, id));
     for (const id of absent)
       tests.push(missing(id, adapter, suite, "missing"));
     const failed = tests.some((t) => t.status === "failed");
@@ -12765,14 +12784,24 @@ function splitSelect(suites, select) {
     return;
   const m = new Map;
   for (const raw of select) {
-    const colon = raw.indexOf(":");
-    const pre = colon > 0 ? raw.slice(0, colon) : "";
-    const owners = pre in ADAPTERS ? suites.filter((s) => s.adapter === pre) : suites;
+    let colon = raw.indexOf(":");
+    let pre = colon > 0 ? raw.slice(0, colon) : "";
+    let pool = suites;
+    if (pre && !(pre in ADAPTERS) && suites.some((s) => s.name === pre)) {
+      const rest = raw.slice(colon + 1);
+      const c2 = rest.indexOf(":");
+      if (c2 > 0 && rest.slice(0, c2) in ADAPTERS) {
+        pool = suites.filter((s) => s.name === pre);
+        colon += c2 + 1;
+        pre = rest.slice(0, c2);
+      }
+    }
+    const owners = pre in ADAPTERS ? pool.filter((s) => s.adapter === pre) : pool;
     const id = pre in ADAPTERS ? raw.slice(colon + 1) : raw;
     if (!owners.length)
       throw new UsageError(`--select ${raw}: no selected suite uses adapter ${pre}`);
     if (owners.length > 1)
-      throw new UsageError(`--select ${raw}: suites ${owners.map((s) => s.name).join(", ")} could all own it; add --suite`);
+      throw new UsageError(`--select ${raw}: suites ${owners.map((s) => s.name).join(", ")} could all own it; add --suite or write it as <suite>:${raw}`);
     m.set(owners[0].name, [...m.get(owners[0].name) ?? [], id]);
   }
   return m;
@@ -12791,8 +12820,12 @@ function originMap(cfg) {
   return m;
 }
 async function runCommand(cfg, opts) {
-  const suites = pickSuites(cfg, opts.suites);
+  let suites = pickSuites(cfg, opts.suites);
   const select = splitSelect(suites, opts.select);
+  if (select && !opts.suites?.length)
+    suites = suites.filter((s) => select.has(s.name));
+  if (opts.against && !originMap(cfg).size && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
+    throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`)`);
   if (!suites.length)
     throw new UsageError("no [[suite]] in the config");
   for (const [name, ids] of select ?? []) {
@@ -12873,6 +12906,9 @@ async function runCommand(cfg, opts) {
         against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis };
         target.artifacts.push(...origin.artifacts);
         progress.line(`against ${opts.against} · origin ${origin.outcome} · parity: ${counts.same} same, ${counts.differs} differ, ${counts.target_only} only on target, ${counts.origin_only} only on origin`);
+        if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed")
+          for (const l of formatDiagnosis(origin.diagnosis))
+            progress.plain(`  origin ${l}`);
       }
     }
   } finally {
@@ -12888,7 +12924,7 @@ async function runCommand(cfg, opts) {
   if (target.diagnosis)
     status.diagnosis = target.diagnosis;
   if (against)
-    status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity };
+    status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {} };
   const ctrf = buildCtrf({
     runId: run.runId,
     outcome: target.outcome,
@@ -13069,8 +13105,10 @@ async function checkCommand(cfg, o) {
   };
   report.push({ stage: "config", ok: true, detail: `${cfg.services.length} service(s), ${cfg.suites.length} suite(s), adapters: ${[...new Set(cfg.suites.map((s) => s.adapter))].join(", ") || "-"}` });
   p.line(`check  config · ok · ${report[0].detail}`);
-  if (upTo < 1)
+  if (upTo < 1) {
+    p.plain(color.green("CHECK ok · config"));
     return done(0);
+  }
   const { env, missing: missing2, fileUsed } = loadEnv(cfg);
   if (missing2.length) {
     const d = diagnose({ stage: "config", cause: "missing_env", envMissing: missing2 });
@@ -13102,16 +13140,20 @@ async function checkCommand(cfg, o) {
   try {
     await stack.checkDeps();
     report.push({ stage: "deps", ok: true, detail: `${cfg.dependencies.length} dependency check(s) passed` });
-    if (upTo < 2)
+    if (upTo < 2) {
+      p.plain(color.green("CHECK ok · up to deps"));
       return done(0);
+    }
     const services = o.service ? [o.service] : cfg.services.filter((s) => s.role === "target").map((s) => s.name);
     for (const s of services)
       if (!cfg.services.some((x) => x.name === s))
         throw new Error(`unknown service "${s}"`);
     await stack.boot(services);
     report.push({ stage: "boot", ok: true, detail: [...stack.live.values()].map((l) => `${l.svc.name} at ${l.url}`).join(", ") || "no services" });
-    if (upTo < 3)
+    if (upTo < 3) {
+      p.plain(color.green("CHECK ok · up to boot"));
       return done(0);
+    }
     const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
     const ctx = { cfg, root: cfg.root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
     for (const s of suites) {
@@ -13626,8 +13668,10 @@ var norm = (s) => s.replace(/\s+/g, " ").trim();
 function idMatches(listed, wanted) {
   const a = norm(listed);
   const b = norm(wanted);
-  return a === b || a.startsWith(`${b}[`) || a.startsWith(`${b}(`);
+  return a === b || a.startsWith(`${b}[`) || a.startsWith(`${b}(`) || a.startsWith(`${b} (`);
 }
+var CLASS_HASH = new Set(["dotnet", "junit-maven", "junit-gradle", "phpunit", "generic"]);
+var methodOnlyMatch = (adapter, listed, wanted) => CLASS_HASH.has(adapter) && !listed.includes("#") && wanted.includes("#") && idMatches(listed, wanted.slice(wanted.lastIndexOf("#") + 1));
 var lastSegment = (id) => norm(id.split(/::|#| > /).pop() ?? id).replace(/[[(].*$/, "");
 async function listSuites(cfg, adapters, logDir, onStart) {
   const { env } = loadEnv(cfg);
@@ -13674,6 +13718,11 @@ function matchTests(plan, cfg, listings, draft) {
         checks.push({ item: item.id, test: t, state: "found", suites: hits });
         continue;
       }
+      const loose = listed.filter((l) => l.ids.some((x) => methodOnlyMatch(ad, x, id))).map((l) => l.suite);
+      if (loose.length) {
+        checks.push({ item: item.id, test: t, state: "found", suites: loose, detail: "matched on the method name only: this suite lists tests without class names" });
+        continue;
+      }
       if (!listed.length) {
         const why = ls.map((l) => `${l.suite}: ${l.error}`).join("; ");
         checks.push({ item: item.id, test: t, state: "unverified", suites: owners.map((s) => s.name), detail: why });
@@ -13681,7 +13730,7 @@ function matchTests(plan, cfg, listings, draft) {
         continue;
       }
       const seg = lastSegment(id);
-      const near = listed.flatMap((l) => l.ids.filter((x) => lastSegment(x) === seg).map((x) => `${ad}:${x}`)).slice(0, 3);
+      const near = listed.flatMap((l) => l.ids.filter((x) => (!CLASS_HASH.has(ad) || x.includes("#")) && lastSegment(x) === seg).map((x) => `${ad}:${x}`)).slice(0, 3);
       const n = listed.reduce((a, l) => a + l.ids.length, 0);
       checks.push({ item: item.id, test: t, state: "missing", suites: [] });
       problems.push({
@@ -13732,10 +13781,13 @@ async function planCheckCommand(file, cfg, o) {
     o.log(`plan  ${p.level === "error" ? "ERROR" : "warn "} ${rel}${p.line ? `:${p.line}` : ""} ${p.where}: ${p.message}`);
   if (plan) {
     for (const c2 of checks.filter((c3) => c3.state === "found"))
-      o.log(`plan  ok    ${c2.item} ${c2.test} (suite ${c2.suites.join(", ")})`);
+      o.log(`plan  ok    ${c2.item} ${c2.test} (suite ${c2.suites.join(", ")}${c2.detail ? `; ${c2.detail}` : ""})`);
     for (const i of plan.items.filter((i2) => !i2.tests.length))
       o.log(`plan  todo  ${i.id} ${i.behavior}`);
   }
+  const found = checks.filter((c2) => c2.state === "found");
+  if (found.length)
+    o.log(`plan  run the plan's tests: witness run --select ${shq([...new Set(found.map((c2) => `${c2.suites[0]}:${c2.test}`))].join(","))}`);
   const count = (s) => checks.filter((c2) => c2.state === s).length;
   const summary = plan ? `${plan.items.length} item(s), ${checks.length} test ref(s): ${count("found")} found, ${count("missing")} missing, ${count("unverified")} unverified` : `${errors2.length} error(s)`;
   o.log(`PLAN ${errors2.length ? "invalid" : "ok"} · ${summary}`);
@@ -14187,8 +14239,8 @@ function planFiles(plan, root, roots = []) {
       continue;
     all ??= globFiles(root, ["**/*.{cs,java,kt,php,go}"], { maxDepth: 8, skipDirs: new Set([".git", "node_modules", "bin", "obj", "target", "build", "dist", "vendor", ".witness"]) });
     for (const f of all)
-      if (path13.basename(f).replace(/\.\w+$/, "") === cls)
-        out.add(path13.isAbsolute(f) ? f : path13.join(root, f));
+      if (path13.basename(f).replace(/\.\w+$/, "") === cls && isTestPath(f))
+        out.add(path13.join(root, f));
   }
   return [...out];
 }
