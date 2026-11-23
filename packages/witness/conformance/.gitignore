@@ -1,0 +1,16 @@
+.results/
+projects/*/.witness/
+node_modules/
+.venv/
+vendor/
+target/
+build/
+.gradle/
+projects/*/bin/
+projects/*/obj/
+TestResults/
+test-results/
+playwright-report/
+__pycache__/
+.phpunit.result.cache
+.phpunit.cache/

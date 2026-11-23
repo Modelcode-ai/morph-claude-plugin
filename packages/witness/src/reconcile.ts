@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { type Adapter, normFile, stableId } from "./adapters.ts";
 import type { Kind } from "./config.ts";
 import type { Cause } from "./diagnosis.ts";
+import { NEVER_FINISHED } from "./parsers/gotest.ts";
 import type { Attachment, ParsedFile, RawCase, StatusDetail, TestStatus } from "./parsers/types.ts";
 
 export type Obtained = "report" | "per-test-rerun" | "suite-level";
@@ -73,7 +74,7 @@ export interface ReconcileResult {
 const SETUP_FAILURE = /fixture type .* threw|threw in InitializeAsync|OneTimeSetUp|"before all" hook|beforeAll hook|setUpClass|error in fixture setup|failed on setup/i;
 
 /** The framework stopped the test at its own per-test time limit. */
-export const TEST_TIMEOUT = /^Failed: Timeout >[\d.]+s|Exceeded timeout of \d+ ?ms for a test|Timeout of \d+ms exceeded|Test timeout of \d+ms exceeded|Test timed out in \d+ms|execution timed out after \d+|timed out after \d+ (?:ms|milliseconds|seconds)|Execution aborted after \d+ seconds?|panic: test timed out after/i;
+export const TEST_TIMEOUT = /^Failed: Timeout \(?>[\d.]+s|Exceeded timeout of \d+ ?ms for a test|Timeout of \d+ms exceeded|Test timeout of \d+ms exceeded|Test timed out in \d+ms|execution timed out after \d+|timed out after \d+ (?:ms|milliseconds|seconds)|Execution aborted after \d+ seconds?|panic: test timed out after/i;
 
 const cleanId = (adapter: Adapter, id: string) => (id.startsWith(`${adapter.name}:`) ? id.slice(adapter.name.length + 1) : id);
 
@@ -162,6 +163,12 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
   if (tests.length) {
     const have = new Set(tests.map((t) => t.id));
     const absent = expected.filter((id) => !presentIn(have, id));
+    const partial = inp.files.find((f) => f.partial)?.partial ?? unreadable[0]?.error;
+    const unfinished = inp.files.some((f) => f.partial) ? tests.filter((t) => t.message === NEVER_FINISHED).map((t) => t.id) : [];
+    if (partial && (absent.length || unfinished.length)) {
+      const redo = [...absent, ...unfinished];
+      return { tests: tests.filter((t) => !unfinished.includes(t.id)), state: "error", cause: "report_unreadable", note: `report partly unreadable (${partial}); ${redo.length} test(s) not in its readable part`, rerun: redo.map((id) => id.slice(adapter.name.length + 1)) };
+    }
     for (const id of absent) tests.push(missing(id, adapter, suite, "missing"));
     const failed = tests.filter((t) => t.status === "failed");
     if (failed.length && failed.every((t) => t.statusDetail === "error")) {

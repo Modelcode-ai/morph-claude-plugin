@@ -43,6 +43,8 @@ export interface Adapter {
   perTestTimeout?: (ms: number, cwd: string, cmd: string) => string | null;
   /** Report or timeout plugins the framework needs; `missing` matches the error it prints without them. */
   plugins?: Plugin[];
+  /** Corrects report cases with what only the console says (phpunit: a test aborted at its time limit is a pass in JUnit). */
+  amend?: (cases: RawCase[], output: string) => void;
   id: (c: RawCase) => string;
 }
 
@@ -164,9 +166,10 @@ function splitClassHash(id: string): [string, string] {
   return i < 0 ? ["", id] : [id.slice(0, i), id.slice(i + 1)];
 }
 
+/** A title regex for `-t`/`--grep`; `sep` is a regex, since runners join describe and test titles differently. */
 function fullTitleRegex(ids: string[], sep: string): string {
-  const parts = ids.map((id) => id.split(" > ").slice(1).join(sep).replace(/ \[[^\]]+\]$/, ""));
-  return `(${parts.map(escapeRegExp).join("|")})$`;
+  const parts = ids.map((id) => id.replace(/ \[[^\]]+\]$/, "").split(" > ").slice(1).map(escapeRegExp).join(sep));
+  return `(${parts.join("|")})$`;
 }
 
 function goSelectArgs(ids: string[]): string {
@@ -217,6 +220,21 @@ function playwrightListParse(out: string): string[] {
   }
   const multi = new Set(rows.map((r) => r.project)).size > 1;
   return [...new Set(rows.map((r) => (multi && r.project ? `${r.rest} [${r.project}]` : r.rest)))];
+}
+
+/** PHPUnit lists a test stopped by its time limit as risky ("This test was aborted after N seconds"), not as a failure. */
+function phpunitAborted(cases: RawCase[], output: string) {
+  for (const block of output.split(/\r?\n(?=\d+\) \S+::\S)/)) {
+    const head = /^\d+\) (\S+)::(\S+?)(?: with data set .*)?\r?\n/.exec(block);
+    const why = /This test was aborted after (\d+) seconds?/.exec(block);
+    if (!head || !why) continue;
+    for (const c of cases) {
+      if (c.classname !== head[1] || stripParams(c.name).replace(/ with data set .*$/, "") !== head[2] || c.status === "failed") continue;
+      c.status = "failed";
+      c.statusDetail = "timeout";
+      c.message = `aborted after ${why[1]}s (phpunit time limit; reported as risky)`;
+    }
+  }
 }
 
 export type DotnetMode = "vstest" | "mtp" | "mtp-xunit" | "mtp-none";
@@ -346,7 +364,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],
     selectArgs: (ids) => `-t ${shq(fullTitleRegex(ids, " "))}`,
     list: { args: `--testNamePattern=${shq(NO_TEST)}`, format: "report" },
-    perTestTimeout: (ms) => `--testTimeout=${ms}`,
+    perTestTimeout: (ms) => `--testTimeout=${ms} --forceExit`,
     id: titled,
   },
   vitest: {
@@ -355,12 +373,8 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d) => `--reporter=default --reporter=junit --outputFile.junit=${shq(path.join(d, "junit.xml"))}`,
     reportMarker: /--reporter[= ]junit/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
-    selectArgs: (ids) => `-t ${shq(fullTitleRegex(ids, " "))}`,
-    list: {
-      rewrite: (cmd) => (/\bvitest\s+run\b/.test(cmd) ? cmd.replace(/\bvitest\s+run\b/, "vitest list") : /\bvitest\b/.test(cmd) ? cmd.replace(/\bvitest\b/, "vitest list") : null),
-      format: "adapter",
-      parse: (out) => parseLines(out, /^(\S+\.[cm]?[jt]sx? > .+)$/, (m) => m[1].trim()),
-    },
+    selectArgs: (ids) => `-t ${shq(fullTitleRegex(ids, "(?: > | )"))}`,
+    list: { args: `-t ${shq(NO_TEST)}`, format: "report" },
     perTestTimeout: (ms) => `--testTimeout=${ms}`,
     id: (c) => titled({ ...c, titles: c.titles ?? c.name.split(" > "), file: c.file ?? c.classname }),
   },
@@ -400,7 +414,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => `--grep ${shq(fullTitleRegex(ids, " "))}`,
     list: { args: "--dry-run", format: "report" },
-    perTestTimeout: (ms) => `--timeout ${ms}`,
+    perTestTimeout: (ms) => `--timeout ${ms} --exit`,
     id: titled,
   },
   rspec: {
@@ -411,7 +425,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => ids.map((id) => `-e ${shq(id.split(" > ").slice(1).join(" > "))}`).join(" "),
     list: { args: "--dry-run", format: "report" },
-    plugins: [{ name: "rspec_junit_formatter", needed: () => true, probeArgs: "--dry-run --format RspecJunitFormatter --out /dev/null", missing: /RspecJunitFormatter|Formatter '?RspecJunitFormatter'? unknown/, hint: 'witness reads rspec results through the rspec_junit_formatter gem: add gem "rspec_junit_formatter" to the Gemfile (test group) and bundle install' }],
+    plugins: [{ name: "rspec_junit_formatter", needed: () => true, probeArgs: "--dry-run --format RspecJunitFormatter --out /dev/null", missing: /cannot load such file -- rspec_junit_formatter|Formatter '?RspecJunitFormatter'? unknown|uninitialized constant RspecJunitFormatter/, hint: 'witness reads rspec results through the rspec_junit_formatter gem: add gem "rspec_junit_formatter" to the Gemfile (test group) and bundle install' }],
     id: (c) => [normFile(c.file) ?? c.classname, clean(c.name)].filter(Boolean).join(" > "),
   },
   phpunit: {
@@ -426,6 +440,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     },
     list: { args: "--list-tests", format: "adapter", parse: (out) => parseLines(out, /^\s*-\s+(\S+)::(\S+)/, (m) => `${m[1]}#${m[2]}`) },
     perTestTimeout: (ms) => `--enforce-time-limit --default-time-limit=${Math.ceil(ms / 1000)}`,
+    amend: phpunitAborted,
     plugins: [{ name: "phpunit/php-invoker", needed: (ptt) => ptt, missing: /php-invoker|pcntl extension is required/i, hint: "phpunit enforces per-test time limits only with the phpunit/php-invoker package and the pcntl extension: composer require --dev phpunit/php-invoker" }],
     id: classHash,
   },

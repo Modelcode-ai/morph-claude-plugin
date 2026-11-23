@@ -9,10 +9,13 @@ import { type ParsedFile, type RawCase, ReportError, type ReportFormat } from ".
 export * from "./types.ts";
 
 /** Parse one report; the format is sniffed from the content, the hint breaks ties. */
-export function parseReportText(text: string, hint?: ReportFormat, cwd?: string): { format: ReportFormat; cases: RawCase[] } {
+export function parseReportText(text: string, hint?: ReportFormat, cwd?: string): { format: ReportFormat; cases: RawCase[]; partial?: string } {
   const body = text.replace(/^﻿/, "").trim();
   if (!body) throw new ReportError("empty report");
-  if (hint === "go-json") return { format: "go-json", cases: parseGoJson(body) };
+  if (hint === "go-json") {
+    const info: { cut?: string } = {};
+    return { format: "go-json", cases: parseGoJson(body, info), partial: info.cut };
+  }
   if (body.startsWith("<")) {
     if (/<TestRun[\s>]/.test(body.slice(0, 4000))) return { format: "trx", cases: parseTrx(body) };
     return { format: "junit", cases: parseJUnit(body) };
@@ -36,8 +39,8 @@ export function parseReportText(text: string, hint?: ReportFormat, cwd?: string)
 
 export function parseReportFile(file: string, hint?: ReportFormat, cwd?: string): ParsedFile {
   try {
-    const { format, cases } = parseReportText(fs.readFileSync(file, "utf8"), hint, cwd);
-    return { file, format, cases };
+    const { format, cases, partial } = parseReportText(fs.readFileSync(file, "utf8"), hint, cwd);
+    return partial ? { file, format, cases, partial } : { file, format, cases };
   } catch (e) {
     return { file, cases: [], error: e instanceof ReportError ? e.message : `unreadable: ${(e as Error).message}` };
   }

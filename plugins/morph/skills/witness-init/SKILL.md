@@ -65,6 +65,11 @@ Run `witness check`. It goes stage by stage: config, dependencies, booting each 
 listing each suite's tests (or a smoke run when the framework cannot list). It can take minutes
 on the first build; follow the "Long commands" rules of the `test-change` skill.
 
+It also prints a line per suite: where `report`, `list`, `select` and the per-test timeout come
+from, and what each missing one costs. Fix what you can: when `select` is `none` because the
+command is compound (`cd x && ...`), put `${WITNESS_SELECT}` where the runner's arguments go; when
+`list` is `none`, add `list = "<command printing one test id per line>"` or let one full run fill it.
+
 When a stage fails, follow the diagnosis it prints (cause, evidence line, `try` commands). The
 `triage` skill explains each cause. Use `witness check --stage boot --service <name>` to work on
 one service at a time. Up to five rounds; then stop and report what blocks you.

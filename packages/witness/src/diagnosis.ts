@@ -97,6 +97,11 @@ export function diagnose(inp: DiagnoseInput): Diagnosis {
       break;
     }
   }
+  const linger = cause === "stalled" && !evidence ? lines.find((l) => /did not exit one second after the test run has completed/.test(l)) : undefined;
+  if (linger) {
+    evidence = linger.trim();
+    inp = { ...inp, extraTry: ["the tests finished but open handles (a hung request, a server, a timer) kept jest running: close them in afterAll, or add --forceExit to the suite cmd", ...(inp.extraTry ?? [])] };
+  }
   evidence ??= lastMeaningful(lines, cause !== "stalled" && cause !== "suite_timeout")?.slice(0, 500);
   const d: Diagnosis = {
     stage: inp.stage,

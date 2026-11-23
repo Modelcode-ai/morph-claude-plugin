@@ -1,6 +1,6 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { arr } from "../util.ts";
-import { type Attachment, type RawCase, ReportError } from "./types.ts";
+import { type Attachment, failureSummary, type RawCase, ReportError } from "./types.ts";
 
 const ARRAYS = new Set(["testsuite", "testcase", "failure", "error", "skipped", "flakyFailure", "flakyError", "rerunFailure", "rerunError", "property", "system-out"]);
 
@@ -73,7 +73,7 @@ function caseFrom(tc: Node, suite: Node): RawCase {
   if (bad !== undefined) {
     c.status = "failed";
     if (failures.length === 0) c.statusDetail = "error";
-    c.message = (attr(bad, "message") ?? textOf(bad).trim().split("\n")[0] ?? "").slice(0, 2000) || undefined;
+    c.message = (attr(bad, "message") ?? failureSummary(textOf(bad)) ?? "").slice(0, 2000) || undefined;
     const trace = textOf(bad).trim();
     if (trace) c.trace = trace.slice(0, 20000);
     if (/Timeout/.test(attr(bad, "type") ?? "") || /timed out|timeout of \d+|timeout \d+ ?ms exceeded/i.test(c.message ?? "")) c.statusDetail = "timeout";

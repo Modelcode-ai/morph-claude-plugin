@@ -46,7 +46,7 @@ const BUILD_FAILED = [
   /\berror (CS|FS|BC|MSB|NU|NETSDK)\d{4}\b/,
   /\bBuild FAILED\b/,
   /\[ERROR\] (COMPILATION ERROR|Failed to execute goal \S+:(compile|testCompile|resources))/,
-  /^FAILURE: Build failed with an exception/,
+  /Execution failed for task '[^']*:(compile\w*|process\w*Resources)'/,
   /^e: .*\.kts?:\d+/,
   /\berror TS\d{4}\b/,
   /^(FAIL|ok)\s+\S+\s+\[(build|setup) failed\]/,
@@ -145,6 +145,15 @@ export function suiteCommand(suite: Suite, adapter: Adapter, vars: Record<string
   return fillSelect(cmd, selection);
 }
 
+/** Report rows from the readable part of a report plus the tests rerun alone for the rest. */
+function mergePartial(kept: TestRecord[], reran: ReconcileResult, exitCode: number | null): ReconcileResult {
+  const tests = [...kept, ...reran.tests];
+  const note = `report partly unreadable; ${reran.tests.length} test(s) rerun alone`;
+  if (tests.some((t) => t.status === "failed")) return { ...reran, tests, state: "failed", cause: "report_unreadable", note };
+  if (tests.some((t) => t.status === "other")) return { ...reran, tests, state: "error", cause: "report_unreadable", note };
+  return { ...reran, tests, state: exitCode === 0 ? "passed" : "error", cause: exitCode === 0 ? "report_unreadable" : "report_incomplete", note };
+}
+
 /** Whether witness can run a subset of this suite's tests. */
 export function canSelect(suite: Suite, adapter: Adapter, vars: Record<string, string | undefined> = {}): boolean {
   if (suite.select) return true;
@@ -155,7 +164,8 @@ export function canSelect(suite: Suite, adapter: Adapter, vars: Record<string, s
 
 /** The plugin the framework says is missing (a report formatter, a timeout plugin), from the suite's output. */
 export function missingPlugin(adapter: Adapter, output: string, perTestTimeout: boolean) {
-  return adapter.plugins?.find((p) => p.needed(perTestTimeout) && p.missing.test(output));
+  const said = output.split(/\r?\n/).filter((l) => !l.startsWith("$ ")).join("\n");
+  return adapter.plugins?.find((p) => p.needed(perTestTimeout) && p.missing.test(said));
 }
 
 export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | undefined, retries: number): Promise<SuiteRun> {
@@ -174,16 +184,16 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   const logStart = fileSize(log);
   const before = snapshotReports(ctx, suite, adapter, cwd, reportDir);
   const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
-  const files = collect(ctx, suite, adapter, cwd, reportDir, log, before);
+  const files = collect(ctx, suite, adapter, cwd, reportDir, log, before, logStart);
   let expected = select;
   const usable = files.some((f) => f.cases.length);
   const hint = adapter.reportHint?.(cwd, cmd);
   const exitCodeOnly = suite.adapter === "generic" && !suite.report && files.length === 0;
   const output = !usable && exec.end === "exit" && !exitCodeOnly ? readFrom(log, logStart) : "";
   const plugin = output && exec.code !== 0 ? missingPlugin(adapter, output, !!suite.perTestTimeoutMs) : undefined;
-  const broken = output && exec.code !== 0 ? (plugin ? output.split(/\r?\n/).find((l) => plugin.missing.test(l))?.trim().slice(0, 500) : buildFailure(output, exec.code)) : undefined;
+  const broken = output && exec.code !== 0 ? (plugin ? output.split(/\r?\n/).find((l) => !l.startsWith("$ ") && plugin.missing.test(l))?.trim().slice(0, 500) : buildFailure(output, exec.code)) : undefined;
   let listed: TestList | undefined;
-  if (!expected && !usable && !hint && !broken && exec.end === "exit" && !(suite.adapter === "generic" && !suite.report)) {
+  if (!expected && (!usable || files.some((f) => f.error || f.partial)) && !hint && !broken && exec.end === "exit" && !(suite.adapter === "generic" && !suite.report)) {
     listed = await listTests(ctx, suite, cwd, log);
     expected = listed.ids;
   }
@@ -195,6 +205,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   if (!select?.length && !p && exec.end === "exit" && usable && !files.some((f) => f.error) && (res.state === "passed" || res.state === "failed"))
     writeListCache(ctx.cfg.root, suite, ctx.run.runId, ctx.run.status.commit, res.tests.filter((t) => t.obtained === "report").map((t) => t.id.slice(adapter.name.length + 1)));
 
+  const kept = res.rerun?.length ? res.tests : [];
   if (res.rerun?.length && !ctx.abort.aborted) {
     const selectable = canSelect(suite, adapter, vars);
     if (res.rerun.length <= MAX_RERUNS && selectable && !hint) {
@@ -206,12 +217,14 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
         fs.mkdirSync(dir, { recursive: true });
         const c = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
         const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
-        const e = await execWatched(ctx, suite, adapter, c, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60_000));
+        const rlog = path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`);
+        const from = fileSize(rlog);
+        const e = await execWatched(ctx, suite, adapter, c, cwd, dir, rlog, suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60_000));
         if (e.died) {
           exec.died = e.died;
           break;
         }
-        const got = collect(ctx, suite, adapter, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), snap);
+        const got = collect(ctx, suite, adapter, cwd, dir, rlog, snap, from);
         if (i === 0 && !got.some((f) => f.cases.length)) {
           ctx.progress.line(`${p}suite  ${suite.name} · a single test run alone wrote no report either; not rerunning the rest`);
           results.length = 0;
@@ -221,10 +234,12 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
       }
       const ids = res.rerun;
       res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause!, listed?.source === "last-report" ? listed.detail : undefined) : { ...res, rerun: undefined, tests: ids.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", `no report from the suite (exit code ${exec.code}), nor when one test ran alone`)) };
+      if (kept.length) res = mergePartial(kept, res, exec.code);
       if (listed) res.note = `${res.note} · ${listed.detail}`;
     } else {
       const why = !selectable ? "this suite can't select single tests" : hint ? "the suite can't write a per-test report" : `more than ${MAX_RERUNS} tests`;
-      res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}; no per-test reruns: ${why}`)] };
+      const note = `${res.note}; exit code ${exec.code}; no per-test reruns: ${why}`;
+      res = { ...res, tests: kept.length ? [...kept, ...res.rerun.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", note))] : [suiteLevel(adapter, suite.name, exec.code, note)] };
     }
   } else if (res.cause && (res.cause === "report_missing" || res.cause === "report_unreadable") && listed && !listed.ids) {
     res.note = `${res.note} · ${listed.detail}`;
@@ -343,7 +358,7 @@ function snapshotReports(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: str
   return new Map(outsideReports(ctx, suite, adapter, cwd, reportDir).filter((f) => !f.src.startsWith(reportDir + path.sep)).map((f) => [f.src, stamp(f.src)]));
 }
 
-function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, reportDir: string, log: string, before: Map<string, string>): ParsedFile[] {
+function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, reportDir: string, log: string, before: Map<string, string>, logFrom = 0): ParsedFile[] {
   const files: string[] = [];
   if (adapter.fromStdout && !suite.report) {
     const out = path.join(reportDir, "stdout.jsonl");
@@ -366,8 +381,12 @@ function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, rep
     fs.copyFileSync(src, dst);
     files.push(dst);
   }
-  const uniq = [...new Set(files)];
-  return uniq.map((f) => parseReportFile(f, adapter.format, cwd));
+  const parsed = [...new Set(files)].map((f) => parseReportFile(f, adapter.format, cwd));
+  if (adapter.amend) {
+    const out = readFrom(log, logFrom);
+    for (const f of parsed) adapter.amend(f.cases, out);
+  }
+  return parsed;
 }
 
 async function listTests(ctx: SuiteCtx, suite: Suite, cwd: string, log: string): Promise<TestList> {
@@ -388,9 +407,10 @@ async function retryFailed(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: s
     ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids.length} failed test(s)`);
     const rlog = path.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
     const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
+    const from = fileSize(rlog);
     const e = await execWatched(ctx, suite, adapter, cmd, cwd, dir, rlog, suite.timeoutMs);
     if (e.end !== "exit") return;
-    const again = collect(ctx, suite, adapter, cwd, dir, rlog, snap).flatMap((f) => f.cases.map((c) => toRecord(c, adapter, suite.name, cwd)));
+    const again = collect(ctx, suite, adapter, cwd, dir, rlog, snap, from).flatMap((f) => f.cases.map((c) => toRecord(c, adapter, suite.name, cwd)));
     for (const t of failing) {
       const r = again.find((a) => a.id === t.id);
       t.retries = (t.retries ?? 0) + 1;

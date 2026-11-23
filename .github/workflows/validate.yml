@@ -37,3 +37,51 @@ jobs:
       - run: npm run check:skills
       - name: The bundle is up to date
         run: npm run build && git diff --exit-code dist/
+
+  witness-conformance:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [pytest, jest, vitest, mocha, playwright, junit-maven, junit-gradle, go, rspec, phpunit, dotnet-xunit, dotnet-mstest]
+    defaults:
+      run:
+        working-directory: packages/witness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - if: matrix.framework == 'pytest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: startsWith(matrix.framework, 'junit-')
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - if: matrix.framework == 'junit-gradle'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - if: matrix.framework == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - if: matrix.framework == 'rspec'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - if: matrix.framework == 'phpunit'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pcntl
+          tools: composer:v2
+      - if: startsWith(matrix.framework, 'dotnet-')
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+      - run: npm ci
+      - run: npm run conformance -- ${{ matrix.framework }}

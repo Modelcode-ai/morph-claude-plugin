@@ -1,0 +1,12 @@
+{
+  "name": "witness/kit-phpunit",
+  "description": "Witness conformance kit: phpunit",
+  "type": "project",
+  "require-dev": {
+    "phpunit/phpunit": "12.5.40",
+    "phpunit/php-invoker": "6.0.0"
+  },
+  "autoload-dev": {
+    "psr-4": { "Kit\\": "tests/" }
+  }
+}

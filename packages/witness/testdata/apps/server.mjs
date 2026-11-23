@@ -28,7 +28,7 @@ srv.on("error", (e) => {
   console.error(`Error: listen ${e.code}: address already in use 127.0.0.1:${port}`);
   process.exit(1);
 });
-srv.listen(port, "127.0.0.1", () => {
+srv.listen(port, process.env.HOST ?? "127.0.0.1", () => {
   console.log(`listening on ${srv.address().port} (${mode})`);
   if (mode === "crash-after-ready") setTimeout(() => {
     console.error("FATAL: out of memory (simulated)");

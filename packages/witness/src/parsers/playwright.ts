@@ -1,4 +1,4 @@
-import { type Attachment, type RawCase, ReportError } from "./types.ts";
+import { type Attachment, failureSummary, type RawCase, ReportError } from "./types.ts";
 
 interface PwResult {
   status?: string;
@@ -66,7 +66,7 @@ export function parsePlaywright(json: unknown): RawCase[] {
         const err = [...results].reverse().find((r) => r.error || r.errors?.length);
         const e = err?.error ?? err?.errors?.[0];
         if (e && c.status !== "passed") {
-          c.message = stripAnsi(e.message ?? "").split("\n")[0].slice(0, 2000) || undefined;
+          c.message = failureSummary(e.message);
           if (e.stack || e.message) c.trace = stripAnsi(e.stack ?? e.message ?? "").slice(0, 20000);
         }
         const atts: Attachment[] = [];

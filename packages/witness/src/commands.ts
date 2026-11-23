@@ -116,7 +116,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
         continue;
       }
       const cwd = path.resolve(root, s.cwd);
-      const cenv = childEnv(env, stack.serviceUrlEnv());
+      const cenv = childEnv(env, { ...stack.serviceUrlEnv(), ...Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, substitute(v, stack.vars())])) });
       let pluginMissing = false;
       for (const pl of ad.plugins ?? []) {
         if (!pl.needed(!!s.perTestTimeoutMs) || !pl.probeArgs) continue;

@@ -1,4 +1,4 @@
-import { type RawCase, ReportError, type TestStatus } from "./types.ts";
+import { failureSummary, type RawCase, ReportError, type TestStatus } from "./types.ts";
 
 interface JestAssertion {
   ancestorTitles?: string[];
@@ -38,7 +38,7 @@ export function parseJestJson(json: unknown, cwd?: string): RawCase[] {
         titles: [...(a.ancestorTitles ?? []), a.title ?? "(unnamed)"],
         status: MAP[a.status ?? ""] ?? "other",
         durationMs: a.duration ?? 0,
-        message: fail ? fail.trim().split("\n")[0].slice(0, 2000) : undefined,
+        message: failureSummary(fail),
         trace: fail ? fail.slice(0, 20000) : undefined,
         retries: a.invocations && a.invocations > 1 ? a.invocations - 1 : undefined,
         flaky: a.invocations && a.invocations > 1 && a.status === "passed" ? true : undefined,

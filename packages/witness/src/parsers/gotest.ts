@@ -8,19 +8,22 @@ interface GoEvent {
   Output?: string;
 }
 
-/** `go test -json` events; non-JSON lines (build output) are ignored. */
-export function parseGoJson(text: string): RawCase[] {
+export const NEVER_FINISHED = "test started but never finished (binary crashed, timed out or was killed)";
+
+/** `go test -json` events; non-JSON lines (build output) are ignored. `info.cut` is set when a JSON line is cut off. */
+export function parseGoJson(text: string, info: { cut?: string } = {}): RawCase[] {
   const tests = new Map<string, RawCase & { out: string[]; done: boolean }>();
   const pkgOut = new Map<string, string[]>();
   const pkgEnd = new Map<string, string>();
   let events = 0;
-  for (const line of text.split(/\r?\n/)) {
+  for (const [n, line] of text.split(/\r?\n/).entries()) {
     const l = line.trim();
     if (!l.startsWith("{")) continue;
     let e: GoEvent;
     try {
       e = JSON.parse(l) as GoEvent;
     } catch {
+      if (/^\{"(Time|Action)"/.test(l)) info.cut = `go test -json output cut off at line ${n + 1}`;
       continue;
     }
     if (!e.Action) continue;
@@ -50,8 +53,8 @@ export function parseGoJson(text: string): RawCase[] {
     const { out: lines, done, ...c } = t;
     if (!done) {
       c.status = "failed";
-      c.statusDetail = /panic: test timed out/.test((pkgOut.get(c.classname!) ?? []).join("")) ? "timeout" : "error";
-      c.message = "test started but never finished (binary crashed, timed out or was killed)";
+      c.statusDetail = /panic: test timed out/.test([...lines, ...(pkgOut.get(c.classname!) ?? [])].join("")) ? "timeout" : "error";
+      c.message = c.statusDetail === "timeout" ? (lines.find((x) => /panic: test timed out/.test(x))?.trim() ?? NEVER_FINISHED) : NEVER_FINISHED;
     }
     if (c.status === "failed") {
       const body = lines.filter((x) => !/^(=== |--- |\s*$)/.test(x)).join("");

@@ -36,8 +36,8 @@ interface ListCache {
 
 const cacheFile = (root: string, suite: string) => path.join(root, ".witness", "cache", "tests", `${suite}.json`);
 
-/** What the cached list depends on: a different command can mean different tests. */
-export const suiteKey = (s: Suite) => sha(JSON.stringify([s.adapter, s.cwd, s.cmd, s.report ?? ""]));
+/** What the cached list depends on. Not the command: wrapping or adding flags keeps the tests; ids that are gone end as missing, never failed. */
+export const suiteKey = (s: Suite) => sha(JSON.stringify([s.adapter, s.cwd]));
 
 export function readListCache(root: string, suite: Suite): ListCache | undefined {
   const c = readJson<ListCache | null>(cacheFile(root, suite.name), null);
@@ -109,7 +109,8 @@ export async function listSuiteTests(suite: Suite, ctx: ListCtx): Promise<TestLi
   const fresh = cache && cache.key === suiteKey(suite) ? cache : undefined;
   let error: string | undefined;
   if (lc) {
-    const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...(lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}) });
+    const v = { ...ctx.vars, WITNESS_REPORT_DIR: ctx.scratch };
+    const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...(lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}), ...Object.fromEntries(Object.entries(suite.env).map(([k, x]) => [k, substitute(x, v)])) });
     const r = await runCapture(lc.cmd, { cwd: ctx.cwd, env, timeoutMs: 5 * 60_000, log: ctx.log, abort: ctx.abort, track: ctx.track });
     let ids = r.code === 0 || lc.format === "report" ? parseListing(lc, adapter, r.out, ctx.scratch, ctx.cwd) : [];
     if (ids.length) {
@@ -126,7 +127,7 @@ export async function listSuiteTests(suite: Suite, ctx: ListCtx): Promise<TestLi
   }
   if (fresh) return { ids: fresh.ids, source: "last-report", detail: `list: last report ${fresh.run_id} (${ago(fresh.at)} ago, ${fresh.ids.length} tests${error ? `; ${lc!.source} ${error}` : ""})`, error, log: lc ? ctx.log : undefined };
   const why = error ?? (lc ? "no tests listed" : `the ${adapter.name} adapter can't list tests and the suite has no complete run yet`);
-  return { source: "none", detail: `list: none (${cache ? `${why}; the last report is from a different suite command` : why})`, error: why, log: lc ? ctx.log : undefined };
+  return { source: "none", detail: `list: none (${cache ? `${why}; the last report is from a different adapter or folder` : why})`, error: why, log: lc ? ctx.log : undefined };
 }
 
 export interface Capabilities {

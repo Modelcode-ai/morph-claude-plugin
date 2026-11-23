@@ -54,7 +54,6 @@ describe("adapter table", () => {
     assert.deepEqual(ADAPTERS.go.list!.parse!("TestA\nTestB\nok  \texample.com/x\t0.01s\nTestC\nok  \texample.com/y\t0.01s\n"), ["example.com/x#TestA", "example.com/x#TestB", "example.com/y#TestC"]);
     assert.deepEqual(ADAPTERS.playwright.list!.parse!("Listing tests:\n  [chromium] › a.spec.ts:3:5 › pay › card\n  [firefox] › a.spec.ts:3:5 › pay › card\nTotal: 2 tests in 1 file\n"), ["a.spec.ts > pay > card [chromium]", "a.spec.ts > pay > card [firefox]"]);
     assert.deepEqual(ADAPTERS.phpunit.list!.parse!("Available test(s):\n - Tests\\CartTest::testAdd\n"), ["Tests\\CartTest#testAdd"]);
-    assert.equal(ADAPTERS.vitest.list!.rewrite!("npx vitest run --dir src"), "npx vitest list --dir src");
   });
 
   test("id helpers", () => {

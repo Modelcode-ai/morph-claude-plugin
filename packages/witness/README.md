@@ -73,10 +73,28 @@ Variables: `${PORT}`, `${self.url}`, `${<service>.url}`, `${CHECKOUT}`, `${WITNE
 `${WITNESS_REPORT_DIR}` (suites) and any environment variable. Unknown `${X}` is left for the shell.
 Suites also get `WITNESS_<SERVICE>_URL`, `WITNESS_REPORT_DIR` and `WITNESS_ARTIFACTS`.
 
-Additions beyond the shared contract: `suite.select` (a command template with `{ids}` or `{id}`
-for adapters that can't select tests on their own), `service.origin_for` (which target an
-`role = "origin"` service stands in for; defaults to the name minus `-origin`) and
-`run.kill_grace` (SIGTERM to SIGKILL delay, default 5s).
+Additions beyond the shared contract: `service.origin_for` (which target an `role = "origin"`
+service stands in for; defaults to the name minus `-origin`), `run.kill_grace` (SIGTERM to SIGKILL
+delay, default 5s), and the per-suite overrides below.
+
+Adapters are presets. Each capability can be set per suite:
+
+| key | what it does |
+| --- | --- |
+| `report = "<glob>"` | read the report from here instead of asking the framework for one |
+| `${WITNESS_SELECT}` in `cmd` | marks where the runner's arguments go. Witness puts its report args, the per-test timeout and the selection there (nothing when running everything; `${WITNESS_SELECT:-tests/e2e}` gives a default). Selection then works in any command shape: `cd app && pytest ${WITNESS_SELECT:-tests} \| tee out.txt` |
+| `select = "<cmd> {ids}"` | a whole command that runs only `{ids}` (or `{id}`, one at a time) |
+| `list = "<cmd>"` or `list = { cmd, format, report }` | lists the suite's tests. `format`: `lines` (one id per line; the default when the adapter has no list parser), `adapter` (the adapter's own list output), `report` (the command writes a report, to `$WITNESS_REPORT_DIR` or `report = "<glob>"`, and its test ids are the list) |
+| `per_test_timeout_arg = "-timeout {s}s"` | the runner flag for `per_test_timeout` when the adapter has none: `{s}` seconds, `{ms}` milliseconds |
+
+When a suite can't list its tests (no `list`, no adapter listing, or the listing fails), witness
+uses the tests of the suite's last complete report: every full run whose report was readable and
+whose process exited on its own refreshes `.witness/cache/tests/<suite>.json`. That list feeds
+`plan check`, the tests witness looks for when a report is missing, and the per-test reruns, and
+the output always names it (`list: last report r-… (2h ago, 12 tests)`). An id from an old report
+that no longer exists ends as `other/missing`, never as a failure. `witness check` prints one line
+per suite with where `report`, `list`, `select` and the per-test timeout come from, and what each
+missing one costs. `docs/witness/FRAMEWORKS.md` has the tested support matrix.
 
 `witness init` reads each test project (per csproj, pytest root, package.json, Maven/Gradle
 build, go module, Gemfile, phpunit.xml) and classifies its test files from imports, package
@@ -135,20 +153,20 @@ copies them as `witness-<name>` (or links them with `--link`, keeping their own 
 
 ## Adapters
 
-| adapter | report witness asks for | select one test | list |
-| --- | --- | --- | --- |
-| pytest | `--junitxml` (xunit1, for file paths) | node ids replace positional args | `--collect-only -q` |
-| junit-maven | surefire/failsafe XML from `target/` | `-Dtest=Class#method` | - |
-| junit-gradle | `build/test-results/**/*.xml` | `--tests Class.method` | - |
-| dotnet | TRX: `--logger trx` (VSTest), `--report-xunit-trx` (xunit v3 on MTP), `--report-trx` (MTP + TrxReport) | `--filter FullyQualifiedName=...` | `--list-tests` |
-| jest | `--json --outputFile` (parsed natively) | `-t` | - |
-| vitest | `--reporter=junit` | `-t` | `vitest list` |
-| playwright | JSON reporter | file + `--grep` | `--list` |
-| go | `go test -json` on stdout | `-run` | `-list .` |
-| mocha | `--reporter xunit` | `--grep` | - |
-| rspec | `RspecJunitFormatter` (gem required) | `-e` | - |
-| phpunit | `--log-junit` | `--filter` | `--list-tests` |
-| generic | any JUnit/TRX/JSON in `$WITNESS_REPORT_DIR` or `report = "<glob>"`; else the exit code | `select` template | - |
+| adapter | report witness asks for | select one test | list | per-test timeout |
+| --- | --- | --- | --- | --- |
+| pytest | `--junitxml` (xunit1, for file paths) | node ids replace positional args | `--collect-only -q` | `--timeout` (pytest-timeout) |
+| junit-maven | surefire/failsafe XML from `target/` | `-Dtest=Class#method` | last report | `-Djunit.jupiter.execution.timeout.default` |
+| junit-gradle | `build/test-results/**/*.xml` | `--tests Class.method` | last report | - |
+| dotnet | TRX: `--logger trx` (VSTest), `--report-xunit-trx` (xunit v3 on MTP), `--report-trx` (MTP + TrxReport) | `--filter FullyQualifiedName=...` | `--list-tests` | `--blame-hang-timeout` (VSTest only) |
+| jest | `--json --outputFile` (parsed natively) | `-t` | a run whose `-t` matches nothing (every test reported skipped) | `--testTimeout --forceExit` |
+| vitest | `--reporter=junit` | `-t` | the same trick as jest | `--testTimeout` |
+| playwright | JSON reporter | file + `--grep` | `--list` | `--timeout` |
+| go | `go test -json` on stdout | `-run` | `-list .` | - |
+| mocha | `--reporter xunit` | `--grep` | `--dry-run` | `--timeout --exit` |
+| rspec | `RspecJunitFormatter` (gem required) | `-e` | `--dry-run` | - |
+| phpunit | `--log-junit` | `--filter` | `--list-tests` | `--enforce-time-limit --default-time-limit` (php-invoker) |
+| generic | any JUnit/TRX/JSON in `$WITNESS_REPORT_DIR` or `report = "<glob>"`; else the exit code | `select` template | `list` template | `per_test_timeout_arg` |
 
 If the command already wires a report (for example `--junitxml=...`), witness adds nothing and
 reads it through `report = "<glob>"`. Stable test ids are `<adapter>:<id>`: a pytest node id,

@@ -1,0 +1,18 @@
+#!/bin/sh
+# in-docker <image> <cmd...>: run cmd in image, the current folder mounted at its own path so report paths stay valid.
+# WITNESS_* and KIT_* env vars are forwarded, with loopback URLs pointed at the host. KIT_DOCKER_ARGS adds docker run args (cache volumes).
+image=$1
+shift
+name="witness-kit-$$-$(date +%s)"
+envfile=$(mktemp "${TMPDIR:-/tmp}/witness-kit-env.XXXXXX")
+env | grep -E '^(WITNESS_[A-Za-z0-9_]*|KIT_[A-Za-z0-9_]*|BASE_URL)=' | sed -E 's#//(127\.0\.0\.1|localhost)([:/]|$)#//host.docker.internal\2#g' > "$envfile"
+cleanup() { docker rm -f "$name" >/dev/null 2>&1; rm -f "$envfile"; }
+trap 'cleanup; exit 143' TERM INT
+# shellcheck disable=SC2086
+docker run --rm --init --name "$name" --env-file "$envfile" --add-host=host.docker.internal:host-gateway \
+  -v "$PWD:$PWD" $KIT_DOCKER_ARGS -w "$PWD" "$image" "$@" &
+child=$!
+wait $child
+code=$?
+cleanup
+exit $code

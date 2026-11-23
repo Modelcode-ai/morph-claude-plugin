@@ -11,7 +11,8 @@
     "build": "bun build src/cli.ts --target=node --format=esm --outfile dist/witness.mjs",
     "typecheck": "tsc --noEmit -p .",
     "build:plugin": "node --no-warnings scripts/build-plugin.ts",
-    "check:skills": "node --no-warnings scripts/check-skills.ts"
+    "check:skills": "node --no-warnings scripts/check-skills.ts",
+    "conformance": "node --no-warnings conformance/run.ts"
   },
   "engines": {
     "node": ">=22.18"
