@@ -134,6 +134,16 @@ test("scan: an existing config marks what it covers, counts a comment as a recor
   assert.deepEqual(bad.config?.missing.testProjects, [". (pytest)"]);
 });
 
+test("scan: a dependency named after a store type covers the database URLs of that type", () => {
+  const dir = copy("node-secrets");
+  fs.mkdirSync(path.join(dir, ".witness"));
+  fs.writeFileSync(path.join(dir, ".witness", "witness.toml"), 'version = 1\n[[dependency]]\nname = "postgres"\ncheck = "pg_isready -h localhost"\n');
+  const r = scan(dir);
+  assert.equal(r.infrastructure.find((i) => i.name === "DATABASE_URL")?.configured, "postgres", "a dependency named after the store type");
+  assert.deepEqual(r.config?.missing.infrastructure, []);
+  assert.deepEqual(r.config?.missing.secrets, ["E2E_ADMIN_PASSWORD", "JWT_SECRET", "SENDGRID_API_KEY", "STRIPE_SECRET_KEY"]);
+});
+
 test("init --scan prints JSON, writes nothing, and plain init still writes the example", async () => {
   const dir = copy("node-secrets");
   const r = await witness(dir, ["init", "--scan"]);

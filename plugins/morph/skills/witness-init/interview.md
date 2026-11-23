@@ -126,7 +126,9 @@ Ask only when the fix is a choice the user owns: installing an SDK, a browser or
 their machine, freeing a port their own process holds, or moving the app into Docker. Fix the rest
 yourself: a wrong path, a missing flag, the readiness URL.
 
-Default: the fix that changes least outside the repo.
+Default: the fix that changes least outside the repo. Installing software or changing the machine
+is never a default: write the config so that it works once the user has done it (a required
+variable such as the SDK's folder), and report the exact step as what blocks you.
 
 After five rounds, stop and report what blocks you.
 

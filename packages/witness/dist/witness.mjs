@@ -16516,7 +16516,7 @@ function scanAppSettings(root, w, out) {
   }
 }
 var HEALTH_ROUTE = /\bMapHealthChecks\(\s*"([^"]+)"|(?:@\w+\.|\b(?:app|router|server|api|fastify|r|mux|e|g)\.)(?:get|route|api_route|MapGet|HandleFunc|Handle|GET|add_api_route)\(\s*["'](\/?[\w/-]+)["']|\bMapGet\(\s*"(\/?[\w/-]+)"|@(?:Get|Request)Mapping\(\s*(?:value\s*=\s*)?"(\/?[\w/-]+)"/g;
-var HEALTH_PATH = /(^|\/|_)(health\w*|ready\w*|livez?|alive|ping|status)$/i;
+var HEALTH_PATH = /(^|\/|_)(health\w*|ready\w*|livez?|alive|ping)$/i;
 var USER_NAME = /(user|admin|login|account|manager|tester)\w*\s*[:=]/i;
 var EMAIL = /["'`]([\w.+-]+@[\w-]+(?:\.[\w-]+)+)["'`]/g;
 var SEED_PATH = /(^|\/)(seeds?|seeders|seeding)(\/|$)|(^|\/)[\w.-]*seed[\w.-]*\.\w+$/i;
@@ -16756,6 +16756,9 @@ function existingConfig(root, out) {
     const names = [e.name, e.envName].filter(Boolean);
     e.configured = given.find(([, set]) => names.some((n) => set.has(n)))?.[0] ?? (names.some(named) ? "comment" : undefined);
   }
+  const decided = (i) => !!i.configured || (i.source === "env" || i.source === "appsettings") && out.infrastructure.some((o) => o.configured && o.type === i.type);
+  const missingInfra = out.infrastructure.filter((i) => !decided(i) && i.source !== "dependency" && i.source !== "ci" && i.type !== "telemetry");
+  const coveredStore = (name) => out.infrastructure.some((i) => i.name === name && decided(i));
   return {
     file: rel,
     rendered,
@@ -16765,8 +16768,8 @@ function existingConfig(root, out) {
     required: cfg.required,
     missing: {
       testProjects: out.testProjects.filter((t) => t.status !== "excluded" && !t.configured).map((t) => t.path),
-      infrastructure: out.infrastructure.filter((i) => !i.configured && i.source !== "dependency" && i.source !== "ci" && i.type !== "telemetry" && !(i.source === "env" && out.infrastructure.some((o) => o.configured && o.type === i.type))).map((i) => i.name),
-      secrets: out.env.filter((e) => e.secret && !e.configured && e.readBy.some((r) => r !== "ci")).map((e) => e.name)
+      infrastructure: missingInfra.map((i) => i.name),
+      secrets: out.env.filter((e) => e.secret && !e.configured && e.readBy.some((r) => r !== "ci") && !coveredStore(e.name)).map((e) => e.name)
     },
     unmatched: { suites: cfg.suites.filter((s) => !matched.has(s.name)).map((s) => s.name), dependencies: cfg.dependencies.filter((d) => !depMatched.has(d.name)).map((d) => d.name) }
   };
