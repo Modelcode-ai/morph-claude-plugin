@@ -114,10 +114,11 @@ export function summarize(name: string, state: SuiteState, tests: TestRecord[]):
   return s;
 }
 
+/** One row for a whole suite. Without a report, exit 0 proves nothing, so it is other/missing, never passed. */
 export function suiteLevel(adapter: Adapter, suite: string, exitCode: number | null, message: string, exitCodeOnly = false): TestRecord {
   const ok = exitCode === 0;
-  const r: TestRecord = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? "passed" : "failed", durationMs: 0, obtained: "suite-level", message };
-  if (!ok && !exitCodeOnly) r.statusDetail = "error";
+  const r: TestRecord = { id: stableId(adapter.name, `(suite ${suite})`), name: suite, suite, adapter: adapter.name, status: ok ? (exitCodeOnly ? "passed" : "other") : "failed", durationMs: 0, obtained: "suite-level", message };
+  if (!exitCodeOnly) r.statusDetail = ok ? "missing" : "error";
   return r;
 }
 
@@ -170,8 +171,8 @@ export function reconcile(inp: ReconcileInput): ReconcileResult {
   return { tests: [suiteLevel(adapter, suite, exitCode, `${note}; exit code ${exitCode}`)], state: "error", cause, note };
 }
 
-function missing(id: string, adapter: Adapter, suite: string, detail: StatusDetail): TestRecord {
-  return { id, name: id.slice(adapter.name.length + 1), suite, adapter: adapter.name, status: "other", statusDetail: detail, durationMs: 0, obtained: "report", message: detail === "timeout" ? "did not finish before the suite was stopped" : "expected but absent from the report" };
+export function missing(id: string, adapter: Adapter, suite: string, detail: StatusDetail, message?: string): TestRecord {
+  return { id, name: id.slice(adapter.name.length + 1), suite, adapter: adapter.name, status: "other", statusDetail: detail, durationMs: 0, obtained: "report", message: message ?? (detail === "timeout" ? "did not finish before the suite was stopped" : "expected but absent from the report") };
 }
 
 /** Results of rerunning tests one at a time after the suite's own report was unusable. */

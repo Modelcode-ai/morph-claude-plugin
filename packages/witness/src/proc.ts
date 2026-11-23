@@ -87,9 +87,21 @@ export async function killGroup(pgid: number, graceMs: number): Promise<"gone" |
   return "killed";
 }
 
-/** Run a command to completion (group-killed on timeout); output is captured and optionally logged. */
-export async function runCapture(cmd: string, opts: { cwd: string; env: Record<string, string>; timeoutMs: number; log?: string }): Promise<{ code: number | null; out: string; timedOut: boolean }> {
+export interface CaptureOpts {
+  cwd: string;
+  env: Record<string, string>;
+  timeoutMs: number;
+  log?: string;
+  /** Kill the group as soon as this flips (Ctrl-C during a long listing or dependency start). */
+  abort?: { aborted: boolean };
+  /** Called with the group id while it runs, so a crash leaves it in state.json for the reaper. */
+  track?: (pgid: number, running: boolean) => void;
+}
+
+/** Run a command to completion (group-killed on timeout or abort); output is captured and optionally logged. */
+export async function runCapture(cmd: string, opts: CaptureOpts): Promise<{ code: number | null; out: string; timedOut: boolean }> {
   const child = spawn("bash", ["-c", cmd], { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  if (child.pid) opts.track?.(child.pid, true);
   const chunks: Buffer[] = [];
   child.stdout?.on("data", (d: Buffer) => chunks.push(d));
   child.stderr?.on("data", (d: Buffer) => chunks.push(d));
@@ -98,11 +110,14 @@ export async function runCapture(cmd: string, opts: { cwd: string; env: Record<s
     timedOut = true;
     if (child.pid) void killGroup(child.pid, 2000);
   }, opts.timeoutMs);
+  const abortPoll = opts.abort ? setInterval(() => opts.abort!.aborted && child.pid && void killGroup(child.pid, 2000), 200) : undefined;
   const code = await new Promise<number | null>((resolve) => {
     child.on("error", () => resolve(127));
     child.on("close", (c) => resolve(c));
   });
   clearTimeout(timer);
+  clearInterval(abortPoll);
+  if (child.pid) opts.track?.(child.pid, false);
   const out = Buffer.concat(chunks).toString("utf8");
   if (opts.log) {
     fs.mkdirSync(path.dirname(opts.log), { recursive: true });

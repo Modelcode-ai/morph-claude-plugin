@@ -100,6 +100,10 @@ export class RunDir {
     this.state.procs = this.state.procs.filter((p) => p.pgid !== pgid);
     this.saveState();
   }
+  /** A runCapture `track` callback that records the group under `kind`/`name`. */
+  tracker(kind: TrackedProc["kind"], name: string) {
+    return (pgid: number, running: boolean) => (running ? this.track({ kind, name, pid: pgid, pgid }) : this.untrack(pgid));
+  }
   linkLatest() {
     const link = path.join(this.root, "latest");
     try {
@@ -146,14 +150,7 @@ export async function reapStale(root: string, graceMs: number, log: (msg: string
     if (!status || status.phase === "finished" || !state || state.pid === process.pid || pidAlive(state.pid)) continue;
     const fresh = Date.now() - Date.parse(state.started_at) < 24 * 3600_000;
     let killed = 0;
-    if (fresh) {
-      for (const p of state.procs) {
-        if (groupAlive(p.pgid)) {
-          await killGroup(p.pgid, graceMs);
-          killed++;
-        }
-      }
-    }
+    if (fresh) for (const p of state.procs) if (await killTracked(p, graceMs)) killed++;
     for (const wt of state.worktrees ?? []) removeWorktree(wt);
     status.phase = "finished";
     status.outcome = "interrupted";
@@ -167,6 +164,46 @@ export async function reapStale(root: string, graceMs: number, log: (msg: string
     reaped.push(id);
   }
   return reaped;
+}
+
+/** Stop one tracked process: its stop command and pidfile pid (daemons that left the group), then its group. */
+export async function killTracked(p: TrackedProc, graceMs: number, opts: { runStop?: boolean } = {}): Promise<boolean> {
+  let hit = false;
+  const pid = p.pidfile ? Number(readText(p.pidfile)) : 0;
+  if (p.stop && opts.runStop !== false && (pidAlive(pid) || groupAlive(p.pgid))) {
+    spawnSync("bash", ["-c", p.stop], { cwd: p.cwd, stdio: "ignore", timeout: 60_000 });
+    hit = true;
+  }
+  if (pid > 1 && pidAlive(pid)) {
+    try {
+      process.kill(pid, graceMs ? "SIGTERM" : "SIGKILL");
+    } catch {
+      /* gone */
+    }
+    const until = Date.now() + graceMs;
+    while (pidAlive(pid) && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+    if (pidAlive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        /* gone */
+      }
+    }
+    hit = true;
+  }
+  if (groupAlive(p.pgid)) {
+    await killGroup(p.pgid, graceMs);
+    hit = true;
+  }
+  return hit;
+}
+
+function readText(f: string): string {
+  try {
+    return fs.readFileSync(f, "utf8").trim();
+  } catch {
+    return "";
+  }
 }
 
 function removeWorktree(wt: string) {

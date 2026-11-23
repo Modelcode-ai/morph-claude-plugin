@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { describe, test } from "node:test";
-import { APPS, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
+import { alive, APPS, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
 
@@ -205,5 +205,42 @@ ${RUN}`);
     assert.equal(r.json?.summary.tests, 3);
     assert.equal(r.json?.summary.other, 0);
     assert.doesNotMatch(r.stderr, /VERDICT passed .*other/);
+  });
+});
+
+describe("principles: stale reports and leftover daemons", { concurrency: 2 }, () => {
+  test("a report that was already on disk before the suite ran is not its result", async () => {
+    const old = `<?xml version="1.0"?><testsuite name="x"><testcase classname="Old" name="passes" time="0.1"/></testsuite>`;
+    const dir = tmpRepo(`version = 1\n[[suite]]\nname = "unit"\nservice = []\ncmd = "echo ran"\nreport = "out/*.xml"\n${RUN}`, { files: { "out/old.xml": old } });
+    const r = await witness(dir, ["run", "--json"]);
+    assert.equal(r.code, 2, r.stderr);
+    assert.equal(r.json?.suites[0].cause, "report_missing");
+    const t = ctrf(dir).results.tests;
+    assert.equal(t.length, 1);
+    assert.equal(t[0].status, "other", "exit 0 without a report is not a pass");
+    assert.equal(t[0].extra.witness.status_detail, "missing");
+  });
+
+  test("the reaper stops a daemon that left witness's process group (pidfile) after witness was killed", async () => {
+    const dir = tmpRepo(`version = 1
+[[service]]
+name = "api"
+start = "node $APPS/daemon.mjs svc.pid"
+pidfile = "svc.pid"
+ready = { http = "\${self.url}/health", timeout = "5s" }
+${suite("slow")}${RUN}`);
+    let pid = 0;
+    const p = witness(dir, ["run"], { onSpawn: (x) => (pid = x) });
+    const pidFile = path.join(dir, "svc.pid");
+    for (let i = 0; i < 100 && !fs.existsSync(path.join(latest(dir), "logs", "fake.log")); i++) await new Promise((r) => setTimeout(r, 100));
+    const daemon = Number(fs.readFileSync(pidFile, "utf8"));
+    assert.ok(alive(daemon));
+    process.kill(pid, "SIGKILL");
+    await p;
+    await new Promise((r) => setTimeout(r, 300));
+    assert.ok(alive(daemon), "still running after witness was SIGKILLed");
+    const r2 = await witness(dir, ["run", "--suite", "fake"], { env: {} });
+    assert.match(r2.stderr, /reaped stale run r-\S+ \(killed \d+ leftover/);
+    assert.equal(alive(daemon), false);
   });
 });

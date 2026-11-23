@@ -108,7 +108,8 @@ export class Stack {
       const log = path.join(this.o.logDir, `dep-${d.name}.log`);
       if (d.start && !this.o.reuse?.deps_started.includes(d.name)) {
         this.o.progress.line(`deps   ${d.name} · not reachable (${r.detail}); starting it`);
-        const s = await runCapture(substitute(d.start, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: d.timeoutMs, log });
+        const s = await runCapture(substitute(d.start, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: d.timeoutMs, log, abort: this.o.abort, track: this.o.run?.tracker("dependency", d.name) });
+        if (this.o.abort.aborted) return;
         if (s.code !== 0) this.fail("deps", "dependency_unreachable", { command: d.start, log, evidence: s.out.trim().split("\n").pop() });
         this.depsStarted.push(d);
         const until = Date.now() + d.timeoutMs;
@@ -173,7 +174,7 @@ export class Stack {
     ls.proc = proc;
     ls.pgid = proc.pgid;
     this.live.set(alias, ls);
-    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop, cwd });
+    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop ? substitute(svc.stop, vars) : undefined, cwd });
     this.o.run?.event("service_started", { service: svc.name, pid: proc.pid, port: alloc.port, cmd }, `starting ${svc.name}`);
     this.o.progress.line(`boot   ${svc.name} · starting (PORT=${alloc.port}${readyUrl ? `, ready check ${readyUrl}` : ""})`);
     try {
@@ -299,7 +300,8 @@ export class Stack {
     const grace = this.o.cfg.run.graceMs;
     if (ls.svc.stop) {
       const cwd = path.resolve(this.o.root, ls.svc.cwd);
-      await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? "") }), timeoutMs: 60_000, log: ls.log });
+      const r = await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.o.baseEnv, { PORT: String(ls.port ?? "") }), timeoutMs: 60_000, log: ls.log });
+      if (r.code !== 0) this.o.progress.line(`stop   ${ls.svc.name} · stop command failed (exit ${r.code ?? "timeout"}); killing its processes; see ${ls.log}`);
     }
     if (ls.pid && pidAlive(ls.pid)) {
       try {
@@ -330,7 +332,9 @@ export class Stack {
     for (const d of this.depsStarted.reverse()) {
       if (!d.stop) continue;
       this.o.progress.line(`deps   ${d.name} · stopping`);
-      await runCapture(substitute(d.stop, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 120_000, log: path.join(this.o.logDir, `dep-${d.name}.log`) });
+      const log = path.join(this.o.logDir, `dep-${d.name}.log`);
+      const r = await runCapture(substitute(d.stop, this.vars()), { cwd: this.o.root, env: childEnv(this.o.baseEnv), timeoutMs: 120_000, log });
+      if (r.code !== 0) this.o.progress.line(`deps   ${d.name} · stop command failed (exit ${r.code ?? "timeout"}); it may still be running; see ${log}`);
     }
     this.depsStarted = [];
   }

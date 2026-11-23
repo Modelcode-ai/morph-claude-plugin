@@ -1,13 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ADAPTERS, type Adapter, appendArgs, selectCommand } from "./adapters.ts";
+import { ADAPTERS, type Adapter, appendArgs, selectCommand, stableId } from "./adapters.ts";
 import { type Config, type Suite, substitute } from "./config.ts";
 import { type Diagnosis, diagnose } from "./diagnosis.ts";
 import type { Progress } from "./output.ts";
 import { parseReportFile } from "./parsers/index.ts";
 import type { ParsedFile } from "./parsers/types.ts";
 import { childEnv, killGroup, runCapture, spawnGroup } from "./proc.ts";
-import { fromReruns, reconcile, type ReconcileResult, type SuiteEnd, type SuiteSummary, suiteLevel, summarize, type TestRecord, toRecord } from "./reconcile.ts";
+import { fromReruns, missing, reconcile, type ReconcileResult, type SuiteEnd, type SuiteSummary, suiteLevel, summarize, type TestRecord, toRecord } from "./reconcile.ts";
 import type { RunDir } from "./rundir.ts";
 import type { Stack } from "./stack.ts";
 import { fileSize, fmtBytes, fmtDuration, globFiles, sleep } from "./util.ts";
@@ -148,8 +148,9 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
   ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
   const logStart = fileSize(log);
+  const before = snapshotReports(ctx, suite, adapter, cwd, reportDir);
   const exec = await execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, suite.timeoutMs);
-  const files = collect(ctx, suite, adapter, cwd, reportDir, log, t0);
+  const files = collect(ctx, suite, adapter, cwd, reportDir, log, before);
   let expected = select;
   const usable = files.some((f) => f.cases.length);
   const hint = adapter.reportHint?.(cwd, cmd);
@@ -172,12 +173,13 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
         const dir = path.join(reportDir, "rerun", String(i + 1));
         fs.mkdirSync(dir, { recursive: true });
         const c = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
+        const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
         const e = await execWatched(ctx, suite, adapter, c, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), suite.perTestTimeoutMs ?? Math.min(suite.timeoutMs, 10 * 60_000));
         if (e.died) {
           exec.died = e.died;
           break;
         }
-        const got = collect(ctx, suite, adapter, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), Date.now() - e.ms);
+        const got = collect(ctx, suite, adapter, cwd, dir, path.join(ctx.outDir, "logs", `${suite.name}.rerun.log`), snap);
         if (i === 0 && !got.some((f) => f.cases.length)) {
           ctx.progress.line(`${p}suite  ${suite.name} · a single test run alone wrote no report either; not rerunning the rest`);
           results.length = 0;
@@ -185,7 +187,8 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
         }
         results.push({ id, exitCode: e.code, files: got, timedOut: e.end !== "exit" });
       }
-      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause!) : { ...res, rerun: undefined, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
+      const ids = res.rerun;
+      res = results.length ? fromReruns(results, adapter, suite.name, cwd, exec.code, res.cause!) : { ...res, rerun: undefined, tests: ids.map((id) => missing(stableId(adapter.name, id), adapter, suite.name, "missing", `no report from the suite (exit code ${exec.code}), nor when one test ran alone`)) };
     } else {
       res = { ...res, tests: [suiteLevel(adapter, suite.name, exec.code, `${res.note}; exit code ${exec.code}`)] };
     }
@@ -271,7 +274,40 @@ async function execWatched(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cmd: s
   return { code: end === "exit" ? proc.code : null, end, ms: Date.now() - t0, died };
 }
 
-function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, reportDir: string, log: string, startedAt: number): ParsedFile[] {
+/** Report files the adapter or `report` globs find outside the run's report dir (e.g. TestResults/, target/surefire-reports/). */
+function outsideReports(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, reportDir: string): { src: string; rel: string }[] {
+  const out: { src: string; rel: string }[] = [];
+  const globs = suite.report ? [{ base: "cwd" as const, glob: substitute(suite.report, { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
+  for (const g of globs) {
+    if (g.base === "report-dir") continue;
+    let base = cwd;
+    let glob = g.glob;
+    if (path.isAbsolute(glob)) {
+      const fixed = glob.split("/").findIndex((x) => /[*?{]/.test(x));
+      const parts = glob.split("/");
+      base = fixed < 0 ? path.dirname(glob) : parts.slice(0, fixed).join("/") || "/";
+      glob = fixed < 0 ? path.basename(glob) : parts.slice(fixed).join("/");
+    }
+    for (const rel of globFiles(base, [glob], { skipDirs: new Set([".git", "node_modules", ".witness"]) })) out.push({ src: path.join(base, rel), rel });
+  }
+  return out;
+}
+
+const stamp = (f: string) => {
+  try {
+    const st = fs.statSync(f);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return "";
+  }
+};
+
+/** What the report globs already match before a command runs; collect() ignores these unless they change. */
+function snapshotReports(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, reportDir: string): Map<string, string> {
+  return new Map(outsideReports(ctx, suite, adapter, cwd, reportDir).filter((f) => !f.src.startsWith(reportDir + path.sep)).map((f) => [f.src, stamp(f.src)]));
+}
+
+function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, reportDir: string, log: string, before: Map<string, string>): ParsedFile[] {
   const files: string[] = [];
   if (adapter.fromStdout && !suite.report) {
     const out = path.join(reportDir, "stdout.jsonl");
@@ -282,35 +318,17 @@ function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, rep
       /* no log */
     }
   }
-  const globs = suite.report ? [{ base: "cwd" as const, glob: substitute(suite.report, { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
-  for (const g of globs) {
-    if (g.base === "report-dir") {
-      for (const f of globFiles(reportDir, [g.glob], { skipDirs: new Set(["rerun", "retry"]) })) files.push(path.join(reportDir, f));
+  if (!suite.report) for (const g of adapter.reportGlobs) if (g.base === "report-dir") for (const f of globFiles(reportDir, [g.glob], { skipDirs: new Set(["rerun", "retry"]) })) files.push(path.join(reportDir, f));
+  for (const { src, rel } of outsideReports(ctx, suite, adapter, cwd, reportDir)) {
+    if (src.startsWith(reportDir + path.sep)) {
+      files.push(src);
       continue;
     }
-    let base = cwd;
-    let glob = g.glob;
-    if (path.isAbsolute(glob)) {
-      const fixed = glob.split("/").findIndex((s) => /[*?{]/.test(s));
-      const parts = glob.split("/");
-      base = fixed < 0 ? path.dirname(glob) : parts.slice(0, fixed).join("/") || "/";
-      glob = fixed < 0 ? path.basename(glob) : parts.slice(fixed).join("/");
-    }
-    for (const rel of globFiles(base, [glob], { skipDirs: new Set([".git", "node_modules", ".witness"]) })) {
-      const src = path.join(base, rel);
-      if (src.startsWith(reportDir + path.sep)) {
-        files.push(src);
-        continue;
-      }
-      try {
-        if (fs.statSync(src).mtimeMs < startedAt - 2000) continue;
-      } catch {
-        continue;
-      }
-      const dst = path.join(reportDir, rel.replace(/[\\/]/g, "__"));
-      fs.copyFileSync(src, dst);
-      files.push(dst);
-    }
+    // a report that was already there and unchanged belongs to an earlier run
+    if (before.get(src) === stamp(src)) continue;
+    const dst = path.join(reportDir, rel.replace(/[\\/]/g, "__"));
+    fs.copyFileSync(src, dst);
+    files.push(dst);
   }
   const uniq = [...new Set(files)];
   return uniq.map((f) => parseReportFile(f, adapter.format, cwd));
@@ -321,7 +339,7 @@ async function listTests(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: str
   const cmd = adapter.list!.cmd(base);
   if (!cmd) return undefined;
   ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · listing tests to see what the run left out`);
-  const r = await runCapture(cmd, { cwd, env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: log.replace(/\.log$/, ".list.log") });
+  const r = await runCapture(cmd, { cwd, env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: log.replace(/\.log$/, ".list.log"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
   if (r.code !== 0) return undefined;
   const ids = adapter.list!.parse(r.out);
   return ids.length ? ids : undefined;
@@ -337,10 +355,10 @@ async function retryFailed(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: s
     const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids, cwd);
     ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids.length} failed test(s)`);
     const rlog = path.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
-    const t0 = Date.now();
+    const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
     const e = await execWatched(ctx, suite, adapter, cmd, cwd, dir, rlog, suite.timeoutMs);
     if (e.end !== "exit") return;
-    const again = collect(ctx, suite, adapter, cwd, dir, rlog, t0).flatMap((f) => f.cases.map((c) => toRecord(c, adapter, suite.name, cwd)));
+    const again = collect(ctx, suite, adapter, cwd, dir, rlog, snap).flatMap((f) => f.cases.map((c) => toRecord(c, adapter, suite.name, cwd)));
     for (const t of failing) {
       const r = again.find((a) => a.id === t.id);
       t.retries = (t.retries ?? 0) + 1;

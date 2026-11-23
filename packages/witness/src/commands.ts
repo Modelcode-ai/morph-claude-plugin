@@ -54,6 +54,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
     throw e;
   }
   const checkRoot = path.join(cfg.root, ".witness", "check");
+  await reapStale(checkRoot, cfg.run.graceMs, (m) => p.line(m));
   fs.rmSync(checkRoot, { recursive: true, force: true });
   const g = gitInfo(cfg.root);
   const run = new RunDir(checkRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: "check" });
@@ -107,7 +108,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
       }
       const listCmd = ad.list?.cmd(s.cmd);
       if (listCmd) {
-        const r = await runCapture(listCmd, { cwd: path.resolve(root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.list.log`) });
+        const r = await runCapture(listCmd, { cwd: path.resolve(root, s.cwd), env: childEnv(env, stack.serviceUrlEnv()), timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.list.log`), abort, track: run.tracker("list", s.name) });
         const ids = r.code === 0 ? ad.list!.parse(r.out) : [];
         if (ids.length) {
           report.push({ stage: "suite", ok: true, detail: `${s.name}: ${ids.length} test(s) listed` });

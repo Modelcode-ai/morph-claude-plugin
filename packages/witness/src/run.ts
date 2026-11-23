@@ -6,9 +6,8 @@ import { type Config, loadEnv, type Service, type Suite, topoOrder } from "./con
 import { buildCtrf } from "./ctrf.ts";
 import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { color, outcomeColor, Progress } from "./output.ts";
-import { killGroup } from "./proc.ts";
 import { applyParity, EXIT, type Outcome, type Parity, type SuiteSummary, suiteOutcome, type TestRecord, worst } from "./reconcile.ts";
-import { acquireLock, LockError, newRunId, pruneRuns, reapStale, RunDir, type Status } from "./rundir.ts";
+import { acquireLock, killTracked, LockError, newRunId, pruneRuns, reapStale, RunDir, type Status } from "./rundir.ts";
 import { Failure, readUp, Stack } from "./stack.ts";
 import { type ArtifactEntry, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
 import { fmtDuration, git, gitInfo, writeJson } from "./util.ts";
@@ -123,7 +122,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
     run.event("signal", { signal: sig }, `interrupted by ${sig}`);
     if (sigints === 1) progress.line(`${sig}: stopping (press Ctrl-C again to kill everything now)`);
     else {
-      for (const p of run.state.procs) void killGroup(p.pgid, 0);
+      for (const p of run.state.procs) void killTracked(p, 0, { runStop: false });
       run.status.phase = "finished";
       run.status.outcome = "interrupted";
       run.status.finished_at = new Date().toISOString();
