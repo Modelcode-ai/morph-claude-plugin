@@ -71,6 +71,7 @@ describe("eShopOnWeb eval fixes: build failures, report paths, TRX hint", () => 
     assert.match(buildFailure("[ERROR] COMPILATION ERROR :\n[ERROR] Foo.java:[3,1] ';' expected", 1)!, /COMPILATION ERROR/);
     assert.match(buildFailure("FAIL\texample.com/x [build failed]", 1)!, /build failed/);
     assert.match(buildFailure("bash: .witness/dotnet: No such file or directory", 127)!, /No such file/);
+    assert.match(buildFailure("x.dll (net11.0) Zero tests ran\nExit code: 5\n  Standard output: Option '--filter' from provider 'MSTest' (UID: MSTestExtension) expects at most 1 arguments\n  error: 1\nTest run completed with non-success exit code: 5. The command-line arguments are invalid. See: https://aka.ms/testingplatform/exitcodes", 5)!, /^Standard output: Option '--filter' .*expects at most 1 arguments$/);
     assert.equal(buildFailure("Tests run: 3, Failures: 1\nAssertionError: expected 1 got 2", 1), undefined);
   });
 

@@ -52,6 +52,8 @@ const BUILD_FAILED = [
   /^(FAIL|ok)\s+\S+\s+\[(build|setup) failed\]/,
   /^No test projects were found\.?$/,
   /: command not found$|^bash: .*: No such file or directory$/,
+  /^(Standard output: )?(Option '--[\w-]+' .*|Unknown option '--[\w-]+'.*)$/,
+  /The command-line arguments are invalid\./,
 ];
 
 /** The first line of `text` that shows the suite command failed before any test ran (compile error, missing command). */
@@ -200,7 +202,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   let res: ReconcileResult = broken
     ? plugin
       ? { tests: [suiteLevel(adapter, suite.name, exec.code, `${plugin.name} is missing: ${broken}`)], state: "error", cause: "setup_failed", note: `${plugin.name} is missing`, evidence: broken, hint: plugin.hint }
-      : { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error or missing command): fix that first; witness does not list or rerun tests after it" }
+      : { tests: [suiteLevel(adapter, suite.name, exec.code, `the suite command failed before running tests: ${broken}`)], state: "error", cause: "setup_failed", note: "build or command failed before any test ran", evidence: broken, hint: "the suite failed before any test ran (build error, missing command or invalid runner arguments): fix that first; witness does not list or rerun tests after it" }
     : reconcile({ suite: suite.name, adapter, exitCode: exec.code, end: exec.end, files, expected, cwd, exitCodeOnly, selected: !!select?.length });
   if (!select?.length && !p && exec.end === "exit" && usable && !files.some((f) => f.error) && (res.state === "passed" || res.state === "failed"))
     writeListCache(ctx.cfg.root, suite, ctx.run.runId, ctx.run.status.commit, res.tests.filter((t) => t.obtained === "report").map((t) => t.id.slice(adapter.name.length + 1)));
