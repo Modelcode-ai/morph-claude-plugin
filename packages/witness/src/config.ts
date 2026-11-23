@@ -82,7 +82,7 @@ const KEYS = {
   run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace"],
 };
 
-function closest(word: string, options: string[]): string | undefined {
+export function closest(word: string, options: string[]): string | undefined {
   let best: string | undefined;
   let bestD = 3;
   for (const o of options) {

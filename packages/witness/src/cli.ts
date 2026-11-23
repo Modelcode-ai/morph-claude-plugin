@@ -6,6 +6,7 @@ import { type Config, ConfigError, findConfig, loadConfig, rootFor } from "./con
 import { VERSION } from "./ctrf.ts";
 import { diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { initCommand } from "./init.ts";
+import { planCheckCommand } from "./plan.ts";
 import { EXIT } from "./reconcile.ts";
 import { runCommand, UsageError } from "./run.ts";
 
@@ -19,13 +20,17 @@ Usage:
   witness status [run-id|latest]
   witness report [run-id|latest] [--format md|json]
   witness init                                    write .witness/witness.example.toml guessed from the repo
+  witness plan check [file] [--draft] [--no-list] validate a test plan (default .witness/plan.yaml)
+  witness lint [files...] [--plan file]           static checks on test files (default: changed test files)
+  witness skills path                             print where the agent skills are
+  witness skills install --dir <path> [--link]    copy (or link) the skills into an agent's skills folder
 
 Common: --json (machine output on stdout) · --config <path> (default .witness/witness.toml)
         --run-dir-root <path> (default .witness/runs)
 Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout · 5 interrupted · 64 usage`;
 
-const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format"]);
-const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version"]);
+const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix"]);
+const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link"]);
 const REPEAT = new Set(["suite", "select"]);
 
 export function parseArgs(argv: string[]) {
@@ -90,6 +95,13 @@ export async function main(argv: string[]): Promise<number> {
   const needsConfig = ["check", "run", "up", "down"].includes(cmd);
   try {
     if (cmd === "init") return initCommand(process.cwd(), json);
+    if (cmd === "plan") {
+      if (pos[0] !== "check") throw new UsageError(`usage: witness plan check [file]`);
+      const cp = typeof flags.config === "string" ? path.resolve(flags.config) : findConfig(process.cwd());
+      const planCfg = cp ? loadConfig(cp) : undefined;
+      const file = path.resolve(pos[1] ?? path.join(planCfg?.root ?? process.cwd(), ".witness", "plan.yaml"));
+      return await planCheckCommand(file, planCfg, { draft: !!flags.draft, list: !flags["no-list"], json, log: (s) => process.stderr.write(`witness  ${s}\n`) });
+    }
     if (cmd === "status" || cmd === "report") {
       const cp = typeof flags.config === "string" ? path.resolve(flags.config) : findConfig(process.cwd());
       const root = cp ? rootFor(cp) : process.cwd();
@@ -99,7 +111,7 @@ export async function main(argv: string[]): Promise<number> {
       if (fmt !== "md" && fmt !== "json") throw new UsageError(`--format must be md or json`);
       return reportCommand(rr, pos[0], fmt);
     }
-    if (!needsConfig) throw new UsageError(`unknown command "${cmd}"${["plan", "lint", "skills"].includes(cmd) ? " (not in this build yet)" : ""}`);
+    if (!needsConfig) throw new UsageError(`unknown command "${cmd}"`);
     cfg = loadConfig(configPath(flags));
     const rr = runRoot(flags, cfg.root);
     switch (cmd) {
