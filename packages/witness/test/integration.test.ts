@@ -337,6 +337,9 @@ ${RUN}`);
     assert.deepEqual(ctrf(dir).results.extra.witness.against.parity, { same: 2, differs: 1, origin_only: 0, target_only: 1 });
     const wts = spawnSync("git", ["worktree", "list"], { cwd: dir, encoding: "utf8" }).stdout.trim().split("\n");
     assert.equal(wts.length, 1, "temporary worktree removed");
+    const bad = await witness(dir, ["run", "--against", "master"]);
+    assert.equal(bad.code, 64);
+    assert.match(bad.stderr, /--against master: not a commit in this repo/);
   });
 
   test("--against with role = origin services", async () => {

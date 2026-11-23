@@ -30,7 +30,10 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   };
   report.push({ stage: "config", ok: true, detail: `${cfg.services.length} service(s), ${cfg.suites.length} suite(s), adapters: ${[...new Set(cfg.suites.map((s) => s.adapter))].join(", ") || "-"}` });
   p.line(`check  config · ok · ${report[0].detail}`);
-  if (upTo < 1) return done(0);
+  if (upTo < 1) {
+    p.plain(color.green("CHECK ok · config"));
+    return done(0);
+  }
 
   const { env, missing, fileUsed } = loadEnv(cfg);
   if (missing.length) {
@@ -63,12 +66,18 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   try {
     await stack.checkDeps();
     report.push({ stage: "deps", ok: true, detail: `${cfg.dependencies.length} dependency check(s) passed` });
-    if (upTo < 2) return done(0);
+    if (upTo < 2) {
+      p.plain(color.green("CHECK ok · up to deps"));
+      return done(0);
+    }
     const services = o.service ? [o.service] : cfg.services.filter((s) => s.role === "target").map((s) => s.name);
     for (const s of services) if (!cfg.services.some((x) => x.name === s)) throw new Error(`unknown service "${s}"`);
     await stack.boot(services);
     report.push({ stage: "boot", ok: true, detail: [...stack.live.values()].map((l) => `${l.svc.name} at ${l.url}`).join(", ") || "no services" });
-    if (upTo < 3) return done(0);
+    if (upTo < 3) {
+      p.plain(color.green("CHECK ok · up to boot"));
+      return done(0);
+    }
     const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
     const ctx = { cfg, root: cfg.root, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
     for (const s of suites) {

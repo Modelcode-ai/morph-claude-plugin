@@ -89,6 +89,8 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   let suites = pickSuites(cfg, opts.suites);
   const select = splitSelect(suites, opts.select);
   if (select && !opts.suites?.length) suites = suites.filter((s) => select.has(s.name));
+  if (opts.against && !originMap(cfg).size && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
+    throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`)`);
   if (!suites.length) throw new UsageError("no [[suite]] in the config");
   for (const [name, ids] of select ?? []) {
     const s = suites.find((x) => x.name === name)!;
@@ -167,6 +169,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
         against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis };
         target.artifacts.push(...origin.artifacts);
         progress.line(`against ${opts.against} · origin ${origin.outcome} · parity: ${counts.same} same, ${counts.differs} differ, ${counts.target_only} only on target, ${counts.origin_only} only on origin`);
+        if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed") for (const l of formatDiagnosis(origin.diagnosis)) progress.plain(`  origin ${l}`);
       }
     }
   } finally {
@@ -180,7 +183,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   status.suites = target.suites;
   status.outcome = target.outcome;
   if (target.diagnosis) status.diagnosis = target.diagnosis;
-  if (against) status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity };
+  if (against) status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...(against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {}) };
   const ctrf = buildCtrf(
     {
       runId: run.runId,

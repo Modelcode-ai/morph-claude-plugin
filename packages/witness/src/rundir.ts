@@ -22,7 +22,7 @@ export interface Status {
   diagnosis?: Diagnosis;
   last_event: string;
   summary?: { tests: number; passed: number; failed: number; skipped: number; pending: number; other: number };
-  against?: { ref: string; outcome?: Outcome; parity?: Record<string, number> };
+  against?: { ref: string; outcome?: Outcome; parity?: Record<string, number>; diagnosis?: Diagnosis };
   pid: number;
 }
 
