@@ -360,7 +360,7 @@ report_missing, report_unreadable, report_incomplete.
 npm install
 npm test                 # node --test, about 20s
 npm run typecheck
-npm run build            # bun -> dist/witness.mjs (commit it)
+npm run build            # bun -> dist/witness.mjs (not committed; bin/witness falls back to it when src/ is absent)
 npm run build:plugin     # skills (standalone profile) -> plugins/morph/skills/witness-* (commit it)
 npm run check:skills     # every profile, reference files too: markers, word budgets, no harness-specific tool names
 npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario s,...]
