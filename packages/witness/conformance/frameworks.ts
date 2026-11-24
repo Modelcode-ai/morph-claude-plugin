@@ -88,7 +88,8 @@ export const FRAMEWORKS: Framework[] = [
     adapter: "vitest",
     project: "vitest",
     ids: { pass: "items.test.js > items api > lists items", fail: "items.test.js > items api > item name", skip: "items.test.js > items api > skipped", hang: "items.test.js > items api > hangs" },
-    prepare: () => "npm install --no-audit --no-fund --loglevel=error",
+    // npm 10 (Node 22) crashes resolving vitest 5's optional peers without a lock file
+    prepare: () => "npm install --no-audit --no-fund --loglevel=error --legacy-peer-deps",
     cmd: () => `${node("vitest")} run`,
     compound: () => `true && ${node("vitest")} run \${WITNESS_SELECT} && echo kit-done`,
     versions: () => `node --version && ${node("vitest")} --version`,
