@@ -88,7 +88,7 @@ export const FRAMEWORKS: Framework[] = [
     adapter: "vitest",
     project: "vitest",
     ids: { pass: "items.test.js > items api > lists items", fail: "items.test.js > items api > item name", skip: "items.test.js > items api > skipped", hang: "items.test.js > items api > hangs" },
-    // npm 10 (Node 22) crashes resolving vitest 5's optional peers without a lock file
+    // npm 10 (Node 22) crashes resolving vitest 5's peers without a lock file, so peers are skipped and vite is a direct dependency
     prepare: () => "npm install --no-audit --no-fund --loglevel=error --legacy-peer-deps",
     cmd: () => `${node("vitest")} run`,
     compound: () => `true && ${node("vitest")} run \${WITNESS_SELECT} && echo kit-done`,

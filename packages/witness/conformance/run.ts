@@ -53,9 +53,10 @@ function prepare(fw: Framework, t: Tool, dir: string): string | undefined {
   if (!fw.prepare) return;
   const cmd = fw.prepare(t);
   const stampFile = path.join(dir, ".witness", "kit-prepared");
-  const manifests = ["package-lock.json", "requirements.txt", "composer.lock", "Gemfile.lock", "pom.xml", "build.gradle", "go.mod"].map((f) => path.join(dir, f)).filter((f) => fs.existsSync(f));
+  const manifests = ["package.json", "package-lock.json", "requirements.txt", "composer.json", "composer.lock", "Gemfile", "Gemfile.lock", "pom.xml", "build.gradle", "go.mod"].map((f) => path.join(dir, f)).filter((f) => fs.existsSync(f));
   const stamp = JSON.stringify([cmd, ...manifests.map((f) => fs.statSync(f).mtimeMs)]);
-  if (fs.existsSync(stampFile) && fs.readFileSync(stampFile, "utf8") === stamp) return;
+  const installed = !fs.existsSync(path.join(dir, "package.json")) || fs.existsSync(path.join(dir, "node_modules"));
+  if (installed && fs.existsSync(stampFile) && fs.readFileSync(stampFile, "utf8") === stamp) return;
   const r = sh(cmd, dir, fw.env?.(t));
   if (r.status !== 0) return `prepare failed (${cmd}): ${(r.stdout + r.stderr).trim().split("\n").slice(-5).join(" | ")}`;
   fs.mkdirSync(path.dirname(stampFile), { recursive: true });
