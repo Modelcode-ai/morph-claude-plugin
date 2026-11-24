@@ -53,7 +53,8 @@ Details are in the run directory (`.witness/runs/latest/`):
 - `results.ctrf.json`: every test with `status`, `message` and `trace`; witness's own fields are
   in `extra.witness` (`id`, `suite`, `status_detail`, `parity`, `origin_status`).
 - `logs/<suite>.log` and `logs/<service>.log`: the full output of each suite and service.
-- `witness report latest` prints a readable summary.
+- `report.md`: the run's report (verdict, plan evidence, comparison, next steps); `report.html` is
+  the same for people.
 
 Read these files; never edit them.
 

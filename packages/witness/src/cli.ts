@@ -21,7 +21,7 @@ Usage:
   witness up     [--service s] [--no-setup]        start services and leave them running (run reuses them)
   witness down                                    stop what \`witness up\` started
   witness status [run-id|latest]
-  witness report [run-id|latest] [--format md|json]
+  witness report [run-id|latest] [--format md|json|html]   html: rewrite report.html (every run writes it) and print its path
   witness init                                    write .witness/witness.example.toml guessed from the repo
   witness init --scan                             print the repo's facts as JSON (confidence, evidence); writes nothing
   witness plan check [file] [--draft] [--no-list] validate a test plan (default .witness/plan.yaml)
@@ -157,7 +157,7 @@ export async function main(argv: string[]): Promise<number> {
       const rr = runRoot(flags, root);
       if (cmd === "status") return statusCommand(rr, pos[0], json);
       const fmt = json ? "json" : String(flags.format ?? "md");
-      if (fmt !== "md" && fmt !== "json") throw new UsageError(`--format must be md or json`);
+      if (fmt !== "md" && fmt !== "json" && fmt !== "html") throw new UsageError(`--format must be md, json or html`);
       return reportCommand(rr, pos[0], fmt);
     }
     if (!needsConfig) throw new UsageError(`unknown command "${cmd}"`);

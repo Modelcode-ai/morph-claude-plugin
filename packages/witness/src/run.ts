@@ -10,6 +10,8 @@ import { acquireLock, killTracked, LockError, newRunId, pruneRuns, reapStale, Ru
 import { Failure, readUp, Stack } from "./stack.ts";
 import { type ArtifactEntry, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
 import { NO_REF, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
+import { snapshotPlan, writeContext } from "./report/context.ts";
+import { writeReport, writeRunsIndex } from "./report/index.ts";
 import { fmtDuration, git, gitInfo, writeJson } from "./util.ts";
 
 export interface RunOptions {
@@ -117,6 +119,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   const g = gitInfo(cfg.root);
   const run = new RunDir(opts.runDirRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: opts.label });
   run.linkLatest();
+  snapshotPlan(cfg, run.dir);
   const abort = { aborted: false };
   const activity = { text: "" };
   const t0 = Date.now();
@@ -227,10 +230,22 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   run.event("run_finished", { outcome: target.outcome, summary: status.summary });
   process.off("SIGINT", onSignal);
   process.off("SIGTERM", onSignal);
+  let report: string | undefined;
+  try {
+    writeContext(cfg, run.dir, { against: opts.against, selected: !!select?.size });
+    report = writeReport(run.dir).html;
+  } catch (e) {
+    progress.line(color.yellow(`report · could not write the run report: ${(e as Error).message}`));
+  }
   pruneRuns(opts.runDirRoot, cfg.run.keepRuns);
+  try {
+    writeRunsIndex(opts.runDirRoot);
+  } catch {
+    /* the index is a convenience */
+  }
   release();
 
-  printVerdict(progress, status, finishedAt - t0, run.dir);
+  printVerdict(progress, status, finishedAt - t0, run.dir, report);
   if (opts.json) process.stdout.write(JSON.stringify(status, null, 2) + "\n");
   return EXIT[target.outcome];
 }
@@ -255,12 +270,13 @@ export function verdictSummary(status: Status, ms?: number): string {
   return parts.join(" · ");
 }
 
-export function printVerdict(progress: Progress, status: Status, ms: number, dir: string) {
+export function printVerdict(progress: Progress, status: Status, ms: number, dir: string, report?: string) {
   const o = status.outcome ?? "error";
   progress.plain(`${color.bold(outcomeColor(o)(`VERDICT ${o}`))} · ${verdictSummary(status, ms)}`);
   if (status.diagnosis && o !== "passed" && o !== "failed") for (const l of formatDiagnosis(status.diagnosis)) progress.plain(`  ${l}`);
   for (const s of status.suites) if (s.state !== "passed") progress.plain(`  suite ${s.name}: ${s.state}${s.cause ? ` (${s.cause})` : ""}${s.note ? ` · ${s.note}` : ""}`);
   progress.plain(`  run dir: ${dir}`);
+  if (report) progress.plain(`  report:  ${report}`);
 }
 
 interface SideOpts {

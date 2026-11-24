@@ -58,7 +58,7 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 Finish with a short report:
 
-- The final VERDICT line, copied exactly, and the run id (`.witness/runs/latest` points at it).
+- The final VERDICT line, copied exactly, and the path of its `report.html`.
 - Each plan item: id, behavior, its tests, and their status in the final run.
 - Tests you added or changed, by file.
 - Code you fixed because a test showed a bug.

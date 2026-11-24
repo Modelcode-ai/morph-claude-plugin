@@ -291,10 +291,31 @@ reads it through `report = "<glob>"`. Stable test ids are `<adapter>:<id>`: a py
 ## Reading a run
 
 ```
-.witness/runs/<run-id>/   status.json  events.jsonl  state.json  logs/  reports/<suite>/
+.witness/runs/<run-id>/   report.html  report.md  SHA256SUMS
+                          status.json  events.jsonl  state.json  logs/  reports/<suite>/
                           results.ctrf.json  artifacts.json  artifacts/<test-id>/  against/
+                          plan.yaml  context.json
 .witness/runs/latest -> <run-id>
+.witness/runs/index.html  recent runs, each linking to its report
 ```
+
+Every `witness run` ends by writing a report of the change it tested, read top down; a reader can
+stop once satisfied:
+
+1. **Summary.** The verdict and the change's headline (its first commit's subject), then three cards: the plan's behaviors that pass, tests that broke against the base, and the tests by result. Below them is the evidence strength: five signals, each met, partly met or missing:
+   - every planned behavior has a passing test;
+   - nothing broke against the base;
+   - new tests fail without the change (not checked yet);
+   - changed behavior is tested on the running app;
+   - requests and screens are recorded.
+2. **Recommended next steps,** worked out from the run by fixed rules: failures, regressions, a missing plan or comparison, a changed behavior tested only in-process, skipped tests. Each step has a prompt to hand to an agent.
+3. **Three chapters,** each a one-line takeaway and one visual, with details folded underneath:
+   - the change and its evidence (each plan item, here and on the base);
+   - against the base (one square per test);
+   - how the app was exercised (in-process or on the running app, with a timeline).
+4. **A deep dive:** every test, with filters, plus run facts, environment, lint findings and the run folder.
+
+`report.md` has the same content for agents. `report.html` is one self-contained file; it loads only the Geist font. The run keeps the plan as it was when the run started (`plan.yaml`), the change since the base and the lint result of the plan's tests (`context.json`). `SHA256SUMS` lists every file of the run in `sha256sum -c` format; the report shows the hash of that list. `witness report --format html` rewrites a run's report.
 
 The CTRF file carries `results.extra.witness` (run id, outcome, commit, branch, dirty, source,
 against, diagnosis) and per-test `extra.witness` (id, suite, kind, services, adapter, obtained, status_detail,

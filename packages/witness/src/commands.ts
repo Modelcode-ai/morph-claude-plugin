@@ -1,3 +1,6 @@
+import { writeReport, writeRunsIndex } from "./report/index.ts";
+import { renderMd } from "./report/md.ts";
+import { buildModel } from "./report/model.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ADAPTERS, addArgs, fillSelect } from "./adapters.ts";
@@ -299,6 +302,16 @@ export function reportCommand(runRoot: string, id: string | undefined, format: s
   if (!dir || !st) {
     process.stderr.write(`witness  no run found${id ? ` for ${id}` : ""} under ${runRoot}\n`);
     return EXIT.error;
+  }
+  if (format === "html") {
+    const r = writeReport(dir);
+    writeRunsIndex(runRoot);
+    process.stdout.write(`${r.html}\n`);
+    return 0;
+  }
+  if (format === "md") {
+    process.stdout.write(renderMd(buildModel(dir)));
+    return 0;
   }
   const ctrf = readJson<{ results?: { tests: CtrfTest[] } } | null>(path.join(dir, "results.ctrf.json"), null);
   const tests = ctrf?.results?.tests ?? [];
