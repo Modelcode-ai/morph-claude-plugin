@@ -1,5 +1,6 @@
 import { formatDiagnosis } from "../diagnosis.ts";
-import type { NextStep, PlanItemView, ReportModel, SuiteView, TestRow } from "./model.ts";
+import { type Observation, okOf, titleOf } from "../evidence/contract.ts";
+import type { NextStep, PlanItemView, ReportModel, SuiteView, TestEvidence, TestRow } from "./model.ts";
 import { fmtMs, itemLabel, outcomeLabel, type Take, takes } from "./words.ts";
 import { CSS, SCRIPT } from "./html-assets.ts";
 
@@ -86,10 +87,65 @@ function mark(i: PlanItemView, col: "here" | "base"): string {
   return `<span class="mk na">—</span>`;
 }
 
+const clip = (v: unknown, n = 4000) => {
+  const t = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+  return t.length > n ? `${t.slice(0, n)}\n… ${t.length - n} more characters in the evidence file` : t;
+};
+
+/** The lines around the first place `body` contains one of `wanted`, with the match marked. */
+function excerpt(body: string, wanted: string[]): string {
+  for (const w of wanted) {
+    const at = body.indexOf(w);
+    if (at < 0) continue;
+    const lines = body.split("\n");
+    let n = 0;
+    let line = 0;
+    while (line < lines.length && n + lines[line].length + 1 <= at) n += lines[line++].length + 1;
+    const from = Math.max(0, line - 3);
+    const text = lines.slice(from, line + 4).join("\n");
+    const i = text.indexOf(w);
+    return `<div class="obs-part"><span class="k">Where the response shows "${esc(w.length > 60 ? `${w.slice(0, 60)}…` : w)}" (line ${line + 1})</span><pre class="hit">${esc(text.slice(0, i))}<mark>${esc(w)}</mark>${esc(text.slice(i + w.length))}</pre></div>`;
+  }
+  return "";
+}
+
+function observationBody(o: Observation, wanted: string[] = []): string {
+  const d = o.data as Record<string, any>;
+  if (o.kind === "http") {
+    const part = (label: string, p: any) => (p && (p.body || (p.headers && Object.keys(p.headers).length)) ? `<div class="obs-part"><span class="k">${label}</span>${p.headers && Object.keys(p.headers).length ? `<pre class="hdr">${esc(Object.entries(p.headers).map(([k, v]) => `${k}: ${v}`).join("\n"))}</pre>` : ""}${p.body ? `<pre>${esc(clip(p.body))}</pre>` : ""}</div>` : "");
+    const hit = typeof d.response?.body === "string" ? excerpt(d.response.body, wanted) : "";
+    return hit + part("Request", d.request) + part("Response", d.response);
+  }
+  if (o.kind === "cli") return `${d.stdout ? `<div class="obs-part"><span class="k">Output</span><pre>${esc(clip(d.stdout))}</pre></div>` : ""}${d.stderr ? `<div class="obs-part"><span class="k">Errors</span><pre>${esc(clip(d.stderr))}</pre></div>` : ""}`;
+  if (o.kind === "check") return `<div class="obs-part"><span class="k">Expected</span><pre>${esc(clip(d.expected ?? ""))}</pre></div><div class="obs-part"><span class="k">Actual</span><pre>${esc(clip(d.actual ?? ""))}</pre></div>`;
+  return `<div class="obs-part"><pre>${esc(clip(d))}</pre></div>`;
+}
+
+function timelineOf(e: TestEvidence, base: string): string {
+  const shots = new Set<string>();
+  const wanted = e.observations.filter((o) => o.kind === "check" && typeof (o.data as any).expected === "string" && (o.data as any).expected.length >= 3).map((o) => (o.data as any).expected as string);
+  const row = (o: Observation) => {
+    const ok = okOf(o);
+    const imgs = (o.files ?? []).map((f) => `${e.source}/${f}`).filter((f) => /\.(png|jpe?g|gif|webp)$/i.test(f));
+    for (const f of imgs) shots.add(f);
+    const body = observationBody(o, wanted);
+    const head = `<span class="obs-kind">${esc(o.kind)}</span><span class="obs-title">${esc(titleOf(o))}</span>${ok === true ? '<span class="st-passed">✓</span>' : ok === false ? '<span class="st-failed">✕</span>' : ""}${o.step ? `<span class="obs-step">${esc(o.step)}</span>` : ""}`;
+    const pics = imgs.map((f) => `<a href="${esc(base + f)}"><img class="thumb" src="${esc(base + f)}" alt="${esc(o.step ?? titleOf(o))}" loading="lazy"></a>`).join("");
+    return body ? `<details class="obs"><summary>${head}</summary><div class="obs-body">${body}${pics}</div></details>` : `<div class="obs">${head}${pics}</div>`;
+  };
+  const list = e.observations.slice(0, 60).map(row).join("");
+  const more = e.observations.length > 60 ? `<p class="cap">… ${e.observations.length - 60} more in ${esc(e.source)}/evidence.jsonl</p>` : "";
+  const files = e.files.filter((f) => !shots.has(f.file));
+  const media = files.map((f) => (f.type === "screenshot" ? `<a href="${esc(base + f.file)}"><img class="thumb" src="${esc(base + f.file)}" alt="${esc(f.file.split("/").pop())}" loading="lazy"></a>` : f.type === "video" ? `<video class="thumb" src="${esc(base + f.file)}" controls preload="none"></video>` : `<a class="mono file-link" href="${esc(base + f.file)}">${esc(f.type)} · ${esc(f.file.split("/").pop())}</a>${f.type === "trace" ? '<span class="cap">open with npx playwright show-trace</span>' : ""}`)).join("");
+  const problems = e.problems.length ? `<p class="cap st-skipped">${plural(e.problems.length, "problem")} in evidence.jsonl, e.g. line ${e.problems[0].line}: ${esc(e.problems[0].message)}</p>` : "";
+  return `${list}${more}${media ? `<div class="media">${media}</div>` : ""}${problems}`;
+}
+
 function evidenceFor(m: ReportModel, row?: TestRow): string {
-  const own = row ? m.artifacts.filter((a) => a.test_id === row.id) : [];
-  if (!own.length) return `<div class="ev todo"><span class="k">Recorded evidence</span><p>Nothing recorded for this test in this run.</p></div>`;
-  return `<div class="ev"><span class="k">Recorded evidence</span>${own.map((a) => `<a class="mono" href="${esc(a.file)}">${esc(a.artifact_type)} · ${esc(a.file.split("/").pop())}</a>`).join("")}</div>`;
+  const e = row ? m.evidence[row.id] : undefined;
+  if (!e?.here && !e?.base) return `<div class="ev todo"><span class="k">Evidence</span><p>The test recorded nothing it sent or saw. See "Record evidence" in the next steps.</p></div>`;
+  const side = (label: string, x?: TestEvidence) => (x ? `<div class="ev side"><span class="k">${label}</span>${timelineOf(x, "")}</div>` : "");
+  return `<div class="ev-sides ${e.here && e.base ? "two" : ""}">${side("Evidence on this branch", e.here)}${side("On the base", e.base)}</div>`;
 }
 
 function chapter1(m: ReportModel, t: Take): string {
@@ -109,7 +165,7 @@ function chapter1(m: ReportModel, t: Take): string {
         return `<div class="ev"><span class="k">The change · ${plural(m.change.commits.length, "commit")} since ${esc(m.change.baseLabel)} · ${plural(app.length, "app file")} ${sum(app)} · ${plural(tst.length, "test file")} ${sum(tst)}</span>${first?.body ? `<p class="body">${esc(first.body)}</p>` : ""}<div class="files">${files.slice(0, 30).map((f) => `<div class="file"><span class="tag ${f.role}">${f.role}</span><span class="p">${esc(f.path)}</span><span class="n"><span class="a">+${f.added}</span> <span class="d">−${f.deleted}</span></span></div>`).join("")}${files.length > 30 ? `<span class="cap">… ${files.length - 30} more</span>` : ""}</div>${m.change.commits.length > 1 ? `<details class="mini"><summary>${plural(m.change.commits.length, "commit")}</summary><div class="commits">${m.change.commits.map((c) => `<div><span class="mono">${esc(c.sha)}</span> ${esc(c.subject)}</div>`).join("")}</div></details>` : ""}</div>`;
       })()
     : "";
-  const items = (m.plan?.items ?? []).map((i) => `<div class="ev-item"><h3><span>${esc(i.id)}</span>${esc(i.behavior)}</h3><div class="ev-grid"><div class="ev"><span class="k">Expected</span><p>${esc(i.expect)}</p></div><div class="ev"><span class="k">Tests</span>${i.tests.map((x) => `<div class="tref"><span class="st-${x.found ? esc(x.found.status) : "none"}">${x.found ? esc(x.found.status) : "not found"}</span><span class="mono">${esc(short(x.ref))}</span>${x.found ? `<span class="cap">${esc(x.found.suite)} · ${x.found.ms} ms${x.running ? " · running app" : " · app in the tests"}</span>` : ""}${x.found?.message ? `<span class="msg">${esc(x.found.message)}</span>` : ""}</div>`).join("")}</div>${evidenceFor(m, i.tests[0]?.found)}</div></div>`).join("");
+  const items = (m.plan?.items ?? []).map((i) => `<div class="ev-item"><h3><span>${esc(i.id)}</span>${esc(i.behavior)}</h3><div class="ev-grid two"><div class="ev"><span class="k">Expected</span><p>${esc(i.expect)}</p></div><div class="ev"><span class="k">Tests</span>${i.tests.map((x) => `<div class="tref"><span class="st-${x.found ? esc(x.found.status) : "none"}">${x.found ? esc(x.found.status) : "not found"}</span><span class="mono">${esc(short(x.ref))}</span>${x.found ? `<span class="cap">${esc(x.found.suite)} · ${x.found.ms} ms${x.running ? " · running app" : " · app in the tests"}</span>` : ""}${x.found?.message ? `<span class="msg">${esc(x.found.message)}</span>` : ""}</div>`).join("")}</div></div>${i.tests.filter((x) => x.found).map((x) => evidenceFor(m, x.found)).join("") || evidenceFor(m)}</div>`).join("");
   const more = change || items ? `<details class="more"><summary>${m.plan ? "The change, and each behavior's tests and evidence" : "The change"}</summary><div class="more-body">${change}${m.plan ? `<p class="cap">Plan source: ${esc(m.plan.source)}</p>` : ""}${items}</div></details>` : "";
   return chapter(1, "The change and its evidence", take(t), viz, more);
 }

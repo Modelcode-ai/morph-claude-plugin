@@ -11,8 +11,8 @@ export interface Tool {
   run: (cmd: string) => string;
 }
 
-export type Scenario = "full" | "select" | "list" | "missing" | "broken" | "timeout" | "compound";
-export const SCENARIOS: Scenario[] = ["full", "select", "list", "missing", "broken", "timeout", "compound"];
+export type Scenario = "full" | "select" | "list" | "missing" | "broken" | "timeout" | "compound" | "evidence";
+export const SCENARIOS: Scenario[] = ["full", "select", "list", "missing", "broken", "timeout", "compound", "evidence"];
 
 export interface Framework {
   name: string;
@@ -37,6 +37,8 @@ export interface Framework {
   /** Report folders outside $WITNESS_REPORT_DIR, for break-report. */
   reportPaths?: string;
   stdoutReport?: boolean;
+  /** What the passing test's evidence must hold: an observation kind its own adapter writes, or a file type the preset collects. */
+  evidence: { kind: string } | { file: string };
 }
 
 const docker = (args: string) => (t: Tool): Record<string, string> => (t.docker ? { KIT_DOCKER_ARGS: args } : {});
@@ -53,6 +55,7 @@ const dotnetLocal = () => `${dotnet()} --list-sdks | grep -Eq '^1[1-9]\\.'`;
 export const FRAMEWORKS: Framework[] = [
   {
     name: "pytest",
+    evidence: { kind: "http" },
     adapter: "pytest",
     project: "pytest",
     ids: { pass: "tests/test_items.py::test_lists_items", fail: "tests/test_items.py::test_item_name", skip: "tests/test_items.py::test_skipped", hang: "tests/test_items.py::test_hangs" },
@@ -68,6 +71,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "jest",
+    evidence: { kind: "http" },
     adapter: "jest",
     project: "jest",
     ids: { pass: "items.test.js > items api > lists items", fail: "items.test.js > items api > item name", skip: "items.test.js > items api > skipped", hang: "items.test.js > items api > hangs" },
@@ -80,6 +84,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "vitest",
+    evidence: { kind: "http" },
     adapter: "vitest",
     project: "vitest",
     ids: { pass: "items.test.js > items api > lists items", fail: "items.test.js > items api > item name", skip: "items.test.js > items api > skipped", hang: "items.test.js > items api > hangs" },
@@ -92,6 +97,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "mocha",
+    evidence: { kind: "http" },
     adapter: "mocha",
     project: "mocha",
     ids: { pass: "test/items.test.js > items api > lists items", fail: "test/items.test.js > items api > item name", skip: "test/items.test.js > items api > skipped", hang: "test/items.test.js > items api > hangs" },
@@ -104,6 +110,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "playwright",
+    evidence: { file: "trace" },
     adapter: "playwright",
     kind: "ui",
     project: "playwright",
@@ -117,6 +124,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "cli-bats",
+    evidence: { kind: "cli" },
     adapter: "bats",
     kind: "cli",
     project: "cli-bats",
@@ -130,6 +138,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "junit-maven",
+    evidence: { kind: "http" },
     adapter: "junit-maven",
     project: "junit-maven",
     ids: { pass: "kit.ItemsTest#listsItems", fail: "kit.ItemsTest#itemName", skip: "kit.ItemsTest#skipped", hang: "kit.ItemsTest#hangs" },
@@ -146,6 +155,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "junit-gradle",
+    evidence: { kind: "http" },
     adapter: "junit-gradle",
     project: "junit-gradle",
     ids: { pass: "kit.ItemsTest#listsItems()", fail: "kit.ItemsTest#itemName()", skip: "kit.ItemsTest#skipped()", hang: "kit.ItemsTest#hangs()" },
@@ -162,6 +172,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "go",
+    evidence: { kind: "http" },
     adapter: "go",
     project: "go",
     ids: { pass: "example.com/kit#TestListsItems", fail: "example.com/kit#TestItemName", skip: "example.com/kit#TestSkipped", hang: "example.com/kit#TestHangs" },
@@ -178,6 +189,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "rspec",
+    evidence: { kind: "http" },
     adapter: "rspec",
     project: "rspec",
     ids: { pass: "spec/items_spec.rb > items api lists items", fail: "spec/items_spec.rb > items api item name", skip: "spec/items_spec.rb > items api skipped", hang: "spec/items_spec.rb > items api hangs" },
@@ -193,6 +205,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "phpunit",
+    evidence: { kind: "http" },
     adapter: "phpunit",
     project: "phpunit",
     ids: { pass: "Kit\\ItemsTest#testListsItems", fail: "Kit\\ItemsTest#testItemName", skip: "Kit\\ItemsTest#testSkipped", hang: "Kit\\ItemsTest#testHangs" },
@@ -207,6 +220,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "dotnet-xunit",
+    evidence: { kind: "http" },
     adapter: "dotnet",
     project: "dotnet-xunit",
     ids: { pass: "Kit.ItemsTests#ListsItems", fail: "Kit.ItemsTests#ItemName", skip: "Kit.ItemsTests#Skipped", hang: "Kit.ItemsTests#Hangs" },
@@ -222,6 +236,7 @@ export const FRAMEWORKS: Framework[] = [
   },
   {
     name: "dotnet-mstest",
+    evidence: { kind: "http" },
     adapter: "dotnet",
     project: "dotnet-mstest",
     ids: { pass: "Kit.ItemsTests#ListsItems", fail: "Kit.ItemsTests#ItemName", skip: "Kit.ItemsTests#Skipped", hang: "Kit.ItemsTests#Hangs" },

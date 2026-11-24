@@ -315,6 +315,14 @@ stop once satisfied:
    - how the app was exercised (in-process or on the running app, with a timeline).
 4. **A deep dive:** every test, with filters, plus run facts, environment, lint findings and the run folder.
 
+### Evidence
+
+Tests record what they sent and saw while they run. Each test writes to `$WITNESS_ARTIFACTS/<test id>/`: an `evidence.jsonl` timeline (one observation per line, `{"v": 1, "kind": "http", "data": {...}}`) plus plain files (screenshots, video, traces). Witness sets `WITNESS_EVIDENCE=1` for every suite, so fixtures record on passing tests too.
+
+The kinds `http`, `ui`, `cli`, `message`, `rpc`, `state`, `check` and `note` get tailored views. Any other kind is kept and shown as its fields. Witness ties each folder to its test, validates every line, and shows the timeline under the plan item the test proves. For a `check` with an expected value, it shows the excerpt of the response where that value appears.
+
+The Playwright preset turns traces on. Anything else comes from a small hook in the repo's own test helpers, which the write skill (`skills/write/evidence.md`) tells the agent how to add. The contract, and how it differs from morph's functional-test models, are in [`docs/witness/EVIDENCE.md`](../../docs/witness/EVIDENCE.md).
+
 `report.md` has the same content for agents. `report.html` is one self-contained file; it loads only the Geist font. The run keeps the plan as it was when the run started (`plan.yaml`), the change since the base and the lint result of the plan's tests (`context.json`). `SHA256SUMS` lists every file of the run in `sha256sum -c` format; the report shows the hash of that list. `witness report --format html` rewrites a run's report.
 
 The CTRF file carries `results.extra.witness` (run id, outcome, commit, branch, dirty, source,

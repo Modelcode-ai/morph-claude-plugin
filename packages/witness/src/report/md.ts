@@ -1,4 +1,5 @@
 import { formatDiagnosis } from "../diagnosis.ts";
+import { okOf, titleOf } from "../evidence/contract.ts";
 import type { ReportModel } from "./model.ts";
 import { fmtMs, itemLabel, outcomeLabel, takeaways } from "./words.ts";
 
@@ -45,6 +46,18 @@ export function renderMd(m: ReportModel): string {
     md.push(`Plan source: ${m.plan.source}`, "");
     md.push("| Item | Kind | Behavior | Expected | This branch | Base | Tests |", "| --- | --- | --- | --- | --- | --- | --- |");
     for (const i of m.plan.items) md.push(`| ${i.id} | ${i.kind} | ${cell(i.behavior)} | ${cell(i.expect)} | ${itemLabel(i.state)} | ${i.base === "none" ? "-" : i.base} | ${i.tests.map((x) => `\`${cell(x.ref)}\`${x.found ? ` ${x.found.status}` : " not found"}`).join("<br>")} |`);
+    const lines: string[] = [];
+    for (const i of m.plan.items)
+      for (const t of i.tests) {
+        const e = t.found ? m.evidence[t.found.id] : undefined;
+        if (!e?.here) continue;
+        lines.push(`- **${i.id}** \`${t.found!.id}\` (\`${e.here.source}/\`):`);
+        for (const o of e.here.observations.slice(0, 12)) lines.push(`  - ${o.kind}: ${titleOf(o)}${o.step ? ` (${o.step})` : ""}${okOf(o) === false ? " ✕" : ""}`);
+        if (e.here.observations.length > 12) lines.push(`  - … ${e.here.observations.length - 12} more`);
+        for (const f of e.here.files.slice(0, 8)) lines.push(`  - ${f.type}: \`${f.file}\``);
+        if (e.here.problems.length) lines.push(`  - ${e.here.problems.length} problem(s) in evidence.jsonl, e.g. line ${e.here.problems[0].line}: ${e.here.problems[0].message}`);
+      }
+    md.push("", "Evidence the planned tests recorded:", "", ...(lines.length ? lines : ["- none"]));
   } else md.push("No test plan was found for this run (`.witness/plan.yaml`).");
 
   md.push("", "## 2. Against the base", "", `**${t.ch2}**`, "");

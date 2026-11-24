@@ -6527,14 +6527,14 @@ var require_parser = __commonJS((exports) => {
           case "scalar":
           case "single-quoted-scalar":
           case "double-quoted-scalar": {
-            const fs2 = this.flowScalar(this.type);
+            const fs3 = this.flowScalar(this.type);
             if (atNextItem || it.value) {
-              map.items.push({ start, key: fs2, sep: [] });
+              map.items.push({ start, key: fs3, sep: [] });
               this.onKeyLine = true;
             } else if (it.sep) {
-              this.stack.push(fs2);
+              this.stack.push(fs3);
             } else {
-              Object.assign(it, { key: fs2, sep: [] });
+              Object.assign(it, { key: fs3, sep: [] });
               this.onKeyLine = true;
             }
             return;
@@ -6662,13 +6662,13 @@ var require_parser = __commonJS((exports) => {
           case "scalar":
           case "single-quoted-scalar":
           case "double-quoted-scalar": {
-            const fs2 = this.flowScalar(this.type);
+            const fs3 = this.flowScalar(this.type);
             if (!it || it.value)
-              fc.items.push({ start: [], key: fs2, sep: [] });
+              fc.items.push({ start: [], key: fs3, sep: [] });
             else if (it.sep)
-              this.stack.push(fs2);
+              this.stack.push(fs3);
             else
-              Object.assign(it, { key: fs2, sep: [] });
+              Object.assign(it, { key: fs3, sep: [] });
             return;
           }
           case "flow-map-end":
@@ -8984,11 +8984,11 @@ var require_fxp = __commonJS((exports, module) => {
 });
 
 // src/cli.ts
-import * as fs22 from "node:fs";
+import * as fs23 from "node:fs";
 import * as path22 from "node:path";
 
 // src/report/index.ts
-import * as fs12 from "node:fs";
+import * as fs13 from "node:fs";
 import * as path12 from "node:path";
 
 // src/util.ts
@@ -9366,6 +9366,94 @@ function formatDiagnosis(d) {
   return out;
 }
 
+// src/evidence/contract.ts
+import * as fs2 from "node:fs";
+var EVIDENCE_FILE = "evidence.jsonl";
+var short = (u) => {
+  const s = String(u ?? "");
+  try {
+    const x = new URL(s);
+    return x.pathname + x.search;
+  } catch {
+    return s;
+  }
+};
+var KINDS = {
+  http: { required: ["method", "url"], title: (d) => `${String(d.method ?? "?").toUpperCase()} ${short(d.url)}${d.status != null ? ` → ${d.status}` : ""}` },
+  cli: { required: ["argv"], title: (d) => `$ ${d.argv.map(String).join(" ")}${d.exit != null ? ` → exit ${d.exit}` : ""}` },
+  ui: { required: ["action"], title: (d) => [d.action, d.target, d.value != null ? `"${d.value}"` : "", d.url ? short(d.url) : ""].filter(Boolean).join(" ") },
+  message: { required: ["channel", "direction"], title: (d) => `${d.direction === "received" ? "←" : "→"} ${d.channel}` },
+  rpc: { required: ["service", "method"], title: (d) => `${d.service}/${d.method}${d.status != null ? ` → ${d.status}` : ""}` },
+  check: { required: ["what"], title: (d) => String(d.what), ok: (d) => typeof d.ok === "boolean" ? d.ok : undefined },
+  state: { required: ["store"], title: (d) => `${d.store}${d.query ? `: ${d.query}` : ""}` },
+  note: { required: ["text"], title: (d) => String(d.text) }
+};
+function titleOf(o) {
+  const k = KINDS[o.kind];
+  if (k) {
+    try {
+      return k.title(o.data);
+    } catch {}
+  }
+  const first = Object.entries(o.data).find(([, v]) => typeof v === "string" || typeof v === "number");
+  return first ? `${o.kind}: ${first[0]} ${first[1]}` : o.kind;
+}
+var okOf = (o) => KINDS[o.kind]?.ok?.(o.data);
+var MAX_LINES = 2000;
+function readEvidence(file, files = new Set) {
+  const observations = [];
+  const problems = [];
+  let text = "";
+  try {
+    text = fs2.readFileSync(file, "utf8");
+  } catch (e) {
+    return { observations, problems: [{ line: 0, message: e.message }] };
+  }
+  const lines = text.split(`
+`);
+  for (let i = 0;i < lines.length; i++) {
+    const raw = lines[i].trim();
+    if (!raw)
+      continue;
+    if (observations.length >= MAX_LINES) {
+      problems.push({ line: i + 1, message: `more than ${MAX_LINES} observations; the rest are ignored` });
+      break;
+    }
+    let o;
+    try {
+      o = JSON.parse(raw);
+    } catch {
+      problems.push({ line: i + 1, message: "not JSON" });
+      continue;
+    }
+    if (!o || typeof o !== "object" || Array.isArray(o)) {
+      problems.push({ line: i + 1, message: "not an object" });
+      continue;
+    }
+    if (o.v !== 1)
+      problems.push({ line: i + 1, message: `"v" should be 1` });
+    if (typeof o.kind !== "string" || !o.kind) {
+      problems.push({ line: i + 1, message: 'missing "kind"' });
+      continue;
+    }
+    const data = o.data && typeof o.data === "object" && !Array.isArray(o.data) ? o.data : null;
+    if (!data) {
+      problems.push({ line: i + 1, message: 'missing "data" object' });
+      continue;
+    }
+    const spec = KINDS[o.kind];
+    const missing = spec?.required.filter((k) => data[k] == null) ?? [];
+    if (missing.length)
+      problems.push({ line: i + 1, message: `${o.kind}: missing ${missing.join(", ")}` });
+    const refs = Array.isArray(o.files) ? o.files.filter((f) => typeof f === "string") : undefined;
+    for (const f of refs ?? [])
+      if (files.size && !files.has(f))
+        problems.push({ line: i + 1, message: `file "${f}" is not in the folder` });
+    observations.push({ v: 1, t: typeof o.t === "string" ? o.t : undefined, kind: o.kind, step: typeof o.step === "string" ? o.step : undefined, data, files: refs });
+  }
+  return { observations, problems };
+}
+
 // src/report/words.ts
 var plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 var join2 = (t) => [t.pre, t.hl, t.post].filter(Boolean).join(" ");
@@ -9496,6 +9584,18 @@ main.wrap{padding-block:32px 80px;display:flex;flex-direction:column;gap:40px}
 .ev{background:var(--panel);border:1px solid var(--line-soft);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}
 .ev .k{font-size:11.5px;color:var(--mute);text-transform:uppercase;letter-spacing:.07em}.ev pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
 .ev .body{white-space:pre-line;color:var(--fg)}.ev.todo{border-style:dashed;background:transparent}.ev.todo p{color:var(--sub)}
+.ev-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ev-sides{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}.ev-sides.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.obs{border-top:1px solid var(--line-soft);padding:7px 0;display:flex;flex-direction:column;gap:6px;min-width:0}.obs:first-of-type{border-top:none}
+.obs>summary{cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}.obs>summary::-webkit-details-marker{display:none}
+.obs>summary::before{content:"›";color:var(--mute);transition:transform 150ms;display:inline-block}.obs[open]>summary::before{transform:rotate(90deg)}
+div.obs{flex-direction:row;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.obs-kind{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);border:1px solid oklch(65% .15 245deg / .45);border-radius:4px;padding:0 5px}
+.obs-title{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere;min-width:0}.obs-step{font-size:12px;color:var(--sub)}
+.obs-body{display:flex;flex-direction:column;gap:8px;padding:6px 0 4px 14px}.obs-part{display:flex;flex-direction:column;gap:3px}
+.obs-part pre{background:var(--bg-deep);border:1px solid var(--line-soft);border-radius:6px;padding:8px 10px;max-height:260px;overflow:auto}.obs-part pre.hdr{color:var(--sub)}.obs-part pre.hit{border-color:var(--ok)}mark{background:var(--ok-soft);color:var(--ok);border-radius:3px;padding:0 2px}
+.media{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}.thumb{max-width:220px;max-height:150px;border-radius:6px;border:1px solid var(--line);object-fit:cover;object-position:top;display:block}video.thumb{max-width:320px;max-height:200px}
+.file-link{font-size:12px}
 .ev-item{display:flex;flex-direction:column;gap:8px}.ev-item h3{font-size:13.5px;font-weight:500}.ev-item h3 span{font-family:var(--mono);color:var(--mute);font-weight:400;margin-right:6px}
 .tref{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;min-width:0}.tref .mono{overflow-wrap:anywhere;min-width:0}.tref .msg{flex-basis:100%;font-family:var(--mono);font-size:11.5px;color:var(--sub);overflow-wrap:anywhere}
 .st-passed{color:var(--ok)}.st-failed,.st-other,.st-none{color:var(--bad)}.st-skipped{color:var(--warn)}.newb{color:var(--blue);font-weight:500}
@@ -9503,7 +9603,7 @@ main.wrap{padding-block:32px 80px;display:flex;flex-direction:column;gap:40px}
 .file .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;border-radius:4px;padding:0 6px;border:1px solid var(--line);color:var(--sub)}.file .tag.test{color:var(--blue);border-color:var(--blue)}
 .file .p{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}.file .n{font-family:var(--mono);font-size:11.5px;white-space:nowrap}.file .a{color:var(--ok)}.file .d{color:var(--bad)}
 .commits{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--sub)}
-@media (max-width:760px){.ev-grid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){.ev-grid,.ev-grid.two,.ev-sides.two{grid-template-columns:minmax(0,1fr)}}
 .waffle-wrap{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:22px;align-items:center}
 .waffle{display:grid;grid-template-columns:repeat(auto-fill,minmax(11px,1fr));gap:3px}.waffle i{aspect-ratio:1;border-radius:2px;background:var(--ok-dim);display:block}
 .waffle i.new{background:var(--blue);box-shadow:0 0 0 2px var(--blue-soft)}.waffle i.skip{background:var(--warn-dim)}.waffle i.diff{background:var(--bad)}.waffle i.fail{background:var(--bad-mid)}.waffle i.only{background:var(--line)}
@@ -9562,7 +9662,7 @@ if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeT
 
 // src/report/html.ts
 var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-var short = (id) => {
+var short2 = (id) => {
   const s = id.slice(id.indexOf(":") + 1);
   return s.includes("#") ? `${s.split("#")[0].split(".").pop()}#${s.split("#").slice(1).join("#")}` : s;
 };
@@ -9638,11 +9738,70 @@ function mark(i, col) {
     return `<span class="mk x" title="different on the base">≠</span>`;
   return `<span class="mk na">—</span>`;
 }
+var clip = (v, n = 4000) => {
+  const t = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+  return t.length > n ? `${t.slice(0, n)}
+… ${t.length - n} more characters in the evidence file` : t;
+};
+function excerpt(body, wanted) {
+  for (const w of wanted) {
+    const at = body.indexOf(w);
+    if (at < 0)
+      continue;
+    const lines = body.split(`
+`);
+    let n = 0;
+    let line = 0;
+    while (line < lines.length && n + lines[line].length + 1 <= at)
+      n += lines[line++].length + 1;
+    const from = Math.max(0, line - 3);
+    const text = lines.slice(from, line + 4).join(`
+`);
+    const i = text.indexOf(w);
+    return `<div class="obs-part"><span class="k">Where the response shows "${esc(w.length > 60 ? `${w.slice(0, 60)}…` : w)}" (line ${line + 1})</span><pre class="hit">${esc(text.slice(0, i))}<mark>${esc(w)}</mark>${esc(text.slice(i + w.length))}</pre></div>`;
+  }
+  return "";
+}
+function observationBody(o, wanted = []) {
+  const d = o.data;
+  if (o.kind === "http") {
+    const part = (label, p) => p && (p.body || p.headers && Object.keys(p.headers).length) ? `<div class="obs-part"><span class="k">${label}</span>${p.headers && Object.keys(p.headers).length ? `<pre class="hdr">${esc(Object.entries(p.headers).map(([k, v]) => `${k}: ${v}`).join(`
+`))}</pre>` : ""}${p.body ? `<pre>${esc(clip(p.body))}</pre>` : ""}</div>` : "";
+    const hit = typeof d.response?.body === "string" ? excerpt(d.response.body, wanted) : "";
+    return hit + part("Request", d.request) + part("Response", d.response);
+  }
+  if (o.kind === "cli")
+    return `${d.stdout ? `<div class="obs-part"><span class="k">Output</span><pre>${esc(clip(d.stdout))}</pre></div>` : ""}${d.stderr ? `<div class="obs-part"><span class="k">Errors</span><pre>${esc(clip(d.stderr))}</pre></div>` : ""}`;
+  if (o.kind === "check")
+    return `<div class="obs-part"><span class="k">Expected</span><pre>${esc(clip(d.expected ?? ""))}</pre></div><div class="obs-part"><span class="k">Actual</span><pre>${esc(clip(d.actual ?? ""))}</pre></div>`;
+  return `<div class="obs-part"><pre>${esc(clip(d))}</pre></div>`;
+}
+function timelineOf(e, base) {
+  const shots = new Set;
+  const wanted = e.observations.filter((o) => o.kind === "check" && typeof o.data.expected === "string" && o.data.expected.length >= 3).map((o) => o.data.expected);
+  const row = (o) => {
+    const ok = okOf(o);
+    const imgs = (o.files ?? []).map((f) => `${e.source}/${f}`).filter((f) => /\.(png|jpe?g|gif|webp)$/i.test(f));
+    for (const f of imgs)
+      shots.add(f);
+    const body = observationBody(o, wanted);
+    const head = `<span class="obs-kind">${esc(o.kind)}</span><span class="obs-title">${esc(titleOf(o))}</span>${ok === true ? '<span class="st-passed">✓</span>' : ok === false ? '<span class="st-failed">✕</span>' : ""}${o.step ? `<span class="obs-step">${esc(o.step)}</span>` : ""}`;
+    const pics = imgs.map((f) => `<a href="${esc(base + f)}"><img class="thumb" src="${esc(base + f)}" alt="${esc(o.step ?? titleOf(o))}" loading="lazy"></a>`).join("");
+    return body ? `<details class="obs"><summary>${head}</summary><div class="obs-body">${body}${pics}</div></details>` : `<div class="obs">${head}${pics}</div>`;
+  };
+  const list = e.observations.slice(0, 60).map(row).join("");
+  const more = e.observations.length > 60 ? `<p class="cap">… ${e.observations.length - 60} more in ${esc(e.source)}/evidence.jsonl</p>` : "";
+  const files = e.files.filter((f) => !shots.has(f.file));
+  const media = files.map((f) => f.type === "screenshot" ? `<a href="${esc(base + f.file)}"><img class="thumb" src="${esc(base + f.file)}" alt="${esc(f.file.split("/").pop())}" loading="lazy"></a>` : f.type === "video" ? `<video class="thumb" src="${esc(base + f.file)}" controls preload="none"></video>` : `<a class="mono file-link" href="${esc(base + f.file)}">${esc(f.type)} · ${esc(f.file.split("/").pop())}</a>${f.type === "trace" ? '<span class="cap">open with npx playwright show-trace</span>' : ""}`).join("");
+  const problems = e.problems.length ? `<p class="cap st-skipped">${plural2(e.problems.length, "problem")} in evidence.jsonl, e.g. line ${e.problems[0].line}: ${esc(e.problems[0].message)}</p>` : "";
+  return `${list}${more}${media ? `<div class="media">${media}</div>` : ""}${problems}`;
+}
 function evidenceFor(m, row) {
-  const own = row ? m.artifacts.filter((a) => a.test_id === row.id) : [];
-  if (!own.length)
-    return `<div class="ev todo"><span class="k">Recorded evidence</span><p>Nothing recorded for this test in this run.</p></div>`;
-  return `<div class="ev"><span class="k">Recorded evidence</span>${own.map((a) => `<a class="mono" href="${esc(a.file)}">${esc(a.artifact_type)} · ${esc(a.file.split("/").pop())}</a>`).join("")}</div>`;
+  const e = row ? m.evidence[row.id] : undefined;
+  if (!e?.here && !e?.base)
+    return `<div class="ev todo"><span class="k">Evidence</span><p>The test recorded nothing it sent or saw. See "Record evidence" in the next steps.</p></div>`;
+  const side = (label, x) => x ? `<div class="ev side"><span class="k">${label}</span>${timelineOf(x, "")}</div>` : "";
+  return `<div class="ev-sides ${e.here && e.base ? "two" : ""}">${side("Evidence on this branch", e.here)}${side("On the base", e.base)}</div>`;
 }
 function chapter1(m, t) {
   const hasBase = !!m.against;
@@ -9653,11 +9812,11 @@ function chapter1(m, t) {
     const files = m.change.files.filter((f) => f.role !== "witness");
     const app = files.filter((f) => f.role === "app");
     const tst = files.filter((f) => f.role === "test");
-    const sum = (fs2) => `+${fs2.reduce((n, f) => n + f.added, 0)} −${fs2.reduce((n, f) => n + f.deleted, 0)}`;
+    const sum = (fs3) => `+${fs3.reduce((n, f) => n + f.added, 0)} −${fs3.reduce((n, f) => n + f.deleted, 0)}`;
     const first = m.change.commits[0];
     return `<div class="ev"><span class="k">The change · ${plural2(m.change.commits.length, "commit")} since ${esc(m.change.baseLabel)} · ${plural2(app.length, "app file")} ${sum(app)} · ${plural2(tst.length, "test file")} ${sum(tst)}</span>${first?.body ? `<p class="body">${esc(first.body)}</p>` : ""}<div class="files">${files.slice(0, 30).map((f) => `<div class="file"><span class="tag ${f.role}">${f.role}</span><span class="p">${esc(f.path)}</span><span class="n"><span class="a">+${f.added}</span> <span class="d">−${f.deleted}</span></span></div>`).join("")}${files.length > 30 ? `<span class="cap">… ${files.length - 30} more</span>` : ""}</div>${m.change.commits.length > 1 ? `<details class="mini"><summary>${plural2(m.change.commits.length, "commit")}</summary><div class="commits">${m.change.commits.map((c) => `<div><span class="mono">${esc(c.sha)}</span> ${esc(c.subject)}</div>`).join("")}</div></details>` : ""}</div>`;
   })() : "";
-  const items = (m.plan?.items ?? []).map((i) => `<div class="ev-item"><h3><span>${esc(i.id)}</span>${esc(i.behavior)}</h3><div class="ev-grid"><div class="ev"><span class="k">Expected</span><p>${esc(i.expect)}</p></div><div class="ev"><span class="k">Tests</span>${i.tests.map((x) => `<div class="tref"><span class="st-${x.found ? esc(x.found.status) : "none"}">${x.found ? esc(x.found.status) : "not found"}</span><span class="mono">${esc(short(x.ref))}</span>${x.found ? `<span class="cap">${esc(x.found.suite)} · ${x.found.ms} ms${x.running ? " · running app" : " · app in the tests"}</span>` : ""}${x.found?.message ? `<span class="msg">${esc(x.found.message)}</span>` : ""}</div>`).join("")}</div>${evidenceFor(m, i.tests[0]?.found)}</div></div>`).join("");
+  const items = (m.plan?.items ?? []).map((i) => `<div class="ev-item"><h3><span>${esc(i.id)}</span>${esc(i.behavior)}</h3><div class="ev-grid two"><div class="ev"><span class="k">Expected</span><p>${esc(i.expect)}</p></div><div class="ev"><span class="k">Tests</span>${i.tests.map((x) => `<div class="tref"><span class="st-${x.found ? esc(x.found.status) : "none"}">${x.found ? esc(x.found.status) : "not found"}</span><span class="mono">${esc(short2(x.ref))}</span>${x.found ? `<span class="cap">${esc(x.found.suite)} · ${x.found.ms} ms${x.running ? " · running app" : " · app in the tests"}</span>` : ""}${x.found?.message ? `<span class="msg">${esc(x.found.message)}</span>` : ""}</div>`).join("")}</div></div>${i.tests.filter((x) => x.found).map((x) => evidenceFor(m, x.found)).join("") || evidenceFor(m)}</div>`).join("");
   const more = change || items ? `<details class="more"><summary>${m.plan ? "The change, and each behavior's tests and evidence" : "The change"}</summary><div class="more-body">${change}${m.plan ? `<p class="cap">Plan source: ${esc(m.plan.source)}</p>` : ""}${items}</div></details>` : "";
   return chapter(1, "The change and its evidence", take(t), viz, more);
 }
@@ -9672,10 +9831,10 @@ function chapter2(m, t) {
     ["var(--line)", a.parity.origin_only ?? 0, "only on the base"]
   ];
   const viz = `<div class="viz"><div class="waffle-wrap"><div class="waffle" id="waffle" role="img" aria-label="${esc(legend.map((l) => `${l[1]} ${l[2]}`).join(", "))}"></div><div class="wf-legend">${legend.map(([c, n, l]) => `<div><i style="background:${c}"></i><b>${n}</b><span>${esc(l)}</span></div>`).join("")}</div></div></div>`;
-  const rows = (list, f) => list.slice(0, 100).map((r) => `<div class="tref">${f(r)}<span class="mono">${esc(short(r.id))}</span></div>`).join("");
+  const rows = (list, f) => list.slice(0, 100).map((r) => `<div class="tref">${f(r)}<span class="mono">${esc(short2(r.id))}</span></div>`).join("");
   const more = `<details class="more"><summary>What differs, what's new, and how the comparison ran</summary><div class="more-body">
 ${a.differs.length ? `<div class="ev"><span class="k">Different from the base</span>${rows(a.differs, (r) => `<span class="st-failed">${esc(r.originStatus ?? "absent")} → ${esc(r.status)}</span>`)}</div>` : ""}
-${a.newTests.length ? `<div class="ev"><span class="k">New on this branch</span>${a.newTests.slice(0, 100).map((n) => `<div class="tref"><span class="newb">${n.item ? esc(n.item) : "new"}</span><span class="mono">${esc(short(n.id))}</span></div>`).join("")}</div>` : ""}
+${a.newTests.length ? `<div class="ev"><span class="k">New on this branch</span>${a.newTests.slice(0, 100).map((n) => `<div class="tref"><span class="newb">${n.item ? esc(n.item) : "new"}</span><span class="mono">${esc(short2(n.id))}</span></div>`).join("")}</div>` : ""}
 <p class="cap">Witness ran the same suites on ${esc(a.ref)} and matched each test by its id. One square is one test.${a.diagnosis ? ` The base side ended ${esc(a.outcome)}: ${esc(a.diagnosis.cause)}${a.diagnosis.evidence ? `, ${esc(a.diagnosis.evidence)}` : ""}.` : ""}</p></div></details>`;
   return chapter(2, "Against the base", take(t), viz, more);
 }
@@ -9727,7 +9886,7 @@ SHA256SUMS          the hash of every file above</pre></div>
 }
 function renderHtml(m) {
   const t = takes(m);
-  const data = m.tests.map((r) => [r.suite, short(r.id), ns(r.id), r.status, r.ms, r.parity ?? "", r.message ?? ""]);
+  const data = m.tests.map((r) => [r.suite, short2(r.id), ns(r.id), r.status, r.ms, r.parity ?? "", r.message ?? ""]);
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -9798,6 +9957,23 @@ function renderMd(m) {
     md.push("| Item | Kind | Behavior | Expected | This branch | Base | Tests |", "| --- | --- | --- | --- | --- | --- | --- |");
     for (const i of m.plan.items)
       md.push(`| ${i.id} | ${i.kind} | ${cell(i.behavior)} | ${cell(i.expect)} | ${itemLabel(i.state)} | ${i.base === "none" ? "-" : i.base} | ${i.tests.map((x) => `\`${cell(x.ref)}\`${x.found ? ` ${x.found.status}` : " not found"}`).join("<br>")} |`);
+    const lines = [];
+    for (const i of m.plan.items)
+      for (const t2 of i.tests) {
+        const e = t2.found ? m.evidence[t2.found.id] : undefined;
+        if (!e?.here)
+          continue;
+        lines.push(`- **${i.id}** \`${t2.found.id}\` (\`${e.here.source}/\`):`);
+        for (const o of e.here.observations.slice(0, 12))
+          lines.push(`  - ${o.kind}: ${titleOf(o)}${o.step ? ` (${o.step})` : ""}${okOf(o) === false ? " ✕" : ""}`);
+        if (e.here.observations.length > 12)
+          lines.push(`  - … ${e.here.observations.length - 12} more`);
+        for (const f of e.here.files.slice(0, 8))
+          lines.push(`  - ${f.type}: \`${f.file}\``);
+        if (e.here.problems.length)
+          lines.push(`  - ${e.here.problems.length} problem(s) in evidence.jsonl, e.g. line ${e.here.problems[0].line}: ${e.here.problems[0].message}`);
+      }
+    md.push("", "Evidence the planned tests recorded:", "", ...lines.length ? lines : ["- none"]);
   } else
     md.push("No test plan was found for this run (`.witness/plan.yaml`).");
   md.push("", "## 2. Against the base", "", `**${t.ch2}**`, "");
@@ -9837,7 +10013,7 @@ function renderMd(m) {
 
 // src/report/model.ts
 import { createHash as createHash2 } from "node:crypto";
-import * as fs11 from "node:fs";
+import * as fs12 from "node:fs";
 import * as path11 from "node:path";
 
 // src/ctrf.ts
@@ -9910,7 +10086,7 @@ function buildCtrf(meta, tests) {
 }
 
 // src/plan.ts
-import * as fs8 from "node:fs";
+import * as fs9 from "node:fs";
 import * as path8 from "node:path";
 
 // node_modules/yaml/dist/index.js
@@ -9960,7 +10136,7 @@ var $visit = visit.visit;
 var $visitAsync = visit.visitAsync;
 
 // src/adapters.ts
-import * as fs2 from "node:fs";
+import * as fs3 from "node:fs";
 import * as path2 from "node:path";
 function normFile(f, cwd) {
   if (!f)
@@ -10164,11 +10340,11 @@ function readUp(start, name) {
   for (let d = path2.resolve(start);; d = path2.dirname(d)) {
     dirs.push(d);
     const f = path2.join(d, name);
-    if (fs2.existsSync(f)) {
-      text = fs2.readFileSync(f, "utf8");
+    if (fs3.existsSync(f)) {
+      text = fs3.readFileSync(f, "utf8");
       break;
     }
-    if (path2.dirname(d) === d || fs2.existsSync(path2.join(d, ".git")))
+    if (path2.dirname(d) === d || fs3.existsSync(path2.join(d, ".git")))
       break;
   }
   return { text, dirs };
@@ -10200,8 +10376,8 @@ function dotnetMode(cwd, cmd = "") {
   if (!mtp)
     return "vstest";
   const proj = dotnetProject(cwd, cmd);
-  if (proj && fs2.existsSync(proj)) {
-    const text = fs2.readFileSync(proj, "utf8") + readUp(path2.dirname(proj), "Directory.Build.props").text;
+  if (proj && fs3.existsSync(proj)) {
+    const text = fs3.readFileSync(proj, "utf8") + readUp(path2.dirname(proj), "Directory.Build.props").text;
     if (/"xunit\.v3(\.mtp-v\d)?"/.test(text))
       return "mtp-xunit";
     if (/Microsoft\.Testing\.Extensions\.TrxReport|Sdk="MSTest\.Sdk|Include="MSTest"|Include="TUnit"/.test(text))
@@ -10320,7 +10496,7 @@ var ADAPTERS = {
   playwright: {
     name: "playwright",
     format: "playwright-json",
-    reportArgs: () => "--reporter=list,json",
+    reportArgs: (_d, _cwd, cmd) => `--reporter=list,json${/--trace\b/.test(cmd) ? "" : " --trace=on"}`,
     reportEnv: (d) => ({ PLAYWRIGHT_JSON_OUTPUT_NAME: path2.join(d, "playwright.json"), PLAYWRIGHT_JSON_OUTPUT_FILE: path2.join(d, "playwright.json") }),
     reportMarker: /--reporter/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],
@@ -10429,7 +10605,7 @@ function selectCommand(adapter, cmd, ids, template) {
 }
 
 // src/config.ts
-import * as fs3 from "node:fs";
+import * as fs4 from "node:fs";
 import * as path3 from "node:path";
 
 // node_modules/smol-toml/dist/error.js
@@ -11403,7 +11579,7 @@ var HAS_WELLFORMED = !!"".isWellFormed;
  */
 
 // src/config.ts
-var KINDS = ["api", "ui", "cli", "desktop", "mobile"];
+var KINDS2 = ["api", "ui", "cli", "desktop", "mobile"];
 var KIND_HELP = `set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), "ui" for tests that drive it in a browser, "cli" for tests that run its built binary or command and check the output, exit code or files, "desktop" for a desktop app driven through its window (Electron, WinAppDriver, pywinauto, TestFX), or "mobile" for an app on a device or emulator (Appium, Detox, Espresso, XCUITest, Maestro, Flutter integration_test). Unit and integration tests don't belong in Witness: the project's own build and test scripts run them`;
 
 class ConfigError extends Error {
@@ -11585,7 +11761,7 @@ function findConfig(start) {
   let dir = path3.resolve(start);
   for (;; ) {
     const f = path3.join(dir, ".witness", "witness.toml");
-    if (fs3.existsSync(f))
+    if (fs4.existsSync(f))
       return f;
     const up = path3.dirname(dir);
     if (up === dir)
@@ -11598,11 +11774,11 @@ function rootFor(configFile) {
   return path3.basename(d) === ".witness" ? path3.dirname(d) : d;
 }
 function loadConfig(file) {
-  if (!fs3.existsSync(file))
+  if (!fs4.existsSync(file))
     throw new ConfigError("", `config not found: ${file} (run \`witness init\`)`);
   let doc;
   try {
-    doc = parse(fs3.readFileSync(file, "utf8"));
+    doc = parse(fs4.readFileSync(file, "utf8"));
   } catch (e) {
     const err = e;
     throw new ConfigError("", `${path3.basename(file)} is not valid TOML${err.line ? ` (line ${err.line}, column ${err.column})` : ""}: ${err.message.split(`
@@ -11682,8 +11858,8 @@ function parseConfig(doc, file) {
     if (!(adapter in ADAPTERS))
       throw new ConfigError(`${where}.adapter`, `unknown adapter "${adapter}"; one of ${Object.keys(ADAPTERS).join(", ")}`);
     const kind = str(s, "kind", where);
-    if (!KINDS.includes(kind))
-      throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected one of ${KINDS.map((k) => `"${k}"`).join(", ")}, got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
+    if (!KINDS2.includes(kind))
+      throw new ConfigError(`${where}.kind`, `${kind === undefined ? "is required" : `expected one of ${KINDS2.map((k) => `"${k}"`).join(", ")}, got ${JSON.stringify(kind)}`}: ${KIND_HELP}`);
     const pttArg = str(s, "per_test_timeout_arg", where);
     if (pttArg && !/\{s\}|\{ms\}/.test(pttArg))
       throw new ConfigError(`${where}.per_test_timeout_arg`, 'needs {s} or {ms} where the timeout goes, e.g. "-timeout {s}s"');
@@ -11859,8 +12035,8 @@ function loadEnv(cfg) {
   let fileUsed;
   if (cfg.envFile) {
     const f = path3.resolve(cfg.root, cfg.envFile);
-    if (fs3.existsSync(f)) {
-      Object.assign(env, parseEnvFile(fs3.readFileSync(f, "utf8")));
+    if (fs4.existsSync(f)) {
+      Object.assign(env, parseEnvFile(fs4.readFileSync(f, "utf8")));
       fileUsed = f;
     }
   }
@@ -11884,11 +12060,11 @@ function referenceServices(cfg) {
 }
 
 // src/listing.ts
-import * as fs6 from "node:fs";
+import * as fs7 from "node:fs";
 import * as path6 from "node:path";
 
 // src/parsers/index.ts
-import * as fs4 from "node:fs";
+import * as fs5 from "node:fs";
 
 // src/parsers/types.ts
 class ReportError extends Error {
@@ -12298,7 +12474,7 @@ function parseReportText(text, hint, cwd) {
 }
 function parseReportFile(file, hint, cwd) {
   try {
-    const { format, cases, partial } = parseReportText(fs4.readFileSync(file, "utf8"), hint, cwd);
+    const { format, cases, partial } = parseReportText(fs5.readFileSync(file, "utf8"), hint, cwd);
     return partial ? { file, format, cases, partial } : { file, format, cases };
   } catch (e) {
     return { file, cases: [], error: e instanceof ReportError ? e.message : `unreadable: ${e.message}` };
@@ -12307,7 +12483,7 @@ function parseReportFile(file, hint, cwd) {
 
 // src/proc.ts
 import { spawn } from "node:child_process";
-import * as fs5 from "node:fs";
+import * as fs6 from "node:fs";
 import * as net from "node:net";
 import * as path4 from "node:path";
 var SCRUB = ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY"];
@@ -12319,12 +12495,12 @@ function childEnv(base, extra = {}) {
   return env;
 }
 function spawnGroup(cmd, opts) {
-  fs5.mkdirSync(path4.dirname(opts.log), { recursive: true });
-  const fd = fs5.openSync(opts.log, "a");
-  fs5.writeSync(fd, `$ ${cmd}
+  fs6.mkdirSync(path4.dirname(opts.log), { recursive: true });
+  const fd = fs6.openSync(opts.log, "a");
+  fs6.writeSync(fd, `$ ${cmd}
 `);
   const child = spawn("bash", ["-c", cmd], { cwd: opts.cwd, env: opts.env, stdio: ["ignore", fd, fd], detached: true });
-  fs5.closeSync(fd);
+  fs6.closeSync(fd);
   const p = {
     name: opts.name,
     pid: child.pid ?? -1,
@@ -12335,7 +12511,7 @@ function spawnGroup(cmd, opts) {
     code: null,
     exit: new Promise((resolve3) => {
       child.on("error", (e) => {
-        fs5.appendFileSync(opts.log, `witness: failed to start: ${e.message}
+        fs6.appendFileSync(opts.log, `witness: failed to start: ${e.message}
 `);
         p.exited = true;
         p.code = 127;
@@ -12405,8 +12581,8 @@ async function runCapture(cmd, opts) {
     opts.track?.(child.pid, false);
   const out = Buffer.concat(chunks).toString("utf8");
   if (opts.log) {
-    fs5.mkdirSync(path4.dirname(opts.log), { recursive: true });
-    fs5.appendFileSync(opts.log, `$ ${cmd}
+    fs6.mkdirSync(path4.dirname(opts.log), { recursive: true });
+    fs6.appendFileSync(opts.log, `$ ${cmd}
 ${out}${out.endsWith(`
 `) || !out ? "" : `
 `}`);
@@ -12769,8 +12945,8 @@ function parseListing(lc, adapter, out, reportDir, cwd) {
 var ago = (iso) => fmtDuration(Math.max(0, Date.now() - Date.parse(iso)));
 async function listSuiteTests(suite, ctx) {
   const adapter = ADAPTERS[suite.adapter];
-  fs6.rmSync(ctx.scratch, { recursive: true, force: true });
-  fs6.mkdirSync(ctx.scratch, { recursive: true });
+  fs7.rmSync(ctx.scratch, { recursive: true, force: true });
+  fs7.mkdirSync(ctx.scratch, { recursive: true });
   const lc = listCommand(suite, adapter, ctx.vars, ctx.scratch, ctx.cwd);
   const cache = readListCache(ctx.root, suite);
   const fresh = cache && cache.key === suiteKey(suite) ? cache : undefined;
@@ -12845,7 +13021,7 @@ function capabilities(suite, root, cwd, runSettings) {
 var capabilityLine = (c) => `report: ${c.report} · list: ${c.list} · select: ${c.select} · per-test timeout: ${c.per_test_timeout}`;
 
 // src/stack.ts
-import * as fs7 from "node:fs";
+import * as fs8 from "node:fs";
 import * as path7 from "node:path";
 class Failure extends Error {
   diagnosis;
@@ -12925,7 +13101,7 @@ class Stack {
         }
       }
       if (!r.ok)
-        this.fail("deps", "dependency_unreachable", { command: d.check ?? `curl ${d.checkHttp}`, evidence: `${d.name}: ${r.detail}`, log: fs7.existsSync(log) ? log : undefined });
+        this.fail("deps", "dependency_unreachable", { command: d.check ?? `curl ${d.checkHttp}`, evidence: `${d.name}: ${r.detail}`, log: fs8.existsSync(log) ? log : undefined });
       this.o.progress.line(`deps   ${d.name} · ok (${fmtDuration(Date.now() - t0)})`);
     }
   }
@@ -13041,8 +13217,8 @@ class Stack {
     for (;; ) {
       if (this.o.abort.aborted)
         return;
-      if (pidfile && !ls.pid && fs7.existsSync(pidfile)) {
-        const pid = Number(fs7.readFileSync(pidfile, "utf8").trim());
+      if (pidfile && !ls.pid && fs8.existsSync(pidfile)) {
+        const pid = Number(fs8.readFileSync(pidfile, "utf8").trim());
         if (pid > 0)
           ls.pid = pid;
       }
@@ -13123,7 +13299,7 @@ class Stack {
           dead = `readiness check failed 3 times in a row (${r.detail})`;
       }
       if (dead) {
-        const d = diagnose({ stage: "suite", cause: "service_died", service: ls.svc.name, log: fs7.existsSync(ls.log) ? ls.log : undefined, cwd: ls.svc.cwd });
+        const d = diagnose({ stage: "suite", cause: "service_died", service: ls.svc.name, log: fs8.existsSync(ls.log) ? ls.log : undefined, cwd: ls.svc.cwd });
         if (!d.evidence || d.cause === "service_died")
           d.evidence = d.evidence ? `${dead}; last log line: ${d.evidence}` : dead;
         return d;
@@ -13210,8 +13386,8 @@ function setupInputsHash(cwd, cmd) {
 `).filter(Boolean).slice(0, 5000).map((f) => {
     try {
       const p = path7.join(cwd, f);
-      const st = fs7.statSync(p);
-      return st.size < 1024 * 1024 ? `${f}:${sha(fs7.readFileSync(p))}` : `${f}:${st.size}`;
+      const st = fs8.statSync(p);
+      return st.size < 1024 * 1024 ? `${f}:${sha(fs8.readFileSync(p))}` : `${f}:${st.size}`;
     } catch {
       return f;
     }
@@ -13221,7 +13397,7 @@ function setupInputsHash(cwd, cmd) {
 }
 
 // src/plan.ts
-var KINDS2 = ["new", "changed", "parity"];
+var KINDS3 = ["new", "changed", "parity"];
 var TOP_KEYS = ["version", "source", "items"];
 var ITEM_KEYS = ["id", "behavior", "expect", "kind", "tests"];
 function parsePlan(text, opts = {}) {
@@ -13274,8 +13450,8 @@ function parsePlan(text, opts = {}) {
     for (const k of ["behavior", "expect"])
       if (typeof o[k] !== "string" || !o[k].trim())
         err(`${w}.${k}`, k === "behavior" ? "required: the behavior in one sentence" : "required: the observable result a test checks", ["items", i]);
-    if (!KINDS2.includes(o.kind))
-      err(`${w}.kind`, `must be one of ${KINDS2.join(", ")}, got ${JSON.stringify(o.kind)}`, ["items", i, "kind"]);
+    if (!KINDS3.includes(o.kind))
+      err(`${w}.kind`, `must be one of ${KINDS3.join(", ")}, got ${JSON.stringify(o.kind)}`, ["items", i, "kind"]);
     let tests = [];
     if (o.tests !== undefined && (!Array.isArray(o.tests) || o.tests.some((t) => typeof t !== "string")))
       err(`${w}.tests`, "expected a list of test ids", ["items", i, "tests"]);
@@ -13397,9 +13573,9 @@ function matchTests(plan, cfg, listings, draft) {
   return { checks, problems };
 }
 function readPlanFile(file) {
-  if (!fs8.existsSync(file))
+  if (!fs9.existsSync(file))
     throw new Error(`${file} does not exist`);
-  return fs8.readFileSync(file, "utf8");
+  return fs9.readFileSync(file, "utf8");
 }
 async function planCheckCommand(file, cfg, o) {
   let text;
@@ -13453,11 +13629,11 @@ async function planCheckCommand(file, cfg, o) {
 }
 
 // src/report/context.ts
-import * as fs10 from "node:fs";
+import * as fs11 from "node:fs";
 import * as path10 from "node:path";
 
 // src/lint.ts
-import * as fs9 from "node:fs";
+import * as fs10 from "node:fs";
 import * as path9 from "node:path";
 var EXT = {
   ".py": "py",
@@ -13908,7 +14084,7 @@ function planFiles(plan, root, roots = []) {
     const file = id.includes("::") ? id.split("::")[0] : id.includes(" > ") ? id.split(" > ")[0] : undefined;
     if (file) {
       for (const b of bases)
-        if (fs9.existsSync(path9.join(b, file)))
+        if (fs10.existsSync(path9.join(b, file)))
           out.add(path9.join(b, file));
       continue;
     }
@@ -14016,13 +14192,13 @@ function changedTestFiles(root) {
   const names = [...git(base, ["diff", "--name-only", "HEAD"]).out.split(`
 `), ...git(base, ["ls-files", "--others", "--exclude-standard"]).out.split(`
 `)];
-  return [...new Set(names.map((s) => s.trim()).filter((s) => s && isTestPath(s)))].map((s) => path9.join(base, s)).filter((f) => fs9.existsSync(f));
+  return [...new Set(names.map((s) => s.trim()).filter((s) => s && isTestPath(s)))].map((s) => path9.join(base, s)).filter((f) => fs10.existsSync(f));
 }
 function expandArgs(args, cwd) {
   const out = [];
   for (const a of args) {
     const abs = path9.resolve(cwd, a);
-    if (fs9.existsSync(abs) && fs9.statSync(abs).isDirectory()) {
+    if (fs10.existsSync(abs) && fs10.statSync(abs).isDirectory()) {
       const skip = new Set([".git", "node_modules", "bin", "obj", "target", "build", "dist", "vendor", ".witness", ".venv", "venv"]);
       for (const f of globFiles(abs, ["**/*"], { maxDepth: 12, skipDirs: skip })) {
         const full = path9.isAbsolute(f) ? f : path9.join(abs, f);
@@ -14053,7 +14229,7 @@ function lintCommand(o) {
     }
     let raw;
     try {
-      raw = fs9.readFileSync(f, "utf8");
+      raw = fs10.readFileSync(f, "utf8");
     } catch (e) {
       o.log(`lint  skip  ${rel}: ${e.message}`);
       continue;
@@ -14143,7 +14319,7 @@ function collectChange(root, base) {
       continue;
     let lines = 0;
     try {
-      lines = fs10.readFileSync(path10.join(cwd, f), "utf8").split(`
+      lines = fs11.readFileSync(path10.join(cwd, f), "utf8").split(`
 `).length;
     } catch {}
     files.push({ path: f, added: lines, deleted: 0, role: roleOf(f, isTestPath) });
@@ -14158,7 +14334,7 @@ function lintForReport(cfg, plan) {
   for (const f of files) {
     let raw;
     try {
-      raw = fs10.readFileSync(f, "utf8");
+      raw = fs11.readFileSync(f, "utf8");
     } catch {
       continue;
     }
@@ -14172,14 +14348,14 @@ function lintForReport(cfg, plan) {
 }
 function readPlanSnapshot(runDir) {
   const f = path10.join(runDir, "plan.yaml");
-  if (!fs10.existsSync(f))
+  if (!fs11.existsSync(f))
     return;
-  return parsePlan(fs10.readFileSync(f, "utf8"), { draft: true }).plan;
+  return parsePlan(fs11.readFileSync(f, "utf8"), { draft: true }).plan;
 }
 function snapshotPlan(cfg, runDir) {
   const f = path10.join(cfg.root, ".witness", "plan.yaml");
-  if (fs10.existsSync(f))
-    fs10.copyFileSync(f, path10.join(runDir, "plan.yaml"));
+  if (fs11.existsSync(f))
+    fs11.copyFileSync(f, path10.join(runDir, "plan.yaml"));
 }
 function writeContext(cfg, runDir, o) {
   const base = changeBase(cfg.root, o.against === "reference" ? cfg.reference?.ref : o.against);
@@ -14247,9 +14423,9 @@ function timeline(events) {
 }
 function readEvents(dir) {
   const f = path11.join(dir, "events.jsonl");
-  if (!fs11.existsSync(f))
+  if (!fs12.existsSync(f))
     return [];
-  return fs11.readFileSync(f, "utf8").split(`
+  return fs12.readFileSync(f, "utf8").split(`
 `).filter(Boolean).flatMap((l) => {
     try {
       return [JSON.parse(l)];
@@ -14265,7 +14441,7 @@ function buildModel(dir) {
   const plan = readPlanSnapshot(dir);
   const artifacts = readJson(path11.join(dir, "artifacts.json"), []);
   const hashFile = path11.join(dir, "SHA256SUMS");
-  const hash = fs11.existsSync(hashFile) ? sha256(fs11.readFileSync(hashFile)) : undefined;
+  const hash = fs12.existsSync(hashFile) ? sha256(fs12.readFileSync(hashFile)) : undefined;
   const events = readEvents(dir);
   const outcome = st.outcome ?? "running";
   const tests = (ctrf?.results?.tests ?? []).map((t) => ({
@@ -14359,11 +14535,31 @@ function buildModel(dir) {
     timeline: timeline(events),
     tests,
     lint,
-    artifacts
+    artifacts,
+    evidence: collectEvidence(dir, artifacts)
   };
   m.signals = signals(m);
   m.steps = steps2(m);
   return m;
+}
+function collectEvidence(dir, artifacts) {
+  const out = {};
+  for (const a of artifacts) {
+    if (!a.test_id)
+      continue;
+    const side = a.file.startsWith("against/") ? "base" : "here";
+    const slot = out[a.test_id] ??= {};
+    const ev = slot[side] ??= { observations: [], files: [], problems: [], source: path11.dirname(a.file) };
+    if (a.artifact_type === "evidence" && path11.basename(a.file) === EVIDENCE_FILE) {
+      const folder = path11.join(dir, path11.dirname(a.file));
+      const names = new Set(fs12.readdirSync(folder));
+      const r = readEvidence(path11.join(dir, a.file), names);
+      ev.observations.push(...r.observations);
+      ev.problems.push(...r.problems);
+    } else
+      ev.files.push({ file: a.file, type: a.artifact_type });
+  }
+  return out;
 }
 function headlineOf(ctx, plan, st) {
   const commits = ctx.change?.commits ?? [];
@@ -14384,7 +14580,7 @@ function signals(m) {
   const anyRunning = m.suites.some((s) => s.mode === "running-app" && s.total > 0);
   const changedRunning = changed.filter((i) => i.tests.some((t) => t.found && t.running));
   const planTests = items.flatMap((i) => i.tests.map((t) => t.found?.id)).filter(Boolean);
-  const withEvidence = planTests.filter((id) => m.artifacts.some((x) => x.test_id === id));
+  const withEvidence = planTests.filter((id) => m.evidence[id]?.here && (m.evidence[id].here.observations.length || m.evidence[id].here.files.length));
   return [
     {
       key: "plan",
@@ -14457,6 +14653,15 @@ function steps2(m) {
     const first = inProcOnly[0];
     out.push({ tone: "do", title: `Test ${inProcOnly.map((i) => i.id).join(", ")} on the running app`, detail: `${inProcOnly.length === 1 ? "This changed behavior is" : "These changed behaviors are"} only tested with the app inside the test process; the ${running.name} suite drives the running app.`, prompt: `Use witness to add a test to the ${running.name} suite (${running.kind}) for plan item ${first.id}: "${first.behavior}", expecting: ${first.expect}. Add it to ${first.id} in .witness/plan.yaml and run the ${running.name} suite.` });
   }
+  const planTests = (m.plan?.items ?? []).flatMap((i) => i.tests.filter((t) => t.found).map((t) => ({ item: i.id, id: t.found.id })));
+  const bare = planTests.filter((t) => !m.evidence[t.id]?.here);
+  if (planTests.length && bare.length) {
+    const items = [...new Set(bare.map((b) => b.item))];
+    out.push({ tone: "do", title: `Record evidence for ${items.join(", ")}`, detail: `${plural3(bare.length, "planned test")} left no record of what ${bare.length === 1 ? "it" : "they"} sent and saw.`, prompt: `Use witness: make the tests of plan items ${items.join(", ")} record evidence while they run, following the evidence reference of the write skill (each test appends what it sends and sees to $WITNESS_ARTIFACTS/<test id>/evidence.jsonl, and browser tests keep screenshots). Then rerun them with witness run --select.` });
+  }
+  const broken = Object.entries(m.evidence).flatMap(([id, e]) => e.here?.problems.length ? [{ id, n: e.here.problems.length, first: e.here.problems[0] }] : []);
+  if (broken.length)
+    out.push({ tone: "low", title: `Fix the evidence of ${plural3(broken.length, "test")}`, detail: `${shortTest(broken[0].id)}: line ${broken[0].first.line}, ${broken[0].first.message}`, prompt: `Use witness: the evidence.jsonl files of these tests have problems: ${broken.slice(0, 10).map((b) => `${b.id} (line ${b.first.line}: ${b.first.message})`).join("; ")}. Fix the code that writes them so every line follows the evidence reference of the write skill.` });
   const skipped = m.tests.filter((t) => t.status === "skipped");
   if (skipped.length)
     out.push({ tone: "low", title: `Decide on ${plural3(skipped.length, "skipped test")}`, detail: ids(skipped), prompt: `These tests were skipped in run ${run}: ${skipped.slice(0, 20).map((t) => t.id).join(", ")}. For each, find why it is skipped and either make it run or remove it.` });
@@ -14471,7 +14676,7 @@ var sha256 = (b) => createHash2("sha256").update(b).digest("hex");
 var DERIVED = new Set(["report.html", "report.md", "SHA256SUMS", "state.json"]);
 function walk(dir, rel = "") {
   const out = [];
-  for (const e of fs12.readdirSync(path12.join(dir, rel), { withFileTypes: true })) {
+  for (const e of fs13.readdirSync(path12.join(dir, rel), { withFileTypes: true })) {
     const r = rel ? `${rel}/${e.name}` : e.name;
     if (e.isDirectory())
       out.push(...walk(dir, r));
@@ -14481,8 +14686,8 @@ function walk(dir, rel = "") {
   return out;
 }
 function writeSums(dir) {
-  const lines = walk(dir).sort().map((f) => `${sha256(fs12.readFileSync(path12.join(dir, f)))}  ${f}`);
-  fs12.writeFileSync(path12.join(dir, "SHA256SUMS"), lines.join(`
+  const lines = walk(dir).sort().map((f) => `${sha256(fs13.readFileSync(path12.join(dir, f)))}  ${f}`);
+  fs13.writeFileSync(path12.join(dir, "SHA256SUMS"), lines.join(`
 `) + `
 `);
 }
@@ -14491,15 +14696,15 @@ function writeReport(dir) {
   const m = buildModel(dir);
   const html = path12.join(dir, "report.html");
   const md = path12.join(dir, "report.md");
-  fs12.writeFileSync(html, renderHtml(m));
-  fs12.writeFileSync(md, renderMd(m));
+  fs13.writeFileSync(html, renderHtml(m));
+  fs13.writeFileSync(md, renderMd(m));
   return { html, md };
 }
 var esc2 = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 function writeRunsIndex(root) {
-  if (!fs12.existsSync(root))
+  if (!fs13.existsSync(root))
     return;
-  const runs = fs12.readdirSync(root).filter((d) => d.startsWith("r-")).sort().reverse();
+  const runs = fs13.readdirSync(root).filter((d) => d.startsWith("r-")).sort().reverse();
   const rows = runs.map((id) => {
     const st = readJson(path12.join(root, id, "status.json"), null);
     if (!st)
@@ -14508,7 +14713,7 @@ function writeRunsIndex(root) {
     const tone2 = o === "passed" ? "ok" : o === "failed" ? "bad" : o === "interrupted" || o === "running" ? "dim" : "warn";
     const s = st.summary;
     const ms = st.finished_at ? Date.parse(st.finished_at) - Date.parse(st.started_at) : undefined;
-    const has = fs12.existsSync(path12.join(root, id, "report.html"));
+    const has = fs13.existsSync(path12.join(root, id, "report.html"));
     return `<a class="run ${tone2}" href="${has ? `${esc2(id)}/report.html` : `${esc2(id)}/status.json`}"><span class="pill">${esc2(outcomeLabel(o))}</span><span class="what"><b>${esc2(st.branch || "no branch")}</b> <span class="mono">${esc2(st.commit.slice(0, 7))}</span>${st.label ? ` · ${esc2(st.label)}` : ""}${st.against ? ` · vs ${esc2(st.against.ref)}` : ""}</span><span class="nums">${s ? `${s.passed} passed${s.failed ? ` · ${s.failed} failed` : ""}${s.skipped ? ` · ${s.skipped} skipped` : ""}` : esc2(st.phase)}</span><span class="when">${esc2(new Date(st.started_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))}${ms != null ? ` · ${fmtMs(ms)}` : ""}</span></a>`;
   });
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Witness runs</title>
@@ -14520,15 +14725,15 @@ function writeRunsIndex(root) {
 @media (max-width:700px){.run{grid-template-columns:96px minmax(0,1fr)}.nums,.when{grid-column:2}}</style></head><body>
 <header class="top"><div class="wrap"><div class="brand">Witness <em>by morph</em></div><div class="crumb"><b>Runs</b></div></div></header>
 <main class="wrap"><div class="runs">${rows.join("") || '<p class="cap">No runs yet.</p>'}</div></main></body></html>`;
-  fs12.writeFileSync(path12.join(root, "index.html"), page);
+  fs13.writeFileSync(path12.join(root, "index.html"), page);
 }
 
 // src/commands.ts
-import * as fs18 from "node:fs";
+import * as fs19 from "node:fs";
 import * as path18 from "node:path";
 
 // src/functional.ts
-import * as fs13 from "node:fs";
+import * as fs14 from "node:fs";
 import * as path13 from "node:path";
 var EXTRA = {
   ".rs": { lang: "rs", as: "go" },
@@ -14664,7 +14869,7 @@ function projectEntries(root, dir = ".") {
   const e = { names: [], paths: [], funcs: [], modules: [] };
   const read = (f) => {
     try {
-      return fs13.readFileSync(f, "utf8");
+      return fs14.readFileSync(f, "utf8");
     } catch {
       return "";
     }
@@ -14930,7 +15135,7 @@ ${opts.helpers}` : raw, opts.entries);
 function scanFile(root, rel, isTest, entries) {
   let raw;
   try {
-    raw = fs13.readFileSync(path13.join(root, rel), "utf8");
+    raw = fs14.readFileSync(path13.join(root, rel), "utf8");
   } catch {
     return null;
   }
@@ -14945,7 +15150,7 @@ function batsHelpers(file, raw) {
     const rel = m[2].replace(/\$\{?BATS_TEST_DIRNAME\}?\/?/, "");
     for (const f of m[1] === "load" ? [`${rel}.bash`, rel] : [rel]) {
       try {
-        out.push(fs13.readFileSync(path13.resolve(path13.dirname(file), f), "utf8"));
+        out.push(fs14.readFileSync(path13.resolve(path13.dirname(file), f), "utf8"));
         break;
       } catch {}
     }
@@ -15118,7 +15323,7 @@ function suiteTargets(cwd, cmd) {
   const out = [];
   for (const w of words) {
     const abs = path13.resolve(cwd, w.replace(/^--\w+=/, ""));
-    if (!fs13.existsSync(abs) || abs === cwd)
+    if (!fs14.existsSync(abs) || abs === cwd)
       continue;
     if (/\.(sln|slnx)$/.test(abs))
       continue;
@@ -15135,7 +15340,7 @@ function functionalWarnings(cfg) {
       continue;
     const roots = targets.length ? targets : [cwd];
     const entries = projectEntries(cfg.root, s.cwd);
-    const extra = roots.filter((r) => fs13.statSync(r, { throwIfNoEntry: false })?.isDirectory()).flatMap((r) => globFiles(r, ["**/*.{bats,rs,swift,dart}"], { maxDepth: 12 }).map((f) => path13.join(r, f)));
+    const extra = roots.filter((r) => fs14.statSync(r, { throwIfNoEntry: false })?.isDirectory()).flatMap((r) => globFiles(r, ["**/*.{bats,rs,swift,dart}"], { maxDepth: 12 }).map((f) => path13.join(r, f)));
     const scans = [...new Set([...expandArgs(roots, cwd), ...extra])].filter((f) => fLangOf(f)).slice(0, MAX_SCAN).map((f) => scanFile(cfg.root, path13.relative(cfg.root, f), undefined, entries)).filter((f) => !!f);
     const v = classify(scans, s.name);
     if (!v.tests)
@@ -15183,7 +15388,7 @@ function outcomeColor(outcome) {
 
 // src/rundir.ts
 import { spawnSync as spawnSync2 } from "node:child_process";
-import * as fs14 from "node:fs";
+import * as fs15 from "node:fs";
 import * as path14 from "node:path";
 function newRunId(now = new Date) {
   const p = (n, w = 2) => String(n).padStart(w, "0");
@@ -15198,8 +15403,8 @@ class RunDir {
   constructor(root, runId, init) {
     this.root = root;
     this.dir = path14.join(root, runId);
-    fs14.mkdirSync(path14.join(this.dir, "logs"), { recursive: true });
-    fs14.mkdirSync(path14.join(this.dir, "reports"), { recursive: true });
+    fs15.mkdirSync(path14.join(this.dir, "logs"), { recursive: true });
+    fs15.mkdirSync(path14.join(this.dir, "reports"), { recursive: true });
     const now = new Date().toISOString();
     this.status = { run_id: runId, phase: "starting", started_at: now, suites: [], last_event: "run started", pid: process.pid, ...init };
     this.state = { pid: process.pid, started_at: now, procs: [], ports: {}, worktrees: [] };
@@ -15220,7 +15425,7 @@ class RunDir {
     writeJson(this.file("state.json"), this.state);
   }
   event(type, data = {}, lastEvent) {
-    fs14.appendFileSync(this.file("events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type, ...data }) + `
+    fs15.appendFileSync(this.file("events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type, ...data }) + `
 `);
     if (lastEvent) {
       this.status.last_event = lastEvent;
@@ -15247,10 +15452,10 @@ class RunDir {
   linkLatest() {
     const link = path14.join(this.root, "latest");
     try {
-      fs14.rmSync(link, { force: true });
-      fs14.symlinkSync(this.status.run_id, link);
+      fs15.rmSync(link, { force: true });
+      fs15.symlinkSync(this.status.run_id, link);
     } catch {
-      fs14.writeFileSync(link, this.status.run_id);
+      fs15.writeFileSync(link, this.status.run_id);
     }
   }
 }
@@ -15258,11 +15463,11 @@ function resolveRun(root, id) {
   const which = !id || id === "latest" ? "latest" : id;
   const p = path14.join(root, which);
   try {
-    const st = fs14.lstatSync(p);
+    const st = fs15.lstatSync(p);
     if (st.isSymbolicLink())
-      return path14.join(root, fs14.readlinkSync(p));
+      return path14.join(root, fs15.readlinkSync(p));
     if (st.isFile())
-      return path14.join(root, fs14.readFileSync(p, "utf8").trim());
+      return path14.join(root, fs15.readFileSync(p, "utf8").trim());
     if (st.isDirectory())
       return p;
   } catch {
@@ -15275,7 +15480,7 @@ function resolveRun(root, id) {
 }
 function listRuns(root) {
   try {
-    return fs14.readdirSync(root).filter((d) => /^r-\d{8}-\d{6}-[0-9a-f]{4}$/.test(d) && fs14.existsSync(path14.join(root, d, "status.json"))).sort();
+    return fs15.readdirSync(root).filter((d) => /^r-\d{8}-\d{6}-[0-9a-f]{4}$/.test(d) && fs15.existsSync(path14.join(root, d, "status.json"))).sort();
   } catch {
     return [];
   }
@@ -15302,7 +15507,7 @@ async function reapStale(root, graceMs, log) {
     status.finished_at = new Date().toISOString();
     status.last_event = `reaped: witness (pid ${state.pid}) exited without finishing${killed ? `; killed ${killed} leftover process group(s)` : ""}`;
     writeJson(path14.join(dir, "status.json"), status);
-    fs14.appendFileSync(path14.join(dir, "events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type: "reaped", by: process.pid, killed }) + `
+    fs15.appendFileSync(path14.join(dir, "events.jsonl"), JSON.stringify({ t: new Date().toISOString(), type: "reaped", by: process.pid, killed }) + `
 `);
     state.procs = [];
     writeJson(path14.join(dir, "state.json"), state);
@@ -15340,7 +15545,7 @@ async function killTracked(p, graceMs, opts = {}) {
 }
 function readText(f) {
   try {
-    return fs14.readFileSync(f, "utf8").trim();
+    return fs15.readFileSync(f, "utf8").trim();
   } catch {
     return "";
   }
@@ -15349,7 +15554,7 @@ function removeWorktree(wt) {
   const common = git(wt, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
   if (common.ok)
     spawnSync2("git", ["--git-dir", common.out, "worktree", "remove", "--force", wt]);
-  fs14.rmSync(wt, { recursive: true, force: true });
+  fs15.rmSync(wt, { recursive: true, force: true });
   if (common.ok)
     spawnSync2("git", ["--git-dir", common.out, "worktree", "prune"]);
 }
@@ -15359,39 +15564,39 @@ function pruneRuns(root, keep) {
     const st = readJson(path14.join(root, id, "status.json"), null);
     if (st && st.phase !== "finished")
       continue;
-    fs14.rmSync(path14.join(root, id), { recursive: true, force: true });
+    fs15.rmSync(path14.join(root, id), { recursive: true, force: true });
   }
 }
 
 class LockError extends Error {
 }
 function acquireLock(file) {
-  fs14.mkdirSync(path14.dirname(file), { recursive: true });
+  fs15.mkdirSync(path14.dirname(file), { recursive: true });
   for (let attempt = 0;attempt < 2; attempt++) {
     try {
-      const fd = fs14.openSync(file, "wx");
-      fs14.writeSync(fd, String(process.pid));
-      fs14.closeSync(fd);
+      const fd = fs15.openSync(file, "wx");
+      fs15.writeSync(fd, String(process.pid));
+      fs15.closeSync(fd);
       return () => {
         try {
-          if (fs14.readFileSync(file, "utf8").trim() === String(process.pid))
-            fs14.rmSync(file, { force: true });
+          if (fs15.readFileSync(file, "utf8").trim() === String(process.pid))
+            fs15.rmSync(file, { force: true });
         } catch {}
       };
     } catch (e) {
       if (e.code !== "EEXIST")
         throw e;
-      const pid = Number(fs14.readFileSync(file, "utf8").trim());
+      const pid = Number(fs15.readFileSync(file, "utf8").trim());
       if (pidAlive(pid) && pid !== process.pid)
         throw new LockError(`another witness run (pid ${pid}) is using this checkout; wait for it or stop it (lock: ${file})`);
-      fs14.rmSync(file, { force: true });
+      fs15.rmSync(file, { force: true });
     }
   }
   throw new LockError(`could not take the lock ${file}`);
 }
 
 // src/reference.ts
-import * as fs15 from "node:fs";
+import * as fs16 from "node:fs";
 import * as os from "node:os";
 import * as path15 from "node:path";
 var NO_REF = '--against reference: [reference] has no ref, repo or service override, so there is nothing to compare with: set ref = "<base branch>" in [reference], or pass --against <base branch>';
@@ -15414,7 +15619,7 @@ function resolveReference(cfg, against) {
     ref ??= "origin/HEAD";
   } else if (r.repo) {
     repoDir = path15.resolve(cfg.root, r.repo);
-    if (!fs15.existsSync(repoDir))
+    if (!fs16.existsSync(repoDir))
       return bad(`[reference] repo = "${r.repo}": ${repoDir} does not exist`);
   }
   const tests = r.tests ?? (r.repo || !ref ? "target" : "reference");
@@ -15430,13 +15635,13 @@ function resolveReference(cfg, against) {
     resolved = git(repoDir, ["rev-parse", "--verify", `origin/${ref}^{commit}`]);
   if (!resolved.ok)
     return bad(`--against ${label}: not a commit in ${sameRepo ? "this repo" : repoDir} (${resolved.err || "unknown revision"}; try a branch, tag or sha from \`git log\`)`);
-  const wt = fs15.mkdtempSync(path15.join(os.tmpdir(), "witness-against-"));
+  const wt = fs16.mkdtempSync(path15.join(os.tmpdir(), "witness-against-"));
   const add = git(repoDir, ["worktree", "add", "--detach", wt, resolved.out]);
   if (!add.ok) {
-    fs15.rmSync(wt, { recursive: true, force: true });
+    fs16.rmSync(wt, { recursive: true, force: true });
     return bad(`git worktree add failed: ${add.err}`);
   }
-  const root = sameRepo ? path15.join(wt, path15.relative(repoDir, fs15.realpathSync(cfg.root))) : wt;
+  const root = sameRepo ? path15.join(wt, path15.relative(repoDir, fs16.realpathSync(cfg.root))) : wt;
   const copied = sameRepo && copyWitnessDir(path15.join(cfg.root, ".witness"), path15.join(root, ".witness"));
   return { ...base, root, suiteRoot: tests === "target" ? cfg.root : root, sha: resolved.out, worktree: wt, repoDir, copied, setupCacheDir: null };
 }
@@ -15447,7 +15652,7 @@ function releaseReference(side) {
 }
 function removeWorktree2(repoDir, wt) {
   git(repoDir, ["worktree", "remove", "--force", wt]);
-  fs15.rmSync(wt, { recursive: true, force: true });
+  fs16.rmSync(wt, { recursive: true, force: true });
   git(repoDir, ["worktree", "prune"]);
 }
 async function referenceSetup(side, o) {
@@ -15456,7 +15661,7 @@ async function referenceSetup(side, o) {
   const vars = { ...o.baseEnv, CHECKOUT: side.root, TARGET_CHECKOUT: o.cfg.root };
   const cmd = substitute(side.setup, vars);
   const log = path15.join(o.logDir, "reference-setup.log");
-  fs15.mkdirSync(o.logDir, { recursive: true });
+  fs16.mkdirSync(o.logDir, { recursive: true });
   const r = await runCapture(cmd, { cwd: side.root, env: childEnv(o.baseEnv, { TARGET_CHECKOUT: o.cfg.root }), timeoutMs: side.setupTimeoutMs, log, abort: o.abort, track: o.run?.tracker("setup", "reference") });
   if (r.code === 0)
     return null;
@@ -15465,14 +15670,14 @@ async function referenceSetup(side, o) {
 }
 var NOT_COPIED = new Set(["runs", "check", "cache", "up", "up.json", "run.lock", "scratch"]);
 function copyWitnessDir(src, dst) {
-  if (!fs15.existsSync(src))
+  if (!fs16.existsSync(src))
     return false;
-  fs15.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path15.relative(src, p).split(path15.sep)[0]) });
+  fs16.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path15.relative(src, p).split(path15.sep)[0]) });
   return true;
 }
 function cloneOrFetch(cfg, url) {
   const dir = path15.join(cfg.root, ".witness", "cache", "reference", url.replace(/^\w+:\/\//, "").replace(/[^\w.-]+/g, "_").slice(-80));
-  const r = fs15.existsSync(path15.join(dir, ".git")) || fs15.existsSync(path15.join(dir, "HEAD")) ? git(dir, ["fetch", "--quiet", "--tags", "origin"]) : git(cfg.root, ["clone", "--quiet", "--no-checkout", url, dir]);
+  const r = fs16.existsSync(path15.join(dir, ".git")) || fs16.existsSync(path15.join(dir, "HEAD")) ? git(dir, ["fetch", "--quiet", "--tags", "origin"]) : git(cfg.root, ["clone", "--quiet", "--no-checkout", url, dir]);
   if (!r.ok)
     return { diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence: `[reference] repo = "${url}": ${r.err.split(`
 `)[0]}` }) };
@@ -15480,15 +15685,15 @@ function cloneOrFetch(cfg, url) {
 }
 function gitTop(dir) {
   const r = git(dir, ["rev-parse", "--show-toplevel"]);
-  return r.ok ? fs15.realpathSync(r.out) : dir;
+  return r.ok ? fs16.realpathSync(r.out) : dir;
 }
 
 // src/run.ts
-import * as fs17 from "node:fs";
+import * as fs18 from "node:fs";
 import * as path17 from "node:path";
 
 // src/suite.ts
-import * as fs16 from "node:fs";
+import * as fs17 from "node:fs";
 import * as path16 from "node:path";
 var MAX_RERUNS = 200;
 var BUILD_FAILED = [
@@ -15534,19 +15739,19 @@ function reportPathEvidence(text) {
   const p = paths.find((x) => path16.isAbsolute(x));
   if (!p)
     return;
-  return fs16.existsSync(p) ? `the test run wrote its report to ${p}, outside the folders witness reads; set report = "<glob>" for the suite` : `the test run says it wrote ${p}, but there is no such file here (written inside a container, or on another filesystem?)`;
+  return fs17.existsSync(p) ? `the test run wrote its report to ${p}, outside the folders witness reads; set report = "<glob>" for the suite` : `the test run says it wrote ${p}, but there is no such file here (written inside a container, or on another filesystem?)`;
 }
 function readFrom(file, offset) {
   try {
-    const fd = fs16.openSync(file, "r");
+    const fd = fs17.openSync(file, "r");
     try {
-      const size = fs16.fstatSync(fd).size;
+      const size = fs17.fstatSync(fd).size;
       const start = Math.max(offset, size - 512 * 1024);
       const buf = Buffer.alloc(Math.max(0, size - start));
-      fs16.readSync(fd, buf, 0, buf.length, start);
+      fs17.readSync(fd, buf, 0, buf.length, start);
       return buf.toString("utf8");
     } finally {
-      fs16.closeSync(fd);
+      fs17.closeSync(fd);
     }
   } catch {
     return "";
@@ -15558,7 +15763,7 @@ function dirSize(dir) {
   const walk2 = (d) => {
     let es;
     try {
-      es = fs16.readdirSync(d, { withFileTypes: true });
+      es = fs17.readdirSync(d, { withFileTypes: true });
     } catch {
       return;
     }
@@ -15629,8 +15834,8 @@ async function runSuite(ctx, suite, select, retries) {
   const p = ctx.prefix ?? "";
   const reportDir = path16.join(ctx.outDir, "reports", suite.name);
   const log = path16.join(ctx.outDir, "logs", `${suite.name}.log`);
-  fs16.rmSync(reportDir, { recursive: true, force: true });
-  fs16.mkdirSync(reportDir, { recursive: true });
+  fs17.rmSync(reportDir, { recursive: true, force: true });
+  fs17.mkdirSync(reportDir, { recursive: true });
   const t0 = Date.now();
   const vars = { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir };
   const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
@@ -15665,7 +15870,7 @@ async function runSuite(ctx, suite, select, retries) {
         if (ctx.abort.aborted)
           break;
         const dir = path16.join(reportDir, "rerun", String(i + 1));
-        fs16.mkdirSync(dir, { recursive: true });
+        fs17.mkdirSync(dir, { recursive: true });
         const c2 = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, [id], cwd);
         const snap = snapshotReports(ctx, suite, adapter, cwd, dir);
         const rlog = path16.join(ctx.outDir, "logs", `${suite.name}.rerun.log`);
@@ -15724,12 +15929,13 @@ async function runSuite(ctx, suite, select, retries) {
 }
 async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeoutMs) {
   const artifacts = path16.join(ctx.outDir, "artifacts");
-  fs16.mkdirSync(artifacts, { recursive: true });
+  fs17.mkdirSync(artifacts, { recursive: true });
   const vars = ctx.stack.vars();
   const env = childEnv(ctx.baseEnv, {
     ...ctx.stack.serviceUrlEnv(),
     WITNESS_REPORT_DIR: reportDir,
     WITNESS_ARTIFACTS: artifacts,
+    WITNESS_EVIDENCE: "1",
     WITNESS_RUN_DIR: ctx.run.dir,
     ...presetEnv(adapter, suite.perTestTimeoutMs, !!suite.perTestTimeoutArg),
     ...adapter.reportEnv && !suite.report ? adapter.reportEnv(reportDir) : {},
@@ -15772,7 +15978,7 @@ async function execWatched(ctx, suite, adapter, cmd, cwd, reportDir, log, timeou
     if (end !== "exit") {
       const why = end === "timeout" ? `suite timeout (${fmtDuration(timeoutMs)})` : end === "stalled" ? `no output and no report growth for ${fmtDuration(ctx.cfg.run.stallMs)}` : end === "service_died" ? `service ${died?.service} died` : "interrupted";
       ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · stopping: ${why}`);
-      fs16.appendFileSync(log, `
+      fs17.appendFileSync(log, `
 witness: stopping suite: ${why}
 `);
       await killGroup(proc.pgid, ctx.cfg.run.graceMs);
@@ -15805,7 +16011,7 @@ function outsideReports(ctx, suite, adapter, cwd, reportDir) {
 }
 var stamp = (f) => {
   try {
-    const st = fs16.statSync(f);
+    const st = fs17.statSync(f);
     return `${st.mtimeMs}:${st.size}`;
   } catch {
     return "";
@@ -15819,7 +16025,7 @@ function collect(ctx, suite, adapter, cwd, reportDir, log, before, logFrom = 0) 
   if (adapter.fromStdout && !suite.report) {
     const out = path16.join(reportDir, "stdout.jsonl");
     try {
-      fs16.copyFileSync(log, out);
+      fs17.copyFileSync(log, out);
       files.push(out);
     } catch {}
   }
@@ -15837,7 +16043,7 @@ function collect(ctx, suite, adapter, cwd, reportDir, log, before, logFrom = 0) 
     if (before.get(src) === stamp(src))
       continue;
     const dst = path16.join(reportDir, rel.replace(/[\\/]/g, "__"));
-    fs16.copyFileSync(src, dst);
+    fs17.copyFileSync(src, dst);
     files.push(dst);
   }
   const parsed = [...new Set(files)].map((f) => parseReportFile(f, adapter.format, cwd));
@@ -15857,7 +16063,7 @@ async function retryFailed(ctx, suite, adapter, cwd, vars, reportDir, tests, ret
       return;
     const ids2 = failing.map((t) => t.id.slice(adapter.name.length + 1));
     const dir = path16.join(reportDir, "retry", String(k));
-    fs16.mkdirSync(dir, { recursive: true });
+    fs17.mkdirSync(dir, { recursive: true });
     const cmd = suiteCommand(suite, adapter, { ...vars, WITNESS_REPORT_DIR: dir }, dir, ids2, cwd);
     ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · retry ${k}/${retries} of ${ids2.length} failed test(s)`);
     const rlog = path16.join(ctx.outDir, "logs", `${suite.name}.retry.log`);
@@ -15880,6 +16086,8 @@ async function retryFailed(ctx, suite, adapter, cwd, vars, reportDir, tests, ret
 }
 var MIME = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".webm": "video/webm", ".mp4": "video/mp4", ".mov": "video/quicktime", ".zip": "application/zip", ".json": "application/json", ".xml": "application/xml", ".trx": "application/xml", ".html": "text/html", ".txt": "text/plain", ".log": "text/plain", ".md": "text/markdown" };
 function artifactType(file, ct) {
+  if (path16.basename(file) === EVIDENCE_FILE)
+    return "evidence";
   if (ct.startsWith("image/"))
     return "screenshot";
   if (ct.startsWith("video/"))
@@ -15890,23 +16098,31 @@ function artifactType(file, ct) {
     return "log";
   return "report";
 }
+var folderKey = (id) => safeId(id).replace(/[.]/g, "_").replace(/_+/g, "_").replace(/_+$/, "");
+function bySuffix(tests, dir) {
+  const hits = tests.filter((t) => {
+    const id = folderKey(t.id);
+    return id.length > dir.length && id.endsWith(dir) && /[_@-]/.test(id[id.length - dir.length - 1]);
+  });
+  return hits.length === 1 ? hits[0] : undefined;
+}
 function collectArtifacts(runDir, outDir, tests) {
   const out = [];
   const artDir = path16.join(outDir, "artifacts");
   const bySafe = new Map;
   for (const t of tests) {
-    bySafe.set(safeId(t.id), t);
-    bySafe.set(safeId(t.id.slice(t.adapter.length + 1)), t);
-    bySafe.set(safeId(t.name), t);
+    bySafe.set(folderKey(t.id), t);
+    bySafe.set(folderKey(t.id.slice(t.adapter.length + 1)), t);
+    bySafe.set(folderKey(t.name), t);
   }
   for (const t of tests) {
     for (const a of t.attachments ?? []) {
-      if (!fs16.existsSync(a.path) || fs16.statSync(a.path).size > 200 * 1024 * 1024)
+      if (!fs17.existsSync(a.path) || fs17.statSync(a.path).size > 200 * 1024 * 1024)
         continue;
       const dst = path16.join(artDir, safeId(t.id), path16.basename(a.path));
       if (path16.resolve(a.path) !== dst) {
-        fs16.mkdirSync(path16.dirname(dst), { recursive: true });
-        fs16.copyFileSync(a.path, dst);
+        fs17.mkdirSync(path16.dirname(dst), { recursive: true });
+        fs17.copyFileSync(a.path, dst);
       }
       a.path = path16.relative(runDir, dst);
     }
@@ -15914,7 +16130,7 @@ function collectArtifacts(runDir, outDir, tests) {
   const walk2 = (d, test, dirName) => {
     let es;
     try {
-      es = fs16.readdirSync(d, { withFileTypes: true });
+      es = fs17.readdirSync(d, { withFileTypes: true });
     } catch {
       return;
     }
@@ -15937,9 +16153,9 @@ function collectArtifacts(runDir, outDir, tests) {
     }
   };
   try {
-    for (const e of fs16.readdirSync(artDir, { withFileTypes: true })) {
+    for (const e of fs17.readdirSync(artDir, { withFileTypes: true })) {
       if (e.isDirectory())
-        walk2(path16.join(artDir, e.name), bySafe.get(safeId(e.name)), e.name);
+        walk2(path16.join(artDir, e.name), bySafe.get(folderKey(e.name)) ?? bySuffix(tests, folderKey(e.name)), e.name);
     }
   } catch {}
   return out;
@@ -16208,7 +16424,7 @@ function printVerdict(progress, status, ms, dir, report) {
 async function runSide(cfg, o) {
   const side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
   const logDir = path17.join(o.outDir, "logs");
-  fs17.mkdirSync(logDir, { recursive: true });
+  fs18.mkdirSync(logDir, { recursive: true });
   const stack2 = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp2(cfg.root) : null });
   const isTarget = !o.prefix;
   try {
@@ -16328,9 +16544,9 @@ async function runAgainst(cfg, opts, o) {
 function ensureScratch(root) {
   const dir = path17.join(root, ".witness", "scratch");
   try {
-    fs17.mkdirSync(dir, { recursive: true });
-    if (!fs17.existsSync(path17.join(dir, ".gitignore")))
-      fs17.writeFileSync(path17.join(dir, ".gitignore"), `*
+    fs18.mkdirSync(dir, { recursive: true });
+    if (!fs18.existsSync(path17.join(dir, ".gitignore")))
+      fs18.writeFileSync(path17.join(dir, ".gitignore"), `*
 `);
   } catch {}
 }
@@ -16386,7 +16602,7 @@ async function checkCommand(cfg, o) {
   }
   const checkRoot = path18.join(cfg.root, ".witness", "check");
   await reapStale(checkRoot, cfg.run.graceMs, (m) => p.line(m));
-  fs18.rmSync(checkRoot, { recursive: true, force: true });
+  fs19.rmSync(checkRoot, { recursive: true, force: true });
   const g = gitInfo(cfg.root);
   const run = new RunDir(checkRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: "check" });
   const abort = { aborted: false };
@@ -16535,7 +16751,7 @@ async function upCommand(cfg, o) {
   }
   await reapStale(o.runDirRoot, cfg.run.graceMs, (m) => p.line(m));
   const logDir = path18.join(cfg.root, ".witness", "up", "logs");
-  fs18.mkdirSync(logDir, { recursive: true });
+  fs19.mkdirSync(logDir, { recursive: true });
   const abort = { aborted: false };
   const stack2 = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir, progress: p, noSetup: o.noSetup, setupCacheDir: path18.join(cfg.root, ".witness", "cache", "setup"), abort });
   try {
@@ -16593,7 +16809,7 @@ async function downCommand(cfg, o) {
       p.line(`down   ${d} · stopped`);
     }
   }
-  fs18.rmSync(upFile(cfg.root), { force: true });
+  fs19.rmSync(upFile(cfg.root), { force: true });
   if (o.json)
     process.stdout.write(JSON.stringify({ ok: true }) + `
 `);
@@ -16695,11 +16911,11 @@ function reportCommand(runRoot, id, format) {
 }
 
 // src/init.ts
-import * as fs19 from "node:fs";
+import * as fs20 from "node:fs";
 import * as path19 from "node:path";
 var read = (f) => {
   try {
-    return fs19.readFileSync(f, "utf8");
+    return fs20.readFileSync(f, "utf8");
   } catch {
     return "";
   }
@@ -16758,7 +16974,7 @@ function guess(root) {
   }
   const gradle = has2(/(^|\/)build\.gradle(\.kts)?$/).sort((a, b) => a.length - b.length)[0];
   if (gradle)
-    projects.push({ label: dirOf(gradle), adapter: "junit-gradle", cwd: dirOf(gradle), dir: dirOf(gradle), manifest: gradle, cmd: fs19.existsSync(path19.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", nameBase: "gradle-tests", include: javaTest });
+    projects.push({ label: dirOf(gradle), adapter: "junit-gradle", cwd: dirOf(gradle), dir: dirOf(gradle), manifest: gradle, cmd: fs20.existsSync(path19.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", nameBase: "gradle-tests", include: javaTest });
   const csproj = has2(/\.csproj$/);
   for (const f of csproj.filter((f2) => /Microsoft\.NET\.Test\.Sdk|xunit|NUnit|MSTest/i.test(read(path19.join(root, f2))))) {
     const mode = dotnetMode(root, `dotnet test ${f}`);
@@ -16811,7 +17027,7 @@ function guess(root) {
     if (deps.cypress)
       projects.push({ label: `${d === "." ? "" : `${d}/`}cypress`, adapter: "generic", cwd: d, dir: d, manifest: pj, cmd: 'npx cypress run --reporter junit --reporter-options "mochaFile=${WITNESS_REPORT_DIR}/cypress-[hash].xml"', nameBase: `${pre}cypress`, isTest: (r) => /\.cy\.[cm]?[jt]sx?$/.test(r), include: own, defaultKind: "ui", report: "${WITNESS_REPORT_DIR}/*.xml" });
     if (doc.scripts?.start)
-      g.services.push({ name: name(`${pre}web`.replace(/-$/, "")), cwd: d, setup: fs19.existsSync(path19.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}`, confidence: "medium", evidence: [pj] });
+      g.services.push({ name: name(`${pre}web`.replace(/-$/, "")), cwd: d, setup: fs20.existsSync(path19.join(root, d, "package-lock.json")) ? "npm ci" : "npm install", start: "npm start", ready: "${self.url}/", why: `start script in ${pj}`, confidence: "medium", evidence: [pj] });
   }
   const gomod = has2(/(^|\/)go\.mod$/).sort((a, b) => a.length - b.length)[0];
   if (gomod)
@@ -16836,9 +17052,9 @@ function guess(root) {
     projects.push({ label: d, adapter: "bats", cwd: ".", dir: d, cmd, nameBase: "bats", isTest: (r) => r.endsWith(".bats"), include: (r) => r.endsWith(".bats"), filter: (v) => batsFilter(cmd, d, v) });
   }
   const gradleRoot = gradle ? dirOf(gradle) : undefined;
-  const androidTest = has2(/(^|\/)build\.gradle(\.kts)?$/).map(dirOf).filter((d) => fs19.existsSync(path19.join(root, d, "src", "androidTest")));
+  const androidTest = has2(/(^|\/)build\.gradle(\.kts)?$/).map(dirOf).filter((d) => fs20.existsSync(path19.join(root, d, "src", "androidTest")));
   if (androidTest.length && gradleRoot) {
-    const gw = fs19.existsSync(path19.join(root, gradleRoot, "gradlew")) ? "./gradlew" : "gradle";
+    const gw = fs20.existsSync(path19.join(root, gradleRoot, "gradlew")) ? "./gradlew" : "gradle";
     projects.push({ label: `${androidTest.join(", ")} (androidTest)`, adapter: "junit-gradle", cwd: gradleRoot, dir: gradleRoot, manifest: gradle, cmd: `${gw} connectedAndroidTest`, nameBase: "android-tests", include: (r) => /(^|\/)src\/androidTest\//.test(r), defaultKind: "mobile", report: "**/build/outputs/androidTest-results/connected/**/*.xml" });
   }
   for (const pub of has2(/(^|\/)pubspec\.yaml$/).filter((f) => files.some((x) => x.startsWith(`${dirOf(f) === "." ? "" : `${dirOf(f)}/`}integration_test/`)))) {
@@ -16857,7 +17073,7 @@ function guess(root) {
     const d = commonDir([...new Set(maestro.map(dirOf))]);
     g.suites.push({ name: name("maestro"), adapter: "generic", kind: "mobile", cwd: ".", cmd: `maestro test --format junit --output \${WITNESS_REPORT_DIR}/maestro.xml ${d}`, why: `${d}: ${maestro.length} Maestro flow(s) launch the app`, hostsApp: false, project: d, confidence: "high", evidence: maestro.slice(0, 3) });
   }
-  if (fs19.existsSync(path19.join(root, "manage.py")))
+  if (fs20.existsSync(path19.join(root, "manage.py")))
     g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py", confidence: "medium", evidence: ["manage.py"] });
   for (const p of projects) {
     if (p.label === ".")
@@ -17028,12 +17244,12 @@ function renderExample(g) {
 function initCommand(root, json) {
   const g = guess(root);
   const dir = path19.join(root, ".witness");
-  fs19.mkdirSync(dir, { recursive: true });
+  fs20.mkdirSync(dir, { recursive: true });
   const example = path19.join(dir, "witness.example.toml");
-  fs19.writeFileSync(example, renderExample(g));
+  fs20.writeFileSync(example, renderExample(g));
   const gi = path19.join(dir, ".gitignore");
-  if (!fs19.existsSync(gi))
-    fs19.writeFileSync(gi, `runs/
+  if (!fs20.existsSync(gi))
+    fs20.writeFileSync(gi, `runs/
 check/
 cache/
 up/
@@ -17042,13 +17258,13 @@ run.lock
 scratch/
 .env
 `);
-  else if (!/^scratch\/$/m.test(fs19.readFileSync(gi, "utf8")))
-    fs19.appendFileSync(gi, `scratch/
+  else if (!/^scratch\/$/m.test(fs20.readFileSync(gi, "utf8")))
+    fs20.appendFileSync(gi, `scratch/
 `);
   const scratch = path19.join(dir, "scratch");
-  fs19.mkdirSync(scratch, { recursive: true });
-  if (!fs19.existsSync(path19.join(scratch, ".gitignore")))
-    fs19.writeFileSync(path19.join(scratch, ".gitignore"), `*
+  fs20.mkdirSync(scratch, { recursive: true });
+  if (!fs20.existsSync(path19.join(scratch, ".gitignore")))
+    fs20.writeFileSync(path19.join(scratch, ".gitignore"), `*
 `);
   if (json)
     process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + `
@@ -17069,7 +17285,7 @@ scratch/
       w("excluded (Witness runs functional tests only; unit and integration tests stay with the project's own build):");
     for (const e of g.excluded)
       w(`  ${e.path}: ${e.reason}`);
-    if (!fs19.existsSync(path19.join(dir, "witness.toml")))
+    if (!fs20.existsSync(path19.join(dir, "witness.toml")))
       w(`review it, then: mv ${example} ${path19.join(dir, "witness.toml")}`);
   }
   return 0;
@@ -17077,7 +17293,7 @@ scratch/
 
 // src/scan.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import * as fs20 from "node:fs";
+import * as fs21 from "node:fs";
 import * as os2 from "node:os";
 import * as path20 from "node:path";
 var SKIP2 = new Set([".git", "node_modules", ".witness", ".venv", "venv", "bin", "obj", "target", "build", "dist", "vendor", ".gradle", "__pycache__", ".next", ".nuxt", "coverage", ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache", "out", ".turbo", ".cache", "site-packages"]);
@@ -17086,8 +17302,8 @@ var MAX_SOURCES = 6000;
 var MAX_BYTES = 256 * 1024;
 var read2 = (f) => {
   try {
-    const st = fs20.statSync(f);
-    return st.size > MAX_BYTES * 4 ? "" : fs20.readFileSync(f, "utf8");
+    const st = fs21.statSync(f);
+    return st.size > MAX_BYTES * 4 ? "" : fs21.readFileSync(f, "utf8");
   } catch {
     return "";
   }
@@ -17264,7 +17480,7 @@ function onPath(tool, env = process.env) {
     for (const e of exts) {
       const f = path20.join(dir, tool + e);
       try {
-        if (fs20.statSync(f).isFile())
+        if (fs21.statSync(f).isFile())
           return f;
       } catch {}
     }
@@ -17309,7 +17525,7 @@ function machineFacts(out, env = process.env) {
     const dir = playwrightCache(env);
     let browsers = [];
     try {
-      browsers = fs20.readdirSync(dir).filter((n) => /^(chromium|chromium_headless_shell|chromium-headless-shell|firefox|webkit|ffmpeg)[-_]\d+$/.test(n)).sort();
+      browsers = fs21.readdirSync(dir).filter((n) => /^(chromium|chromium_headless_shell|chromium-headless-shell|firefox|webkit|ffmpeg)[-_]\d+$/.test(n)).sort();
     } catch {}
     facts.push({ tool: "playwright-browsers", found: browsers.some((b) => !b.startsWith("ffmpeg")), installed: browsers, evidence: [dir] });
   }
@@ -17420,7 +17636,7 @@ function scanCi(root, w, out) {
   }
 }
 function packageManager(root, dir) {
-  const has2 = (f) => fs20.existsSync(path20.join(root, dir, f)) || fs20.existsSync(path20.join(root, f));
+  const has2 = (f) => fs21.existsSync(path20.join(root, dir, f)) || fs21.existsSync(path20.join(root, f));
   if (has2("pnpm-lock.yaml"))
     return { run: "pnpm", install: "pnpm install --frozen-lockfile" };
   if (has2("yarn.lock"))
@@ -17891,7 +18107,7 @@ function dedupe2(out) {
 var norm2 = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 function existingConfig(root, out) {
   const file = path20.join(root, ".witness", "witness.toml");
-  if (!fs20.existsSync(file))
+  if (!fs21.existsSync(file))
     return null;
   const text = read2(file);
   const rel = path20.relative(root, file);
@@ -17977,7 +18193,7 @@ function scanCommand(root) {
 }
 
 // src/skills.ts
-import * as fs21 from "node:fs";
+import * as fs22 from "node:fs";
 import * as os3 from "node:os";
 import * as path21 from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17992,7 +18208,7 @@ var MARKER_LINE = /^\s*<!--\s*(?:if\s+(\S+)|(else)|(endif))\s*-->\s*$/;
 function skillsDir() {
   const here = path21.dirname(fileURLToPath(import.meta.url));
   const candidates = [process.env.WITNESS_SKILLS_DIR, path21.resolve(here, "..", "skills"), path21.resolve(here, "skills")].filter(Boolean);
-  return candidates.find((d) => fs21.existsSync(path21.join(d, "test-change", "SKILL.md"))) ?? null;
+  return candidates.find((d) => fs22.existsSync(path21.join(d, "test-change", "SKILL.md"))) ?? null;
 }
 function frontmatter(text) {
   const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
@@ -18007,8 +18223,8 @@ function frontmatter(text) {
   return out;
 }
 function listSkills(dir) {
-  return fs21.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && fs21.existsSync(path21.join(dir, e.name, "SKILL.md"))).map((e) => {
-    const fm = frontmatter(fs21.readFileSync(path21.join(dir, e.name, "SKILL.md"), "utf8"));
+  return fs22.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && fs22.existsSync(path21.join(dir, e.name, "SKILL.md"))).map((e) => {
+    const fm = frontmatter(fs22.readFileSync(path21.join(dir, e.name, "SKILL.md"), "utf8"));
     return { name: fm.name ?? e.name, description: fm.description ?? "", dir: path21.join(dir, e.name) };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -18068,7 +18284,7 @@ function renderSkill(text, profile, file) {
 `);
 }
 function walk2(dir, rel = "") {
-  return fs21.readdirSync(path21.join(dir, rel), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk2(dir, path21.join(rel, e.name)) : [path21.join(rel, e.name)]);
+  return fs22.readdirSync(path21.join(dir, rel), { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk2(dir, path21.join(rel, e.name)) : [path21.join(rel, e.name)]);
 }
 function renderSkillFiles(src, profile, prefix = "") {
   const files = {};
@@ -18076,7 +18292,7 @@ function renderSkillFiles(src, profile, prefix = "") {
     const dir = `${prefix}${path21.basename(s.dir)}`;
     for (const f of walk2(s.dir)) {
       const file = path21.join(s.dir, f);
-      let text = fs21.readFileSync(file, "utf8");
+      let text = fs22.readFileSync(file, "utf8");
       if (f.endsWith(".md"))
         text = renderSkill(text, profile, path21.relative(process.cwd(), file));
       if (f === "SKILL.md" && prefix)
@@ -18089,8 +18305,8 @@ function renderSkillFiles(src, profile, prefix = "") {
 function writeFiles(dest, files) {
   for (const [rel, content] of Object.entries(files)) {
     const file = path21.join(dest, rel);
-    fs21.mkdirSync(path21.dirname(file), { recursive: true });
-    fs21.writeFileSync(file, content);
+    fs22.mkdirSync(path21.dirname(file), { recursive: true });
+    fs22.writeFileSync(file, content);
   }
 }
 function renderedDir(profile) {
@@ -18100,7 +18316,7 @@ function renderedDir(profile) {
 function renderToCache(src, profile) {
   const out = renderedDir(profile);
   const files = renderSkillFiles(src, profile);
-  fs21.rmSync(out, { recursive: true, force: true });
+  fs22.rmSync(out, { recursive: true, force: true });
   writeFiles(out, files);
   return out;
 }
@@ -18110,26 +18326,26 @@ function installSkills(src, dest, o) {
     throw new Error(`--link installs the standalone skills only; copy the ${profile} profile instead`);
   const files = o.link ? {} : renderSkillFiles(src, profile, o.prefix);
   const linkFrom = o.link ? renderToCache(src, profile) : "";
-  fs21.mkdirSync(dest, { recursive: true });
+  fs22.mkdirSync(dest, { recursive: true });
   const skills = listSkills(src);
   for (const s of skills) {
     const target = path21.join(dest, `${o.prefix}${path21.basename(s.dir)}`);
-    const st = fs21.lstatSync(target, { throwIfNoEntry: false });
-    if (st && !st.isSymbolicLink() && !fs21.existsSync(path21.join(target, MARKER)))
+    const st = fs22.lstatSync(target, { throwIfNoEntry: false });
+    if (st && !st.isSymbolicLink() && !fs22.existsSync(path21.join(target, MARKER)))
       throw new Error(`${target} exists and was not installed by witness; move it away or pick another --prefix`);
   }
   const out = [];
   for (const s of skills) {
     const base = path21.basename(s.dir);
     const target = path21.join(dest, `${o.prefix}${base}`);
-    fs21.rmSync(target, { recursive: true, force: true });
+    fs22.rmSync(target, { recursive: true, force: true });
     if (o.link) {
-      fs21.symlinkSync(path21.join(linkFrom, base), target, "dir");
+      fs22.symlinkSync(path21.join(linkFrom, base), target, "dir");
       out.push({ name: s.name, path: target });
       continue;
     }
-    fs21.mkdirSync(target);
-    fs21.writeFileSync(path21.join(target, MARKER), "");
+    fs22.mkdirSync(target);
+    fs22.writeFileSync(path21.join(target, MARKER), "");
     out.push({ name: `${o.prefix}${s.name}`, path: target });
   }
   writeFiles(dest, files);
@@ -18331,10 +18547,10 @@ ${HELP}
       const lintCfg = cp ? loadConfig(cp) : undefined;
       const root = lintCfg?.root ?? process.cwd();
       const dflt = path22.join(root, ".witness", "plan.yaml");
-      const planFile = typeof flags.plan === "string" ? path22.resolve(flags.plan) : fs22.existsSync(dflt) ? dflt : undefined;
+      const planFile = typeof flags.plan === "string" ? path22.resolve(flags.plan) : fs23.existsSync(dflt) ? dflt : undefined;
       let plan;
       if (planFile) {
-        const r = parsePlan(fs22.readFileSync(planFile, "utf8"), { draft: true });
+        const r = parsePlan(fs23.readFileSync(planFile, "utf8"), { draft: true });
         if (!r.plan)
           throw new UsageError(`${planFile} is not a valid plan; run \`witness plan check\``);
         plan = r.plan;
@@ -18412,7 +18628,7 @@ ${HELP}
   return EXIT_USAGE2;
 }
 var EXIT_USAGE2 = 64;
-var self = process.argv[1] ? fs22.realpathSync(process.argv[1]) : "";
+var self = process.argv[1] ? fs23.realpathSync(process.argv[1]) : "";
 if (self.endsWith("cli.ts") || self.endsWith("witness.mjs")) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
     process.stderr.write(`witness  internal error: ${e.stack ?? e}

@@ -8,7 +8,12 @@ public record Item(int Id, string Name);
 [TestClass]
 public class ItemsTests
 {
-    static readonly HttpClient Http = new() { BaseAddress = new Uri(Environment.GetEnvironmentVariable("WITNESS_APP_URL") ?? "http://127.0.0.1:8080"), Timeout = Timeout.InfiniteTimeSpan };
+    public TestContext TestContext { get; set; } = null!;
+
+    [TestInitialize]
+    public void Name() => EvidenceHandler.Current = $"{TestContext.FullyQualifiedTestClassName}#{TestContext.TestName}";
+
+    static readonly HttpClient Http = new(new EvidenceHandler()) { BaseAddress = new Uri(Environment.GetEnvironmentVariable("WITNESS_APP_URL") ?? "http://127.0.0.1:8080"), Timeout = Timeout.InfiniteTimeSpan };
 
     [TestMethod]
     public async Task ListsItems()

@@ -2,10 +2,32 @@ package kit
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
 )
+
+var unsafe = regexp.MustCompile(`[^\w.@-]+`)
+
+// record appends what the test saw to its witness evidence timeline (a no-op outside witness).
+func record(t *testing.T, kind string, data map[string]any) {
+	root := os.Getenv("WITNESS_ARTIFACTS")
+	if root == "" {
+		return
+	}
+	dir := filepath.Join(root, unsafe.ReplaceAllString(t.Name(), "_"))
+	_ = os.MkdirAll(dir, 0o755)
+	f, err := os.OpenFile(filepath.Join(dir, "evidence.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	line, _ := json.Marshal(map[string]any{"v": 1, "kind": kind, "data": data})
+	_, _ = f.Write(append(line, '\n'))
+}
 
 func app() string {
 	if u := os.Getenv("WITNESS_APP_URL"); u != "" {
@@ -26,7 +48,12 @@ func get(t *testing.T, path string, v any) int {
 		t.Fatal(err)
 	}
 	defer r.Body.Close()
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record(t, "http", map[string]any{"method": "GET", "url": app() + path, "status": r.StatusCode, "response": map[string]any{"body": string(body)}})
+	if err := json.Unmarshal(body, v); err != nil {
 		t.Fatal(err)
 	}
 	return r.StatusCode

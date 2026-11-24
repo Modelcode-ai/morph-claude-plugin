@@ -1,5 +1,6 @@
 // Conformance kit: runs witness against tiny real projects of every supported framework and prints a matrix.
 // Usage: npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario s,...]
+import { readEvidence, titleOf } from "../src/evidence/contract.ts";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -234,6 +235,30 @@ async function runScenario(fw: Framework, t: Tool, dir: string, sc: Scenario): P
         expectSuite(w, { state: "failed", passed: 1, failed: 1, skipped: 1, error: 1 });
         check(w.ms < 180_000, `took ${(w.ms / 1000).toFixed(0)}s`);
         return { result: "pass", detail: `hang stopped at ${fw.timeout.perTest}${fw.timeout.arg ? ` via per_test_timeout_arg ${fw.timeout.arg}` : ""}, run ${(w.ms / 1000).toFixed(0)}s`, ms: Date.now() - t0 };
+      }
+      case "evidence": {
+        const w = await witness(dir, cfg(sc, { cmd: fw.cmd(t) }), ["run", "--json", ...sel([fw.ids.pass])]);
+        expectRows(w, fw, { [fw.ids.pass]: { status: "passed" } });
+        const run = path.join(dir, ".witness", "runs", "latest");
+        const arts: { file: string; test_id: string | null; artifact_type: string }[] = JSON.parse(fs.readFileSync(path.join(run, "artifacts.json"), "utf8"));
+        const own = arts.filter((a) => a.test_id === `${fw.adapter}:${fw.ids.pass}`);
+        if ("file" in fw.evidence) {
+          const want = fw.evidence.file;
+          check(own.some((a) => a.artifact_type === want), `no ${want} for the passing test; artifacts: ${JSON.stringify(arts.map((a) => [a.test_id, a.artifact_type, a.file]))}`);
+          return { result: "pass", detail: `${want} collected by the preset`, ms: Date.now() - t0 };
+        }
+        const kind = fw.evidence.kind;
+        const file = own.find((a) => a.artifact_type === "evidence");
+        check(file, `no evidence.jsonl tied to the passing test; folders: ${JSON.stringify([...new Set(arts.map((a) => path.dirname(a.file)))])}`);
+        const ev = readEvidence(path.join(run, file!.file));
+        check(!ev.problems.length, `evidence problems: ${JSON.stringify(ev.problems)}`);
+        const o = ev.observations.find((x) => x.kind === kind);
+        check(o, `no ${kind} observation: ${JSON.stringify(ev.observations.map((x) => x.kind))}`);
+        const d = o!.data as Record<string, unknown>;
+        check(kind !== "http" || (d.status === 200 && /\/api\/items$/.test(String(d.url))), `http observation ${JSON.stringify(d).slice(0, 200)}`);
+        check(kind !== "cli" || d.exit === 0, `cli observation ${JSON.stringify(d).slice(0, 200)}`);
+        const md = fs.readFileSync(path.join(run, "report.md"), "utf8");
+        return { result: "pass", detail: `${ev.observations.length} observation(s): ${titleOf(o!)}${md.includes(titleOf(o!)) ? "" : " (not in report.md)"}`, ms: Date.now() - t0 };
       }
       case "compound": {
         const config = cfg(sc, { cmd: fw.compound(t) });

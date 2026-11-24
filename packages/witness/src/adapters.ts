@@ -414,7 +414,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   playwright: {
     name: "playwright",
     format: "playwright-json",
-    reportArgs: () => "--reporter=list,json",
+    reportArgs: (_d, _cwd, cmd) => `--reporter=list,json${/--trace\b/.test(cmd) ? "" : " --trace=on"}`,
     reportEnv: (d) => ({ PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(d, "playwright.json"), PLAYWRIGHT_JSON_OUTPUT_FILE: path.join(d, "playwright.json") }),
     reportMarker: /--reporter/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],

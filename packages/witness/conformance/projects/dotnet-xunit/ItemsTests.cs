@@ -7,7 +7,7 @@ public record Item(int Id, string Name);
 
 public class ItemsTests
 {
-    static readonly HttpClient Http = new() { BaseAddress = new Uri(Environment.GetEnvironmentVariable("WITNESS_APP_URL") ?? "http://127.0.0.1:8080"), Timeout = Timeout.InfiniteTimeSpan };
+    static readonly HttpClient Http = new(new EvidenceHandler()) { BaseAddress = new Uri(Environment.GetEnvironmentVariable("WITNESS_APP_URL") ?? "http://127.0.0.1:8080"), Timeout = Timeout.InfiniteTimeSpan };
 
     [Fact]
     public async Task ListsItems()

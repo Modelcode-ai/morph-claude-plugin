@@ -11,6 +11,7 @@ import { childEnv, killGroup, spawnGroup } from "./proc.ts";
 import { fromReruns, missing, reconcile, type ReconcileResult, type SuiteEnd, type SuiteSummary, suiteLevel, summarize, type TestRecord, toRecord } from "./reconcile.ts";
 import type { RunDir } from "./rundir.ts";
 import type { Stack } from "./stack.ts";
+import { EVIDENCE_FILE } from "./evidence/contract.ts";
 import { fileSize, fmtBytes, fmtDuration, globFiles, sleep } from "./util.ts";
 
 export interface SuiteCtx {
@@ -280,6 +281,7 @@ async function execWatched(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cmd: s
     ...ctx.stack.serviceUrlEnv(),
     WITNESS_REPORT_DIR: reportDir,
     WITNESS_ARTIFACTS: artifacts,
+    WITNESS_EVIDENCE: "1",
     WITNESS_RUN_DIR: ctx.run.dir,
     ...presetEnv(adapter, suite.perTestTimeoutMs, !!suite.perTestTimeoutArg),
     ...(adapter.reportEnv && !suite.report ? adapter.reportEnv(reportDir) : {}),
@@ -428,7 +430,7 @@ const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg"
 
 export interface ArtifactEntry {
   file: string;
-  artifact_type: "screenshot" | "video" | "trace" | "log" | "report";
+  artifact_type: "evidence" | "screenshot" | "video" | "trace" | "log" | "report";
   test_name: string | null;
   test_id: string | null;
   content_type: string;
@@ -438,11 +440,24 @@ export interface ArtifactEntry {
 }
 
 export function artifactType(file: string, ct: string): ArtifactEntry["artifact_type"] {
+  if (path.basename(file) === EVIDENCE_FILE) return "evidence";
   if (ct.startsWith("image/")) return "screenshot";
   if (ct.startsWith("video/")) return "video";
   if (/trace/i.test(path.basename(file)) || ct === "application/zip") return "trace";
   if (ct === "text/plain") return "log";
   return "report";
+}
+
+/** The one test whose id ends with the folder's name at a word boundary (a folder named without the namespace). */
+/** A test id as a folder name: "." and "#" alike, and no trailing "_" (a "()" the runner adds). */
+const folderKey = (id: string) => safeId(id).replace(/[.]/g, "_").replace(/_+/g, "_").replace(/_+$/, "");
+
+function bySuffix(tests: TestRecord[], dir: string): TestRecord | undefined {
+  const hits = tests.filter((t) => {
+    const id = folderKey(t.id);
+    return id.length > dir.length && id.endsWith(dir) && /[_@-]/.test(id[id.length - dir.length - 1]);
+  });
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 /** Manifest of files the suites left under artifacts/<test-id>/, plus framework attachments copied in. */
@@ -451,9 +466,9 @@ export function collectArtifacts(runDir: string, outDir: string, tests: TestReco
   const artDir = path.join(outDir, "artifacts");
   const bySafe = new Map<string, TestRecord>();
   for (const t of tests) {
-    bySafe.set(safeId(t.id), t);
-    bySafe.set(safeId(t.id.slice(t.adapter.length + 1)), t);
-    bySafe.set(safeId(t.name), t);
+    bySafe.set(folderKey(t.id), t);
+    bySafe.set(folderKey(t.id.slice(t.adapter.length + 1)), t);
+    bySafe.set(folderKey(t.name), t);
   }
   for (const t of tests) {
     for (const a of t.attachments ?? []) {
@@ -492,7 +507,7 @@ export function collectArtifacts(runDir: string, outDir: string, tests: TestReco
   };
   try {
     for (const e of fs.readdirSync(artDir, { withFileTypes: true })) {
-      if (e.isDirectory()) walk(path.join(artDir, e.name), bySafe.get(safeId(e.name)), e.name);
+      if (e.isDirectory()) walk(path.join(artDir, e.name), bySafe.get(folderKey(e.name)) ?? bySuffix(tests, folderKey(e.name)), e.name);
     }
   } catch {
     /* none */

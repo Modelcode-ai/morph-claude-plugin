@@ -15,16 +15,14 @@ command, window or device). No unit tests, nor tests that read the database dire
 
 For each suite your plan uses (see `.witness/witness.toml`):
 
-- Open two or three existing tests in the same folder that test similar behavior (same API or
-  page). Imitate them: file naming, fixtures, helpers, how they reach the app, test data setup
-  and cleanup, assertion library.
+- Open two or three existing tests of similar behavior (same API or page). Imitate them: file
+  naming, fixtures, helpers, how they reach the app, test data setup and cleanup, assertions.
 - Prefer tests that call the app witness started. Witness gives every suite each running
   service's URL as `WITNESS_<SERVICE>_URL` (`WITNESS_WEB_URL` for a service named `web`), and
   `${web.url}` works in the suite's `cmd` and `env`. Such tests exercise the configured app, and
   `--against` with a reference app runs them against both apps; tests that start their own
   copy (`service = []`) test the same code twice. Never hard-code a host or port.
-- Use the framework the repo already uses for that kind of test. Add a new framework only if the
-  repo has none for that kind of test, and say so in your report.
+- Use the repo's framework for that kind of test; add one only if it has none, and say so.
 
 ## 2. Write each test
 
@@ -45,6 +43,9 @@ Each test must:
 - Not catch exceptions just to carry on. Catch only a specific exception you then assert on.
 
 Keep tests small: one behavior each, named for what it proves.
+
+Each test also records evidence of what it sent and saw: read `evidence.md` in this skill's
+folder first.
 
 ## 3. Lint
 

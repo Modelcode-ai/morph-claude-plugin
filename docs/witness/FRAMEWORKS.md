@@ -22,21 +22,21 @@ job `witness-conformance`).
 
 ## Matrix
 
-| framework | toolchain | full | select | list | missing | broken | timeout | compound |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| pytest | local | pass | pass | pass | pass | pass | pass | pass |
-| jest | local | pass | pass | pass | pass | pass | pass | pass |
-| vitest | local | pass | pass | pass | pass | pass | pass | pass |
-| mocha | local | pass | pass | pass | pass | pass | pass | pass |
-| playwright (UI, Chromium) | local | pass | pass | pass | pass | pass | pass | pass |
-| cli-bats (CLI) | local | pass | pass | pass | pass | pass | pass | pass |
-| junit-maven | docker `maven:3.9-eclipse-temurin-17` | pass | pass | pass | pass | pass | pass | pass |
-| junit-gradle | docker `gradle:8.14.3-jdk17` | pass | pass | pass | pass | pass | pass | pass |
-| go | local | pass | pass | pass | pass | pass | pass | pass |
-| rspec | docker `ruby:3.4-slim` | pass | pass | pass | pass | pass | n.a. | pass |
-| phpunit | local | pass | pass | pass | pass | pass | pass | pass |
-| dotnet: xunit v3 on Microsoft.Testing.Platform | local SDK 11 | pass | pass | pass | pass | pass | n.a. | pass |
-| dotnet: MSTest on VSTest | local SDK 11 | pass | pass | pass | pass | pass | pass | pass |
+| framework | toolchain | full | select | list | missing | broken | timeout | compound | evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| pytest | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| jest | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| vitest | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| mocha | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| playwright (UI, Chromium) | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| cli-bats (CLI) | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| junit-maven | docker `maven:3.9-eclipse-temurin-17` | pass | pass | pass | pass | pass | pass | pass | pass |
+| junit-gradle | docker `gradle:8.14.3-jdk17` | pass | pass | pass | pass | pass | pass | pass | pass |
+| go | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| rspec | docker `ruby:3.4-slim` | pass | pass | pass | pass | pass | n.a. | pass | pass |
+| phpunit | local | pass | pass | pass | pass | pass | pass | pass | pass |
+| dotnet: xunit v3 on Microsoft.Testing.Platform | local SDK 11 | pass | pass | pass | pass | pass | n.a. | pass | pass |
+| dotnet: MSTest on VSTest | local SDK 11 | pass | pass | pass | pass | pass | pass | pass | pass |
 
 Whole kit with `--jobs 3`: about 3 minutes once dependencies are installed.
 
@@ -56,6 +56,7 @@ id and the suite entry in `status.json`:
 | broken | the report is truncated: cause `report_unreadable`, then the same as `missing` |
 | timeout | with `per_test_timeout` and the hang enabled, the hung test is `failed` with `status_detail = timeout`, the other 3 keep their statuses, and the suite finishes on its own |
 | compound | `cd … && runner ${WITNESS_SELECT} && echo done`: a selection and a full run both give the right rows |
+| evidence | the passing test's own adapter (a few lines of test code per project) writes `evidence.jsonl`; witness ties it to the test, it validates, and an `http` (or `cli`) observation shows status 200 (exit 0). Playwright: the preset's `--trace=on` trace, collected from the report's attachments. See [EVIDENCE.md](EVIDENCE.md) |
 
 ## Versions and capabilities
 

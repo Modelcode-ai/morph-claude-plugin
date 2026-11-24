@@ -8,7 +8,15 @@ import { idMatches, type Plan, type PlanKind, splitId } from "../plan.ts";
 import type { Outcome } from "../reconcile.ts";
 import type { Status } from "../rundir.ts";
 import { readJson } from "../util.ts";
+import { EVIDENCE_FILE, type EvidenceProblem, type Observation, readEvidence } from "../evidence/contract.ts";
 import { type ChangedFile, type Commit, readPlanSnapshot, type RunContext } from "./context.ts";
+
+export interface TestEvidence {
+  observations: Observation[];
+  files: { file: string; type: string }[];
+  problems: EvidenceProblem[];
+  source: string;
+}
 
 export interface TestRow {
   id: string;
@@ -94,6 +102,8 @@ export interface ReportModel {
   tests: TestRow[];
   lint?: { files: string[]; tests: number; errors: number; warnings: number; findings: Finding[] };
   artifacts: { file: string; test_id: string | null; artifact_type: string }[];
+  /** Per test id: what the test recorded on this branch and, with --against, on the base. */
+  evidence: Record<string, { here?: TestEvidence; base?: TestEvidence }>;
 }
 
 interface Ctrf {
@@ -279,10 +289,29 @@ export function buildModel(dir: string): ReportModel {
     tests,
     lint,
     artifacts,
+    evidence: collectEvidence(dir, artifacts),
   };
   m.signals = signals(m);
   m.steps = steps(m);
   return m;
+}
+
+function collectEvidence(dir: string, artifacts: ReportModel["artifacts"]): ReportModel["evidence"] {
+  const out: ReportModel["evidence"] = {};
+  for (const a of artifacts) {
+    if (!a.test_id) continue;
+    const side = a.file.startsWith("against/") ? "base" : "here";
+    const slot = (out[a.test_id] ??= {});
+    const ev = (slot[side] ??= { observations: [], files: [], problems: [], source: path.dirname(a.file) });
+    if (a.artifact_type === "evidence" && path.basename(a.file) === EVIDENCE_FILE) {
+      const folder = path.join(dir, path.dirname(a.file));
+      const names = new Set(fs.readdirSync(folder));
+      const r = readEvidence(path.join(dir, a.file), names);
+      ev.observations.push(...r.observations);
+      ev.problems.push(...r.problems);
+    } else ev.files.push({ file: a.file, type: a.artifact_type });
+  }
+  return out;
 }
 
 function headlineOf(ctx: RunContext, plan: Plan | undefined, st: Status): string {
@@ -304,7 +333,7 @@ export function signals(m: ReportModel): StrengthSignal[] {
   const anyRunning = m.suites.some((s) => s.mode === "running-app" && s.total > 0);
   const changedRunning = changed.filter((i) => i.tests.some((t) => t.found && t.running));
   const planTests = items.flatMap((i) => i.tests.map((t) => t.found?.id)).filter(Boolean) as string[];
-  const withEvidence = planTests.filter((id) => m.artifacts.some((x) => x.test_id === id));
+  const withEvidence = planTests.filter((id) => m.evidence[id]?.here && (m.evidence[id].here!.observations.length || m.evidence[id].here!.files.length));
   return [
     {
       key: "plan",
@@ -372,6 +401,14 @@ export function steps(m: ReportModel): NextStep[] {
     const first = inProcOnly[0];
     out.push({ tone: "do", title: `Test ${inProcOnly.map((i) => i.id).join(", ")} on the running app`, detail: `${inProcOnly.length === 1 ? "This changed behavior is" : "These changed behaviors are"} only tested with the app inside the test process; the ${running.name} suite drives the running app.`, prompt: `Use witness to add a test to the ${running.name} suite (${running.kind}) for plan item ${first.id}: "${first.behavior}", expecting: ${first.expect}. Add it to ${first.id} in .witness/plan.yaml and run the ${running.name} suite.` });
   }
+  const planTests = (m.plan?.items ?? []).flatMap((i) => i.tests.filter((t) => t.found).map((t) => ({ item: i.id, id: t.found!.id })));
+  const bare = planTests.filter((t) => !m.evidence[t.id]?.here);
+  if (planTests.length && bare.length) {
+    const items = [...new Set(bare.map((b) => b.item))];
+    out.push({ tone: "do", title: `Record evidence for ${items.join(", ")}`, detail: `${plural(bare.length, "planned test")} left no record of what ${bare.length === 1 ? "it" : "they"} sent and saw.`, prompt: `Use witness: make the tests of plan items ${items.join(", ")} record evidence while they run, following the evidence reference of the write skill (each test appends what it sends and sees to $WITNESS_ARTIFACTS/<test id>/evidence.jsonl, and browser tests keep screenshots). Then rerun them with witness run --select.` });
+  }
+  const broken = Object.entries(m.evidence).flatMap(([id, e]) => (e.here?.problems.length ? [{ id, n: e.here.problems.length, first: e.here.problems[0] }] : []));
+  if (broken.length) out.push({ tone: "low", title: `Fix the evidence of ${plural(broken.length, "test")}`, detail: `${shortTest(broken[0].id)}: line ${broken[0].first.line}, ${broken[0].first.message}`, prompt: `Use witness: the evidence.jsonl files of these tests have problems: ${broken.slice(0, 10).map((b) => `${b.id} (line ${b.first.line}: ${b.first.message})`).join("; ")}. Fix the code that writes them so every line follows the evidence reference of the write skill.` });
   const skipped = m.tests.filter((t) => t.status === "skipped");
   if (skipped.length) out.push({ tone: "low", title: `Decide on ${plural(skipped.length, "skipped test")}`, detail: ids(skipped), prompt: `These tests were skipped in run ${run}: ${skipped.slice(0, 20).map((t) => t.id).join(", ")}. For each, find why it is skipped and either make it run or remove it.` });
   const blocking = out.some((s) => s.tone === "fix");

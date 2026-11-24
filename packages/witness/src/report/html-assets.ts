@@ -57,6 +57,18 @@ main.wrap{padding-block:32px 80px;display:flex;flex-direction:column;gap:40px}
 .ev{background:var(--panel);border:1px solid var(--line-soft);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}
 .ev .k{font-size:11.5px;color:var(--mute);text-transform:uppercase;letter-spacing:.07em}.ev pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
 .ev .body{white-space:pre-line;color:var(--fg)}.ev.todo{border-style:dashed;background:transparent}.ev.todo p{color:var(--sub)}
+.ev-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ev-sides{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}.ev-sides.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.obs{border-top:1px solid var(--line-soft);padding:7px 0;display:flex;flex-direction:column;gap:6px;min-width:0}.obs:first-of-type{border-top:none}
+.obs>summary{cursor:pointer;list-style:none;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}.obs>summary::-webkit-details-marker{display:none}
+.obs>summary::before{content:"›";color:var(--mute);transition:transform 150ms;display:inline-block}.obs[open]>summary::before{transform:rotate(90deg)}
+div.obs{flex-direction:row;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.obs-kind{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);border:1px solid oklch(65% .15 245deg / .45);border-radius:4px;padding:0 5px}
+.obs-title{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere;min-width:0}.obs-step{font-size:12px;color:var(--sub)}
+.obs-body{display:flex;flex-direction:column;gap:8px;padding:6px 0 4px 14px}.obs-part{display:flex;flex-direction:column;gap:3px}
+.obs-part pre{background:var(--bg-deep);border:1px solid var(--line-soft);border-radius:6px;padding:8px 10px;max-height:260px;overflow:auto}.obs-part pre.hdr{color:var(--sub)}.obs-part pre.hit{border-color:var(--ok)}mark{background:var(--ok-soft);color:var(--ok);border-radius:3px;padding:0 2px}
+.media{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}.thumb{max-width:220px;max-height:150px;border-radius:6px;border:1px solid var(--line);object-fit:cover;object-position:top;display:block}video.thumb{max-width:320px;max-height:200px}
+.file-link{font-size:12px}
 .ev-item{display:flex;flex-direction:column;gap:8px}.ev-item h3{font-size:13.5px;font-weight:500}.ev-item h3 span{font-family:var(--mono);color:var(--mute);font-weight:400;margin-right:6px}
 .tref{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;min-width:0}.tref .mono{overflow-wrap:anywhere;min-width:0}.tref .msg{flex-basis:100%;font-family:var(--mono);font-size:11.5px;color:var(--sub);overflow-wrap:anywhere}
 .st-passed{color:var(--ok)}.st-failed,.st-other,.st-none{color:var(--bad)}.st-skipped{color:var(--warn)}.newb{color:var(--blue);font-weight:500}
@@ -64,7 +76,7 @@ main.wrap{padding-block:32px 80px;display:flex;flex-direction:column;gap:40px}
 .file .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;border-radius:4px;padding:0 6px;border:1px solid var(--line);color:var(--sub)}.file .tag.test{color:var(--blue);border-color:var(--blue)}
 .file .p{font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}.file .n{font-family:var(--mono);font-size:11.5px;white-space:nowrap}.file .a{color:var(--ok)}.file .d{color:var(--bad)}
 .commits{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--sub)}
-@media (max-width:760px){.ev-grid{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){.ev-grid,.ev-grid.two,.ev-sides.two{grid-template-columns:minmax(0,1fr)}}
 .waffle-wrap{display:grid;grid-template-columns:minmax(0,1fr) 210px;gap:22px;align-items:center}
 .waffle{display:grid;grid-template-columns:repeat(auto-fill,minmax(11px,1fr));gap:3px}.waffle i{aspect-ratio:1;border-radius:2px;background:var(--ok-dim);display:block}
 .waffle i.new{background:var(--blue);box-shadow:0 0 0 2px var(--blue-soft)}.waffle i.skip{background:var(--warn-dim)}.waffle i.diff{background:var(--bad)}.waffle i.fail{background:var(--bad-mid)}.waffle i.only{background:var(--line)}
