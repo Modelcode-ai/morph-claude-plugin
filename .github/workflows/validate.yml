@@ -21,7 +21,7 @@ jobs:
         run: claude plugin validate plugins/morph
 
   witness:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: packages/witness
@@ -31,6 +31,8 @@ jobs:
         with:
           node-version: "22"
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"   # the bundle check diffs dist/ byte for byte; another Bun changes the output
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -39,7 +41,7 @@ jobs:
         run: npm run build && git diff --exit-code dist/
 
   witness-conformance:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # Playwright 1.60 has no Chromium build for Ubuntu 26.04
     strategy:
       fail-fast: false
       matrix:
