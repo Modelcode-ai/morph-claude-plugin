@@ -9,7 +9,7 @@ import { applyParity, EXIT, type Outcome, type Parity, type SuiteSummary, suiteO
 import { acquireLock, killTracked, LockError, newRunId, pruneRuns, reapStale, RunDir, type Status } from "./rundir.ts";
 import { Failure, readUp, Stack } from "./stack.ts";
 import { type ArtifactEntry, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
-import { referenceSetup, releaseReference, resolveReference } from "./reference.ts";
+import { NO_REF, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
 import { fmtDuration, git, gitInfo, writeJson } from "./util.ts";
 
 export interface RunOptions {
@@ -94,6 +94,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   const select = splitSelect(suites, opts.select);
   if (select && !opts.suites?.length) suites = suites.filter((s) => select.has(s.name));
   if (opts.against === "reference" && !cfg.reference) throw new UsageError("--against reference: the config has no [reference] section (add one, or pass a branch, tag or commit)");
+  if (opts.against === "reference" && !cfg.reference!.ref && !cfg.reference!.repo && !Object.keys(cfg.reference!.services).length) throw new UsageError(NO_REF);
   if (opts.against && opts.against !== "reference" && !originMap(cfg).size && !cfg.reference?.repo && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
     throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`, or --against reference)`);
   if (!suites.length) throw new UsageError("no [[suite]] in the config");

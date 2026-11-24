@@ -73,7 +73,7 @@ test("skills render: every profile of the real skills renders with no markers le
   assert.doesNotMatch(morph["triage/SKILL.md"], /\.witness\/\.env/);
   assert.match(standalone["init/interview.md"], /Ask the user and wait for the answer/);
   assert.doesNotMatch(standalone["init/interview.md"], /blocker/);
-  assert.match(morph["init/interview.md"], /add a blocker to your report/);
+  assert.match(morph["init/interview.md"], /list it under "Decisions to confirm" in your report/);
   assert.doesNotMatch(morph["init/interview.md"], /\.witness\/\.env|Ask the user/);
   assert.match(standalone["init/SKILL.md"], /use your defaults/);
   assert.match(morph["init/SKILL.md"], /No one answers here/);

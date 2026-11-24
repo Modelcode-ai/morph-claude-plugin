@@ -78,8 +78,8 @@ export interface Reference {
   /** Runs once in the reference checkout before its services. */
   setup?: string;
   setupTimeoutMs: number;
-  /** Where the suites' test code comes from: the reference checkout, or this checkout pointed at the reference services. */
-  tests: "reference" | "target";
+  /** Where the suites' test code comes from: the reference checkout, or this checkout pointed at the reference services; unset: decided once the ref is known. */
+  tests?: "reference" | "target";
   /** Per target service; unset keys come from the target's service. `env` is merged. */
   services: Record<string, ServiceOverride>;
 }
@@ -235,9 +235,9 @@ function parseReference(v: unknown): Reference | undefined {
   }
   const ref = str(v, "ref", "reference");
   const repo = str(v, "repo", "reference");
-  const tests = str(v, "tests", "reference") ?? (repo || !ref ? "target" : "reference");
-  if (tests !== "reference" && tests !== "target") throw new ConfigError("reference.tests", `expected "reference" (the reference checkout's tests) or "target" (this checkout's tests, run against the reference services), got "${tests}"`);
-  if (!ref && !repo && !Object.keys(services).length) throw new ConfigError("reference", "needs ref (a branch, tag or commit), repo (another repo's path or git URL), or a [reference.service.<name>] override");
+  const tests = str(v, "tests", "reference");
+  if (tests !== undefined && tests !== "reference" && tests !== "target") throw new ConfigError("reference.tests", `expected "reference" (the reference checkout's tests) or "target" (this checkout's tests, run against the reference services), got "${tests}"`);
+  if (!ref && !repo && !v.setup && !Object.keys(services).length) throw new ConfigError("reference", "needs ref (a branch, tag or commit), repo (another repo's path or git URL), setup, or a [reference.service.<name>] override");
   return { ref, repo, setup: str(v, "setup", "reference"), setupTimeoutMs: dur(v, "setup_timeout", "reference", 30 * 60_000)!, tests, services };
 }
 

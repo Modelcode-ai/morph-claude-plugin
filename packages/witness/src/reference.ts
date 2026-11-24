@@ -26,13 +26,16 @@ export interface ReferenceSide {
   setupTimeoutMs: number;
 }
 
+export const NO_REF = '--against reference: [reference] has no ref, repo or service override, so there is nothing to compare with: set ref = "<base branch>" in [reference], or pass --against <base branch>';
+
 const isUrl = (s: string) => /^(https?|ssh|git|file):\/\//.test(s) || /^[\w.-]+@[\w.-]+:/.test(s);
 
 /** The configured [reference], or this repo at `against` when there is none; `against` other than "reference" overrides its ref. */
 export function resolveReference(cfg: Config, against: string): ReferenceSide | { diagnosis: Diagnosis } {
   const bad = (evidence: string) => ({ diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence }) });
   if (against === "reference" && !cfg.reference) return bad('--against reference: the config has no [reference] section (add one, or pass a branch, tag or commit)');
-  const r: Reference = cfg.reference ?? { tests: "reference", services: {}, setupTimeoutMs: 0 };
+  const r: Reference = cfg.reference ?? { services: {}, setupTimeoutMs: 0 };
+  if (against === "reference" && !r.ref && !r.repo && !Object.keys(r.services).length) return bad(NO_REF);
   let ref = against === "reference" ? r.ref : against;
   let repoDir = gitTop(cfg.root);
   const sameRepo = !r.repo;
@@ -45,12 +48,14 @@ export function resolveReference(cfg: Config, against: string): ReferenceSide | 
     repoDir = path.resolve(cfg.root, r.repo);
     if (!fs.existsSync(repoDir)) return bad(`[reference] repo = "${r.repo}": ${repoDir} does not exist`);
   }
+  // decided after --against <ref> fills in the ref: a ref of this repo has its own tests
+  const tests = r.tests ?? (r.repo || !ref ? "target" : "reference");
   const label = `${r.repo ? `${r.repo}${ref ? "@" : ""}` : ""}${ref ?? (r.repo ? "" : "this checkout")}`;
   const cfgRef: Config = cfg.reference ? { ...cfg, services: referenceServices(cfg) } : cfg;
   const base = { cfg: cfgRef, label, setup: r.setup, setupTimeoutMs: r.setupTimeoutMs };
   if (!ref) {
     const root = sameRepo ? cfg.root : repoDir;
-    return { ...base, root, suiteRoot: r.tests === "target" ? cfg.root : root, copied: false, setupCacheDir: path.join(cfg.root, ".witness", "cache", sameRepo ? "setup-reference" : "setup-reference-repo") };
+    return { ...base, root, suiteRoot: tests === "target" ? cfg.root : root, copied: false, setupCacheDir: path.join(cfg.root, ".witness", "cache", sameRepo ? "setup-reference" : "setup-reference-repo") };
   }
   let resolved = git(repoDir, ["rev-parse", "--verify", `${ref}^{commit}`]);
   if (!resolved.ok && !sameRepo) resolved = git(repoDir, ["rev-parse", "--verify", `origin/${ref}^{commit}`]);
@@ -63,7 +68,7 @@ export function resolveReference(cfg: Config, against: string): ReferenceSide | 
   }
   const root = sameRepo ? path.join(wt, path.relative(repoDir, fs.realpathSync(cfg.root))) : wt;
   const copied = sameRepo && copyWitnessDir(path.join(cfg.root, ".witness"), path.join(root, ".witness"));
-  return { ...base, root, suiteRoot: r.tests === "target" ? cfg.root : root, sha: resolved.out, worktree: wt, repoDir, copied, setupCacheDir: null };
+  return { ...base, root, suiteRoot: tests === "target" ? cfg.root : root, sha: resolved.out, worktree: wt, repoDir, copied, setupCacheDir: null };
 }
 
 export function releaseReference(side: ReferenceSide) {

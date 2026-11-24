@@ -18,26 +18,26 @@ const FLAG_SUITE = `
 kind = "api"
 name = "fake"
 service = "api"
-cmd = "test -f report.flag || { echo 'no report package' >&2; exit 2; }; node $APPS/suite.mjs pass"
+cmd = "test -f report.flag || { echo 'no report package' >&2; exit 2; }; EXTRA_TEST=$(cat new-test.txt 2>/dev/null) node $APPS/suite.mjs pass"
 report = "\${WITNESS_REPORT_DIR}/*.xml"
 `;
 
 describe("[reference] config", () => {
   test("overrides merge into the target's services; tests defaults by where the reference lives", () => {
     const c = cfg(`[reference]\nref = "main"\nsetup = "make deps"\n[reference.service.api]\nstart = "./legacy"\nenv = { MODE = "legacy" }\n`);
-    assert.equal(c.reference?.tests, "reference");
+    assert.equal(c.reference?.tests, undefined, "decided once --against resolves the ref");
     assert.equal(c.reference?.setup, "make deps");
     const [api] = referenceServices(c);
     assert.equal(api.start, "./legacy");
     assert.deepEqual(api.env, { MODE: "legacy" });
     assert.ok(api.ready, "ready is inherited");
-    assert.equal(cfg(`[reference]\nrepo = "../legacy"\n`).reference?.tests, "target");
-    assert.equal(cfg(`[reference.service.api]\ncwd = "legacy"\n`).reference?.tests, "target");
+    assert.equal(cfg(`[reference]\nref = "main"\ntests = "target"\n`).reference?.tests, "target");
   });
 
   test("bad references are config errors naming the key", () => {
     const err = (toml: string, re: RegExp) => assert.throws(() => cfg(toml), (e: Error) => e instanceof ConfigError && re.test(e.message));
-    err(`[reference]\n`, /reference: needs ref .* repo .* override/);
+    err(`[reference]\n`, /reference: needs ref .* repo .* setup, or a .* override/);
+    assert.equal(cfg(`[reference]\nsetup = "touch report.flag"\n`).reference?.ref, undefined, "setup alone: the ref comes from --against <ref>");
     err(`[reference]\nref = "main"\n[reference.service.ap]\nstart = "x"\n`, /reference\.service\.ap: no target service "ap" to override \(did you mean "api"\?\)/);
     err(`[reference]\nref = "main"\ntests = "both"\n`, /reference\.tests: expected "reference"/);
     err(`[reference]\nref = "main"\n[reference.service.api]\nstart = ""\n`, /reference\.service\.api: leaves the service without start or external/);
@@ -50,6 +50,7 @@ describe("--against with [reference]", { concurrency: 2 }, () => {
   test("a base without the target's setup change: the VERDICT names the origin failure; [reference] setup fixes it", async () => {
     const dir = tmpRepo(`version = 1\n${service("ok")}${FLAG_SUITE}${RUN}`, { git: true });
     fs.writeFileSync(path.join(dir, "report.flag"), "");
+    fs.writeFileSync(path.join(dir, "new-test.txt"), "filtersByName");
     git(dir, "add", "-A");
     git(dir, "commit", "-qm", "setup: add the report package");
     const bare = await witness(dir, ["run", "--json", "--against", "HEAD~1"]);
@@ -57,11 +58,19 @@ describe("--against with [reference]", { concurrency: 2 }, () => {
     assert.match(bare.stderr, /against HEAD~1: origin error \(\w+ in fake: no comparison for that suite\)/);
     assert.match(bare.stderr, /add that step as \[reference\] setup/);
 
-    fs.appendFileSync(path.join(dir, ".witness", "witness.toml"), `\n[reference]\nref = "HEAD~1"\nsetup = "touch report.flag"\n`);
+    fs.appendFileSync(path.join(dir, ".witness", "witness.toml"), `\n[reference]\nsetup = "touch report.flag"\n`);
+    const noRef = await witness(dir, ["run", "--against", "reference"]);
+    assert.equal(noRef.code, 64);
+    assert.match(noRef.stderr, /\[reference\] has no ref.*pass --against <base branch>/);
+    const viaFlag = await witness(dir, ["run", "--json", "--against", "HEAD~1"]);
+    assert.equal(viaFlag.json?.against.outcome, "passed", viaFlag.stderr);
+    assert.deepEqual(viaFlag.json?.against.parity, { same: 3, differs: 0, target_only: 1, origin_only: 0 }, "the base runs its own tests, so the new test is only on the target");
+    fs.appendFileSync(path.join(dir, ".witness", "witness.toml"), `ref = "HEAD~1"\n`);
     const r = await witness(dir, ["run", "--json", "--against", "reference"]);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(r.json?.against.outcome, "passed");
     assert.equal(r.json?.against.parity.same, 3);
+    assert.equal(r.json?.against.parity.target_only, 1);
     assert.match(r.stderr, /copied the target's \.witness\/ \(config helpers\) into the worktree/);
     const c = await witness(dir, ["check", "--against", "reference"]);
     assert.equal(c.code, 0, c.stderr);

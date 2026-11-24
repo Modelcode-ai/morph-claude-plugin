@@ -6,8 +6,7 @@ description: Prove that a code change works by running the repo's own tests thro
 # Test a change with witness
 
 This is the entry point. It runs the other skills of this set in order: `init`, `plan`, `write`,
-`verify` and `triage`. Your environment may show them with a prefix, such as `witness:plan` or
-`witness-plan`; they are the same skills.
+`verify` and `triage` (your environment may prefix them, as in `witness-plan`).
 
 ## Rules for every step
 
@@ -21,12 +20,7 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 - Use the repo's own test frameworks and conventions. Add no new framework unless the repo has none
   for that kind of test.
 - Work in the checkout you were given. Do not push, open pull requests or change CI.
-<!-- if morph -->
-- Temporary files go in `$MCODE_DIR/scratch/`, not the shared `/tmp`.
-<!-- else -->
-- Temporary files (scan output, logs, backups) go in `.witness/scratch/`, which git ignores, never
-  in `/tmp`.
-<!-- endif -->
+- Temporary files go in `.witness/scratch/` (git ignores it), never in `/tmp`.
 <!-- if morph -->
 - No one answers questions here. Wherever a skill says to ask or tell the user, record a blocker
   for your final report instead (what is needed, witness's cause and evidence line, what you
@@ -41,9 +35,8 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
 
 `witness check` and `witness run` can take many minutes (builds, app boot, browser tests).
 
-- Start them so a short timeout cannot cut them off and you can read their output as it comes:
-  in the background, or redirected to `.witness/scratch/`, for example
-  `witness run > .witness/scratch/run.out 2>&1`.
+- Start them so a short timeout cannot cut them off and you can read their output as it comes: in
+  the background, or redirected, for example `witness run > .witness/scratch/run.out 2>&1`.
 - Progress lines start with `witness  [mm:ss]`. A heartbeat line appears at least once a minute,
   so silence for several minutes means the command itself is stuck.
 - For a snapshot of a run in progress, read `.witness/runs/latest/status.json` (phase, suites,
@@ -67,18 +60,18 @@ This is the entry point. It runs the other skills of this set in order: `init`, 
    <!-- if morph -->
    follow the `init` skill. Continue only when `witness check` passes.
    <!-- else -->
-   tell the user (quote the error) and follow the `init` skill, which settles each setup decision
-   with the user. Those are the only questions this skill asks. Continue only when `witness check`
-   passes.
+   tell the user (quote the error) and follow the `init` skill. Its questions need the user's
+   answers: end your turn with its first question, even mid-task, and go on after the answer
+   (unless the user said to use your defaults). Those are the only questions this skill asks.
+   Continue only when `witness check` passes.
    <!-- endif -->
 3. Plan: follow the `plan` skill. It ends with `.witness/plan.yaml` passing
    `witness plan check --draft`.
 4. Write tests: follow the `write` skill. It ends with `witness lint` clean, `witness plan check`
    passing (without `--draft`), and the new tests run once with `witness run --select`.
 5. Verify: follow the `verify` skill. It runs the full suites and ends with a VERDICT.
-6. Whenever a VERDICT is `mistrial`, `error` or `stalled`, follow the `triage` skill before
-   anything else. Those outcomes mean the tests could not give an answer; they are not test
-   failures.
+6. Whenever a VERDICT is `mistrial`, `error` or `stalled`, follow the `triage` skill first. Those
+   outcomes mean the tests could not give an answer; they are not test failures.
 
 ## Report
 
@@ -90,8 +83,9 @@ Finish with a short report:
 - Code you fixed because a test showed a bug.
 - Any change you made to `.witness/witness.toml` or the env file, and why.
 <!-- if morph -->
-- What is not covered, and each blocker with what is needed and the diagnosis lines, including
-  every setup decision `init` made by default.
+- What is not covered, and each blocker with what is needed and the diagnosis lines.
+- Decisions to confirm: each setup decision `init` took by default, with its evidence ("none" only
+  if the repo settled all).
 <!-- else -->
 - What is not covered, and anything that blocked you.
 <!-- endif -->

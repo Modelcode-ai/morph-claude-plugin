@@ -10785,11 +10785,11 @@ function parseReference(v) {
   }
   const ref = str(v, "ref", "reference");
   const repo = str(v, "repo", "reference");
-  const tests = str(v, "tests", "reference") ?? (repo || !ref ? "target" : "reference");
-  if (tests !== "reference" && tests !== "target")
+  const tests = str(v, "tests", "reference");
+  if (tests !== undefined && tests !== "reference" && tests !== "target")
     throw new ConfigError("reference.tests", `expected "reference" (the reference checkout's tests) or "target" (this checkout's tests, run against the reference services), got "${tests}"`);
-  if (!ref && !repo && !Object.keys(services).length)
-    throw new ConfigError("reference", "needs ref (a branch, tag or commit), repo (another repo's path or git URL), or a [reference.service.<name>] override");
+  if (!ref && !repo && !v.setup && !Object.keys(services).length)
+    throw new ConfigError("reference", "needs ref (a branch, tag or commit), repo (another repo's path or git URL), setup, or a [reference.service.<name>] override");
   return { ref, repo, setup: str(v, "setup", "reference"), setupTimeoutMs: dur(v, "setup_timeout", "reference", 30 * 60000), tests, services };
 }
 function parsePorts(v, where) {
@@ -14406,12 +14406,15 @@ function acquireLock(file) {
 import * as fs12 from "node:fs";
 import * as os from "node:os";
 import * as path12 from "node:path";
+var NO_REF = '--against reference: [reference] has no ref, repo or service override, so there is nothing to compare with: set ref = "<base branch>" in [reference], or pass --against <base branch>';
 var isUrl = (s) => /^(https?|ssh|git|file):\/\//.test(s) || /^[\w.-]+@[\w.-]+:/.test(s);
 function resolveReference(cfg, against) {
   const bad = (evidence) => ({ diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence }) });
   if (against === "reference" && !cfg.reference)
     return bad("--against reference: the config has no [reference] section (add one, or pass a branch, tag or commit)");
-  const r = cfg.reference ?? { tests: "reference", services: {}, setupTimeoutMs: 0 };
+  const r = cfg.reference ?? { services: {}, setupTimeoutMs: 0 };
+  if (against === "reference" && !r.ref && !r.repo && !Object.keys(r.services).length)
+    return bad(NO_REF);
   let ref = against === "reference" ? r.ref : against;
   let repoDir = gitTop(cfg.root);
   const sameRepo = !r.repo;
@@ -14426,12 +14429,13 @@ function resolveReference(cfg, against) {
     if (!fs12.existsSync(repoDir))
       return bad(`[reference] repo = "${r.repo}": ${repoDir} does not exist`);
   }
+  const tests = r.tests ?? (r.repo || !ref ? "target" : "reference");
   const label = `${r.repo ? `${r.repo}${ref ? "@" : ""}` : ""}${ref ?? (r.repo ? "" : "this checkout")}`;
   const cfgRef = cfg.reference ? { ...cfg, services: referenceServices(cfg) } : cfg;
   const base = { cfg: cfgRef, label, setup: r.setup, setupTimeoutMs: r.setupTimeoutMs };
   if (!ref) {
     const root2 = sameRepo ? cfg.root : repoDir;
-    return { ...base, root: root2, suiteRoot: r.tests === "target" ? cfg.root : root2, copied: false, setupCacheDir: path12.join(cfg.root, ".witness", "cache", sameRepo ? "setup-reference" : "setup-reference-repo") };
+    return { ...base, root: root2, suiteRoot: tests === "target" ? cfg.root : root2, copied: false, setupCacheDir: path12.join(cfg.root, ".witness", "cache", sameRepo ? "setup-reference" : "setup-reference-repo") };
   }
   let resolved = git(repoDir, ["rev-parse", "--verify", `${ref}^{commit}`]);
   if (!resolved.ok && !sameRepo)
@@ -14446,7 +14450,7 @@ function resolveReference(cfg, against) {
   }
   const root = sameRepo ? path12.join(wt, path12.relative(repoDir, fs12.realpathSync(cfg.root))) : wt;
   const copied = sameRepo && copyWitnessDir(path12.join(cfg.root, ".witness"), path12.join(root, ".witness"));
-  return { ...base, root, suiteRoot: r.tests === "target" ? cfg.root : root, sha: resolved.out, worktree: wt, repoDir, copied, setupCacheDir: null };
+  return { ...base, root, suiteRoot: tests === "target" ? cfg.root : root, sha: resolved.out, worktree: wt, repoDir, copied, setupCacheDir: null };
 }
 function releaseReference(side) {
   if (!side.worktree || !side.repoDir)
@@ -15087,6 +15091,8 @@ async function runCommand(cfg, opts) {
     suites = suites.filter((s) => select.has(s.name));
   if (opts.against === "reference" && !cfg.reference)
     throw new UsageError("--against reference: the config has no [reference] section (add one, or pass a branch, tag or commit)");
+  if (opts.against === "reference" && !cfg.reference.ref && !cfg.reference.repo && !Object.keys(cfg.reference.services).length)
+    throw new UsageError(NO_REF);
   if (opts.against && opts.against !== "reference" && !originMap(cfg).size && !cfg.reference?.repo && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
     throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`, or --against reference)`);
   if (!suites.length)

@@ -23,7 +23,8 @@ suites on the base too and records, for each test, whether its outcome is the sa
 
 - When the VERDICT says the origin side was not compared (`origin error` or `origin mistrial`)
   because the base lacks a step this checkout's setup added (a report package, a build flag), add
-  that step as `setup` in `[reference]` and run again.
+  that step as `setup` in `[reference]`, with `ref` set to the base branch (never `HEAD`), and run
+  `--against reference`.
 - When the reference app lives in another repo or starts differently (a port or rewrite), ask the
   user where it is and how it runs, and record it in `[reference]`: `repo`, `ref`, `setup` and
   `[reference.service.<name>]` with the commands that differ.

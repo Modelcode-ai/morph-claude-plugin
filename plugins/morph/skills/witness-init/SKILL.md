@@ -14,10 +14,9 @@ Unit and integration tests belong to the project's own build and test scripts.
 
 ## Facts first
 
-Run `witness init`: it writes `.witness/witness.example.toml`, `.witness/.gitignore` and
-`.witness/scratch/`, where your temporary files go (git ignores it; never use `/tmp`). Then run
-`witness init --scan > .witness/scratch/scan.json`: JSON facts, each with a `confidence` and its
-`evidence` (file:line or manifest):
+Run `witness init`: it writes `.witness/witness.example.toml`, `.witness/.gitignore` and the
+git-ignored `.witness/scratch/`. Then run `witness init --scan > .witness/scratch/scan.json`: JSON
+facts, each with a `confidence` and its `evidence` (file:line or manifest):
 
 - `testProjects`: functional, needs-filter or excluded, with the reason and the proposed suite;
 - `commands` (setup, build, start, test, migrate, seed) from CI, package scripts, Makefiles,
@@ -37,8 +36,8 @@ Settle each decision with the user, one at a time, at the stage where it matters
 
 - Never ask what the repo answers. A high-confidence fact that nothing contradicts settles it: say
   in one line what you chose and why.
-- Otherwise ask one question: your recommendation, its evidence, and the other options. Ask the
-  user and wait for the answer before you act on that decision.
+- Otherwise ask one question: your recommendation, its evidence, and the other options. Then end
+  your turn and wait for the answer, even when setup is one step of a larger task.
 - If the user tells you to use your defaults, at any point, ask nothing more: take every
   recommendation in `interview.md` and list them in your report.
 - With an existing config, ask only about what `config.missing` and `config.unmatched` name, or

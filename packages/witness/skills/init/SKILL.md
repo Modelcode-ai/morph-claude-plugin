@@ -14,10 +14,9 @@ Unit and integration tests belong to the project's own build and test scripts.
 
 ## Facts first
 
-Run `witness init`: it writes `.witness/witness.example.toml`, `.witness/.gitignore` and
-`.witness/scratch/`, where your temporary files go (git ignores it; never use `/tmp`). Then run
-`witness init --scan > .witness/scratch/scan.json`: JSON facts, each with a `confidence` and its
-`evidence` (file:line or manifest):
+Run `witness init`: it writes `.witness/witness.example.toml`, `.witness/.gitignore` and the
+git-ignored `.witness/scratch/`. Then run `witness init --scan > .witness/scratch/scan.json`: JSON
+facts, each with a `confidence` and its `evidence` (file:line or manifest):
 
 - `testProjects`: functional, needs-filter or excluded, with the reason and the proposed suite;
 - `commands` (setup, build, start, test, migrate, seed) from CI, package scripts, Makefiles,
@@ -39,8 +38,8 @@ it, and edit it only to fix what `witness check` or a diagnosis shows is wrong. 
 decision:
 
 - A high-confidence fact that nothing contradicts settles it.
-- Otherwise take the recommendation in `interview.md`, and record a blocker for your report: the
-  question you would have asked, your choice and its evidence.
+- Otherwise take the recommendation in `interview.md`, and list it under "Decisions to confirm" in
+  your report: the question you would have asked, your choice and its evidence.
 - When it needs something only the user has (a secret, a URL, a paid service), record a blocker
   and go on with the work that does not depend on it.
 <!-- else -->
@@ -48,8 +47,8 @@ Settle each decision with the user, one at a time, at the stage where it matters
 
 - Never ask what the repo answers. A high-confidence fact that nothing contradicts settles it: say
   in one line what you chose and why.
-- Otherwise ask one question: your recommendation, its evidence, and the other options. Ask the
-  user and wait for the answer before you act on that decision.
+- Otherwise ask one question: your recommendation, its evidence, and the other options. Then end
+  your turn and wait for the answer, even when setup is one step of a larger task.
 - If the user tells you to use your defaults, at any point, ask nothing more: take every
   recommendation in `interview.md` and list them in your report.
 - With an existing config, ask only about what `config.missing` and `config.unmatched` name, or
@@ -85,7 +84,9 @@ readiness check just to make `witness check` pass.
 - Tests that already fail on the unchanged code.
 - Anything left out, with the reason.
 <!-- if morph -->
-- Each blocker: the question, what you chose or what is needed, and the evidence.
+- Decisions to confirm: each decision you took by default, with the question, your choice and
+  the evidence.
+- Each blocker: what is needed (a secret, a URL, a paid service) and the evidence.
 <!-- else -->
 - Each decision and who made it: the user, your default, or the repo's facts.
 <!-- endif -->

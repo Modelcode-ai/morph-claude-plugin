@@ -159,7 +159,7 @@ repo = "../legacy-app"           # optional: another repo, a path or a git URL; 
 setup = "dotnet add tests/Api package Microsoft.Testing.Extensions.TrxReport"   # once, in the reference checkout
 tests = "reference"              # "reference": its own tests (default for this repo at a ref)
                                  # "target": this checkout's tests, against the reference's services
-                                 #           (default with repo, or with no ref)
+                                 #           (default with repo, or when neither ref nor --against <ref> gives one)
 
 [reference.service.web]          # per target service; unset keys come from the target's service
 cwd = "legacy/web"
@@ -224,8 +224,8 @@ The same skills run in two settings, and each skill source is rendered for one o
   questions and owns the config, the secrets in `.witness/.env` and the commits.
 - `morph`: an agent in a morph sandbox with no one to ask. Questions become blockers in the final
   report; morph renders `.witness/witness.toml` and supplies the secrets; expectations come from the
-  milestone spec; `node "$WITNESS"` stands in for `witness` when it is not on the PATH; temporary
-  files go in `$MCODE_DIR/scratch/`; the final run is full and, when morph asks for parity,
+  milestone spec; `node "$WITNESS"` stands in for `witness` when it is not on the PATH; the
+  decisions init took by default are listed for review; the final run is full and, when morph asks for parity,
   `--against origin`.
 
 Text for one profile sits between markers, each alone on its line (indenting it is fine):

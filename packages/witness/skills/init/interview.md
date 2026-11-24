@@ -4,8 +4,8 @@ Each stage lists what to look at in the `witness init --scan` output, when the r
 settles it, what to ask, the default, and how to record the choice in `.witness/witness.toml`.
 
 <!-- if morph -->
-Where a stage says "ask", take its default and add a blocker to your report: the question, your
-choice and its evidence (file:line).
+Where a stage says "ask", take its default and list it under "Decisions to confirm" in your report:
+the question, your choice and its evidence (file:line).
 <!-- else -->
 A question names the decision, your recommendation, its evidence and the other options, for example:
 
@@ -137,8 +137,9 @@ When a stage fails, follow its diagnosis (cause, evidence, `try` commands; the `
 explains each cause). `witness check --stage boot --service <name>` works on one service at a time.
 
 Ask only when the fix is a choice the user owns: installing an SDK, a browser or a certificate on
-their machine, freeing a port their own process holds, or moving the app into Docker. Fix the rest
-yourself: a wrong path, a missing flag, the readiness URL.
+their machine, freeing a port their own process holds, moving the app into Docker, or editing a
+file outside `.witness/` (such as adding a report package to a project file; recommend the edit).
+Fix the rest yourself: a wrong path, a missing flag, the readiness URL.
 
 Default: the fix that changes least outside the repo. Installing software or changing the machine
 is never a default: write the config so that it works once the user has done it (a required
