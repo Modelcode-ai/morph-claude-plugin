@@ -12,7 +12,8 @@ app in the test process, such as `WebApplicationFactory`, FastAPI `TestClient`, 
 `MockMvc`, or at a URL), in a browser (`kind = "ui"`: Playwright, Cypress, Selenium, Capybara) or
 through its built binary or command (`kind = "cli"`: subprocess, execa, `os/exec`, assert_cmd,
 bats). `kind = "desktop"` and `kind = "mobile"` are accepted and detected; their drivers and
-devices are modelled with today's `[[service]]` and `[[dependency]]` (`docs/witness/APP-KINDS.md`).
+devices are modelled with today's `[[service]]` (the driver, such as an Appium server or
+WinAppDriver, with a ready check) and `[[dependency]]` (an emulator or device that must already be up).
 Unit tests, and integration tests that call a repository or database directly, are left to the
 project's own build and test scripts.
 
@@ -101,7 +102,7 @@ whose process exited on its own refreshes `.witness/cache/tests/<suite>.json`. T
 the output always names it (`list: last report r-… (2h ago, 12 tests)`). An id from an old report
 that no longer exists ends as `other/missing`, never as a failure. `witness check` prints one line
 per suite with where `report`, `list`, `select` and the per-test timeout come from, and what each
-missing one costs. `docs/witness/FRAMEWORKS.md` has the tested support matrix.
+missing one costs. `npm run conformance` prints the tested support matrix (13 frameworks × 8 scenarios).
 
 `witness init` reads each test project (per csproj, pytest root, package.json, Maven/Gradle
 build, go module, Cargo.toml, `.bats` files, Gemfile, phpunit.xml, Android `src/androidTest`,
@@ -321,7 +322,7 @@ Tests record what they sent and saw while they run. Each test writes to `$WITNES
 
 The kinds `http`, `ui`, `cli`, `message`, `rpc`, `state`, `check` and `note` get tailored views. Any other kind is kept and shown as its fields. Witness ties each folder to its test, validates every line, and shows the timeline under the plan item the test proves. For a `check` with an expected value, it shows the excerpt of the response where that value appears.
 
-The Playwright preset turns traces on. Anything else comes from a small hook in the repo's own test helpers, which the write skill (`skills/write/evidence.md`) tells the agent how to add. The contract, and how it differs from morph's functional-test models, are in [`docs/witness/EVIDENCE.md`](../../docs/witness/EVIDENCE.md).
+The Playwright preset turns traces on. Anything else comes from a small hook in the repo's own test helpers, which the write skill (`skills/write/evidence.md`) tells the agent how to add.
 
 `report.md` has the same content for agents. `report.html` is one self-contained file; it loads only the Geist font. The run keeps the plan as it was when the run started (`plan.yaml`), the change since the base and the lint result of the plan's tests (`context.json`). `SHA256SUMS` lists every file of the run in `sha256sum -c` format; the report shows the hash of that list. `witness report --format html` rewrites a run's report.
 

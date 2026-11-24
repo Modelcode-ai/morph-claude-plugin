@@ -85,4 +85,3 @@ Pausing or steering a running agent, approving a project spec, changing a rule's
 | --- | --- |
 | `plugins/morph/` | The Claude Code plugin. `skills/witness-*` are generated from `packages/witness/skills` (`npm --prefix packages/witness run build:plugin`); don't edit them by hand. |
 | `packages/witness/` | The Witness CLI (TypeScript), its agent skills, tests and evaluations. |
-| `docs/witness/` | Witness plans, status and build notes. |

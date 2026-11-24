@@ -199,7 +199,7 @@ export function guess(root: string): Guess {
   const cargo = has(/(^|\/)Cargo\.toml$/).sort((a, b) => a.length - b.length)[0];
   if (cargo) {
     const d = dirOf(cargo);
-    projects.push({ label: d, adapter: "generic", cwd: d, dir: d, manifest: cargo, cmd: "cargo test", nameBase: "cargo-tests", include: (r) => r.endsWith(".rs"), note: "cargo test writes no JUnit report, so witness records one row from the exit code; cargo-nextest's JUnit output gives per-test rows (docs/witness/APP-KINDS.md)", filter: cargoFilter });
+    projects.push({ label: d, adapter: "generic", cwd: d, dir: d, manifest: cargo, cmd: "cargo test", nameBase: "cargo-tests", include: (r) => r.endsWith(".rs"), note: "cargo test writes no JUnit report, so witness records one row from the exit code; cargo-nextest's JUnit output gives per-test rows", filter: cargoFilter });
   }
   const bats = has(/\.bats$/);
   if (bats.length) {
@@ -373,7 +373,7 @@ export function renderExample(g: Guess): string {
     out.push(`# ${s.why}`, "[[suite]]", `name = ${q(s.name)}`, `kind = ${q(s.kind)}`, `adapter = ${q(s.adapter)}`, `cwd = ${q(s.cwd)}`, `cmd = ${q(s.cmd)}`);
     if (s.report) out.push(`report = ${q(s.report)}`);
     if (s.note) out.push(`# ${s.note}`);
-    if (device(s.kind)) out.push(`# kind = "${s.kind}": model the ${s.kind === "mobile" ? "emulator or device and its driver (Appium server, adb)" : "driver (WinAppDriver, Appium)"} as a [[dependency]] or [[service]] with a ready check; see docs/witness/APP-KINDS.md`);
+    if (device(s.kind)) out.push(`# kind = "${s.kind}": model the ${s.kind === "mobile" ? "emulator or device and its driver (Appium server, adb)" : "driver (WinAppDriver, Appium)"} as a [[dependency]] or [[service]] with a ready check (see the witness README)`);
     else if (s.hostsApp) out.push(`service = []                 # the tests ${s.kind === "cli" ? "run the app's command" : "start the app"} themselves`);
     if (!noServices(s) && used && g.services.length) out.push(`# no service key: every service is started; the tests get ${g.services.map((x) => svcEnv(x.name)).join(", ")}`);
     out.push('timeout = "20m"', "");
