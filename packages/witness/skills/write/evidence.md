@@ -39,12 +39,10 @@ change to witness.
 
 Use the cheapest layer that works, in this order:
 
-1. **The framework already records.** Browser frameworks record screenshots, video and traces.
-   Switch them on when `WITNESS_EVIDENCE` is set, for passing tests too (for example
-   `screenshot: "on"`, `video: "on"`, `trace: "on"` in a Playwright config, guarded by the
-   variable), and make their output land in the test's folder, or let witness collect the
-   framework's attachments from its report. Add `ui` observations for the steps that matter, each
-   with its screenshot.
+1. **The framework already records.** Screenshots and video of every test in a `ui`, `mobile` or
+   `desktop` suite are set up once, repo-wide, by the init skill's "Screenshots and video" step.
+   If `witness check` warns that the suite's tests leave none, do that step first. In the test,
+   add `ui` observations for the steps that matter, each with its screenshot.
 2. **One hook in the test's client, in the repo's own helpers.** Where tests share an HTTP client,
    a test host, a command runner or a message consumer, add one small function there that appends
    an observation for every exchange: a response hook, a handler or middleware on the client, a

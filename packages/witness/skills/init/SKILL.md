@@ -78,6 +78,14 @@ Builds and runs can take minutes: follow the "Long commands" rules of the `test-
 Never add back an excluded project, mark a suite `generic` without a report, or drop a service's
 readiness check just to make `witness check` pass.
 
+## Screenshots and video
+
+When a suite is `ui`, `mobile` or `desktop`, add one step between stages 5 and 6: read
+`capture.md` in this skill's folder. Do it also for an existing config when `witness check` warns
+that a suite's passing tests left no screenshot or video, or when the user asks for them. The step
+switches on the test framework's own screenshot and video capture, once for the whole suite, when
+`WITNESS_EVIDENCE` is set. Report the files you changed and what `witness check` then says.
+
 ## Report
 
 - The services and suites configured, the check result and each suite's first VERDICT.
