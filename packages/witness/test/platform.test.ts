@@ -7,8 +7,11 @@ import { parse } from "smol-toml";
 import { ADAPTERS, nullDevice } from "../src/adapters.ts";
 import { ConfigError, parseConfig, substitute } from "../src/config.ts";
 import { childEnv, envGet, groupAlive, type Host, killGroup, resolveShell, ShellError, shellArgv, signalPid, useShell } from "../src/proc.ts";
+import { resolveRun, RunDir } from "../src/rundir.ts";
 import { onPath, playwrightCache } from "../src/scan.ts";
+import { installSkills } from "../src/skills.ts";
 import { cmdq, posixq, shq } from "../src/util.ts";
+import { PKG } from "./helpers.ts";
 
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-platform-")));
 
@@ -157,5 +160,39 @@ describe("environment", () => {
     assert.equal(onPath("node", { Path: bin }, "linux"), undefined);
     assert.equal(playwrightCache({ LOCALAPPDATA: "L", USERPROFILE: "U", HOME: "H" }, "win32"), path.join("L", "ms-playwright"));
     assert.equal(playwrightCache({ USERPROFILE: "U", HOME: "/c/Users/u" }, "win32"), path.join("U", "AppData", "Local", "ms-playwright"));
+  });
+});
+
+describe("links", () => {
+  const run = (root: string) => new RunDir(root, `r-20260101-000000-${Math.random().toString(16).slice(2, 6)}`, { commit: "", branch: "", dirty: false });
+  test("latest: a relative symlink on POSIX, a link to the absolute run folder on Windows; both resolve", () => {
+    const root = tmp();
+    const a = run(root);
+    a.linkLatest("darwin");
+    if (process.platform !== "win32") assert.equal(fs.readlinkSync(path.join(root, "latest")), a.runId);
+    assert.equal(resolveRun(root, "latest"), a.dir);
+    const b = run(root);
+    b.linkLatest("win32");
+    assert.equal(fs.realpathSync(path.join(root, "latest")), fs.realpathSync(b.dir));
+    assert.equal(resolveRun(root, undefined), b.dir);
+    assert.ok(fs.existsSync(path.join(root, "latest", "status.json")), "latest/status.json works, as the skills say");
+  });
+  test("latest: a pointer file holding the run id also resolves", () => {
+    const root = tmp();
+    const a = run(root);
+    fs.writeFileSync(path.join(root, "latest"), `${a.runId}\r\n`);
+    assert.equal(resolveRun(root, "latest"), a.dir);
+  });
+  test("skills install --link on Windows links each skill by its absolute path (a junction there)", (t) => {
+    const cache = tmp();
+    const prev = process.env.XDG_CACHE_HOME;
+    process.env.XDG_CACHE_HOME = cache;
+    t.after(() => (prev === undefined ? delete process.env.XDG_CACHE_HOME : (process.env.XDG_CACHE_HOME = prev)));
+    const dest = tmp();
+    installSkills(path.join(PKG, "skills"), dest, { link: true, prefix: "", platform: "win32" });
+    installSkills(path.join(PKG, "skills"), dest, { link: true, prefix: "", platform: "win32" });
+    const target = fs.readlinkSync(path.join(dest, "plan"));
+    assert.ok(path.isAbsolute(target), target);
+    assert.ok(fs.existsSync(path.join(cache, "witness", "skills", "standalone", "plan", "SKILL.md")), "reinstalling did not empty the rendered cache through the link");
   });
 });

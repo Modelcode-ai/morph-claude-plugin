@@ -143,7 +143,7 @@ export function renderToCache(src: string, profile: Profile): string {
 }
 
 /** Install the skills rendered for `profile` into `dest` as `<prefix><name>`, or symlink the rendered standalone copies. */
-export function installSkills(src: string, dest: string, o: { link: boolean; prefix: string; profile?: Profile }): { name: string; path: string }[] {
+export function installSkills(src: string, dest: string, o: { link: boolean; prefix: string; profile?: Profile; platform?: NodeJS.Platform }): { name: string; path: string }[] {
   const profile = o.profile ?? "standalone";
   if (o.link && profile !== "standalone") throw new Error(`--link installs the standalone skills only; copy the ${profile} profile instead`);
   const files = o.link ? {} : renderSkillFiles(src, profile, o.prefix);
@@ -160,9 +160,10 @@ export function installSkills(src: string, dest: string, o: { link: boolean; pre
   for (const s of skills) {
     const base = path.basename(s.dir);
     const target = path.join(dest, `${o.prefix}${base}`);
-    fs.rmSync(target, { recursive: true, force: true });
+    // never recurse into a link: through a Windows junction that would empty the rendered cache
+    fs.rmSync(target, { recursive: !fs.lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink(), force: true });
     if (o.link) {
-      fs.symlinkSync(path.join(linkFrom, base), target, "dir");
+      linkDir(path.join(linkFrom, base), target, o.platform ?? process.platform);
       out.push({ name: s.name, path: target });
       continue;
     }
@@ -172,6 +173,17 @@ export function installSkills(src: string, dest: string, o: { link: boolean; pre
   }
   writeFiles(dest, files);
   return out;
+}
+
+/** A directory symlink; on Windows a junction (no symlink rights needed), else a marked copy when even that fails (e.g. FAT). */
+function linkDir(from: string, target: string, platform: NodeJS.Platform) {
+  if (platform !== "win32") return fs.symlinkSync(from, target, "dir");
+  try {
+    fs.symlinkSync(from, target, "junction");
+  } catch {
+    fs.cpSync(from, target, { recursive: true });
+    fs.writeFileSync(path.join(target, MARKER), "");
+  }
 }
 
 const USAGE = "usage: witness skills path [--profile p] | list | install --dir <path> [--profile standalone|morph] [--link] [--prefix witness-]";

@@ -104,12 +104,15 @@ export class RunDir {
   tracker(kind: TrackedProc["kind"], name: string) {
     return (pgid: number, running: boolean) => (running ? this.track({ kind, name, pid: pgid, pgid }) : this.untrack(pgid));
   }
-  linkLatest() {
+  /** `latest` is a symlink to the run; on Windows a junction (needs no symlink rights); else a file holding the run id. */
+  linkLatest(platform: NodeJS.Platform = process.platform) {
     const link = path.join(this.root, "latest");
     try {
       fs.rmSync(link, { force: true });
-      fs.symlinkSync(this.status.run_id, link);
+      if (platform === "win32") fs.symlinkSync(this.dir, link, "junction");
+      else fs.symlinkSync(this.status.run_id, link);
     } catch {
+      fs.rmSync(link, { force: true });
       fs.writeFileSync(link, this.status.run_id);
     }
   }
@@ -120,7 +123,7 @@ export function resolveRun(root: string, id: string | undefined): string | null 
   const p = path.join(root, which);
   try {
     const st = fs.lstatSync(p);
-    if (st.isSymbolicLink()) return path.join(root, fs.readlinkSync(p));
+    if (st.isSymbolicLink()) return path.resolve(root, fs.readlinkSync(p));
     if (st.isFile()) return path.join(root, fs.readFileSync(p, "utf8").trim());
     if (st.isDirectory()) return p;
   } catch {
