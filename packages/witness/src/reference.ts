@@ -117,6 +117,9 @@ const NOT_COPIED = new Set(["runs", "check", "cache", "up", "up.json", "run.lock
 export function copyWitnessDir(src: string, dst: string): boolean {
   if (!fs.existsSync(src)) return false;
   fs.cpSync(src, dst, { recursive: true, force: true, filter: (p) => !NOT_COPIED.has(path.relative(src, p).split(path.sep)[0]) });
+  // commands may write to .witness/scratch/, which every checkout witness runs in has (empty here)
+  fs.mkdirSync(path.join(dst, "scratch"), { recursive: true });
+  if (!fs.existsSync(path.join(dst, "scratch", ".gitignore"))) fs.writeFileSync(path.join(dst, "scratch", ".gitignore"), "*\n");
   return true;
 }
 

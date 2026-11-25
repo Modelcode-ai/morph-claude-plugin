@@ -6,6 +6,7 @@ import { describe, test } from "node:test";
 import type { TestRecord } from "../src/reconcile.ts";
 import { guess, springContextPath } from "../src/init.ts";
 import { listSuiteTests, writeListCache } from "../src/listing.ts";
+import { copyWitnessDir } from "../src/reference.ts";
 import type { Suite } from "../src/config.ts";
 import { machineFacts, type ScanResult } from "../src/scan.ts";
 import { collectArtifacts, copyAttachments } from "../src/suite.ts";
@@ -80,5 +81,16 @@ ready = { http = "\${self.url}/health", timeout = "3s" }
     const ctx = { root, cwd: root, vars: {}, env: { PATH: process.env.PATH ?? "" }, log: path.join(root, "list.log"), scratch: path.join(root, "scratch") };
     assert.equal((await listSuiteTests(s, ctx)).source, "last-report");
     assert.equal((await listSuiteTests(s, { ...ctx, noCache: true })).source, "none");
+  });
+
+  test("the base worktree gets an empty .witness/scratch/, as every checkout witness runs in has", () => {
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), "witness-src-"));
+    const dst = fs.mkdtempSync(path.join(os.tmpdir(), "witness-dst-"));
+    fs.mkdirSync(path.join(src, "scratch"), { recursive: true });
+    fs.writeFileSync(path.join(src, "scratch", "app.jar"), "x");
+    fs.writeFileSync(path.join(src, "witness.toml"), "version = 1\n");
+    assert.ok(copyWitnessDir(src, path.join(dst, ".witness")));
+    assert.deepEqual(fs.readdirSync(path.join(dst, ".witness", "scratch")), [".gitignore"]);
+    assert.ok(fs.existsSync(path.join(dst, ".witness", "witness.toml")));
   });
 });
