@@ -4,7 +4,8 @@ import { type AdapterName, dotnetMode } from "./adapters.ts";
 import type { Kind } from "./config.ts";
 import { classify, describeFilter, type Entries, type FileScan, fLangOf, filteredCmd, projectEntries, scanFile, type Verdict } from "./functional.ts";
 import { isTestPath } from "./lint.ts";
-import { globFiles } from "./util.ts";
+import { newmanListFromCollection } from "./parsers/newman.ts";
+import { globFiles, shq } from "./util.ts";
 
 export type Confidence = "high" | "medium" | "low";
 
@@ -237,12 +238,63 @@ export function guess(root: string): Guess {
     g.suites.push({ name: name("maestro"), adapter: "generic", kind: "mobile", cwd: ".", cmd: `maestro test --format junit --output \${WITNESS_REPORT_DIR}/maestro.xml ${d}`, why: `${d}: ${maestro.length} Maestro flow(s) launch the app`, hostsApp: false, project: d, confidence: "high", evidence: maestro.slice(0, 3) });
   }
   if (fs.existsSync(path.join(root, "manage.py"))) g.services.push({ name: name("django"), cwd: ".", setup: "pip install -r requirements.txt", start: "python manage.py runserver 127.0.0.1:${PORT} --noreload", ready: "${self.url}/", why: "manage.py", confidence: "medium", evidence: ["manage.py"] });
+  const collections = has(/\.postman_collection\.json$/);
+  for (const col of collections) newmanSuite(root, g, col, files, collections.length > 1, name);
 
   for (const p of projects) {
     if (p.label === ".") p.label = `. (${p.adapter})`;
     decide(g, p, classify(scanProject(root, p, projectEntries(root, p.dir)), p.label), name);
   }
   return g;
+}
+
+interface PostmanVar {
+  key?: string;
+  value?: unknown;
+  enabled?: boolean;
+  disabled?: boolean;
+}
+
+/** The variable a collection's requests take their base URL from, and the path after the host (`/petclinic`). */
+export function postmanBaseUrl(collectionText: string, vars: PostmanVar[]): { key: string; path: string } | undefined {
+  const urls = vars.filter((v) => v.key && v.enabled !== false && !v.disabled && /^https?:\/\/[^/{}]+/.test(String(v.value ?? "")) && collectionText.includes(`{{${v.key}}}`));
+  const v = urls.find((x) => /base|url|host|api|server/i.test(x.key!)) ?? urls[0];
+  if (!v) return undefined;
+  let p = "";
+  try {
+    p = new URL(String(v.value)).pathname.replace(/\/+$/, "");
+  } catch {
+    /* not a URL after all */
+  }
+  return { key: v.key!, path: p };
+}
+
+/** A Postman collection run by Newman against the first service, with its environment file and the base URL pointed at the service. */
+function newmanSuite(root: string, g: Guess, col: string, files: string[], several: boolean, name: (b: string) => string) {
+  const text = read(path.join(root, col));
+  let doc: { item?: unknown[]; variable?: PostmanVar[] };
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return;
+  }
+  const ids = newmanListFromCollection(doc as Parameters<typeof newmanListFromCollection>[0]);
+  const requests = (text.match(/"request"\s*:/g) ?? []).length;
+  if (!ids.length) return void g.excluded.push({ path: col, adapter: "newman", reason: "a Postman collection with no assertions (pm.test): Newman would report nothing per test", confidence: "medium", evidence: [col] });
+  const envs = files.filter((f) => /\.postman_environment\.json$/.test(f));
+  const env = envs.find((f) => path.posix.dirname(f) === path.posix.dirname(col)) ?? (envs.length === 1 ? envs[0] : undefined);
+  let envVars: PostmanVar[] = [];
+  try {
+    envVars = env ? (JSON.parse(read(path.join(root, env))).values ?? []) : [];
+  } catch {
+    /* unreadable environment file */
+  }
+  const base = postmanBaseUrl(text, [...envVars, ...(doc.variable ?? [])]);
+  const svc = g.services[0]?.name ?? "app";
+  const cmd = `npx --yes newman@6 run ${shq(col)}${env ? ` -e ${shq(env)}` : ""}${base ? ` --env-var ${shq(`${base.key}=\${${svc}.url}${base.path}`)}` : ""}`;
+  const chained = /\bpm\.(environment|collectionVariables|globals|variables)\.set\(/.test(text);
+  const notes = [base ? "" : "no URL variable found for the collection's requests: add --env-var <name>=${<service>.url}", chained ? "the requests pass values to each other (pm.environment.set): a request selected or rerun alone runs without the ones before it" : ""].filter(Boolean);
+  g.suites.push({ name: name(several ? path.basename(col, ".postman_collection.json") : "newman"), adapter: "newman", kind: "api", cwd: ".", cmd, why: `${col}: a Postman collection, ${requests} request(s) and ${ids.length} assertion(s), run by Newman`, hostsApp: false, ...(notes.length ? { note: notes.join("; ") } : {}), project: col, confidence: "high", evidence: [col, ...(env ? [env] : [])] });
 }
 
 function commonDir(dirs: string[]): string {

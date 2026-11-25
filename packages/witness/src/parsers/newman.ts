@@ -142,7 +142,7 @@ const scriptOf = (it: CollectionItem) => (it.event ?? []).filter((e) => e.listen
 
 /** The collection file and `--folder` names of a `newman run` command; undefined when it runs a URL or isn't one. */
 export function newmanRun(words: string[]): { collection: string; folders: string[] } | undefined {
-  const i = words.findIndex((w, k) => w === "run" && k > 0 && /(^|[/\\])newman(\.cmd|\.js)?$/.test(words[k - 1]));
+  const i = words.findIndex((w, k) => w === "run" && k > 0 && /(^|[/\\])newman(@[\w.^~-]+)?(\.cmd|\.js)?$/.test(words[k - 1]));
   if (i < 0) return undefined;
   const collection = words[i + 1];
   if (!collection || collection.startsWith("-") || /^https?:/.test(collection)) return undefined;
