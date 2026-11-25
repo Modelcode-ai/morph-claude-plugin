@@ -420,7 +420,7 @@ export function steps(m: ReportModel): NextStep[] {
   if (gaps.length) {
     const n = gaps.reduce((k, g) => k + g.bare.length, 0);
     const lines = gaps.map((g) => gapLine(g)!);
-    out.push({ tone: "do", title: `Record screenshots and video for ${plural(n, "test")}`, detail: `${lines.join("; ")}.`, prompt: `Use witness: in run ${run}, ${lines.join("; ")}. Set up capture once for the whole suite: ${CAPTURE_FIX}. Then run witness check and the suite again.` });
+    out.push({ tone: "do", title: `Record screenshots and video for ${plural(n, "test")}`, detail: `${lines.join("; ")}.`, prompt: `Use witness: in run ${run}, ${lines.join("; ")}. Set up capture once for the whole suite: ${CAPTURE_FIX}. A test that never opens a screen (an API check in a UI suite) has nothing to record; leave it. Then run witness check and the suite again.` });
   }
   const broken = Object.entries(m.evidence).flatMap(([id, e]) => (e.here?.problems.length ? [{ id, n: e.here.problems.length, first: e.here.problems[0] }] : []));
   if (broken.length) out.push({ tone: "low", title: `Fix the evidence of ${plural(broken.length, "test")}`, detail: `${shortTest(broken[0].id)}: line ${broken[0].first.line}, ${broken[0].first.message}`, prompt: `Use witness: the evidence.jsonl files of these tests have problems: ${broken.slice(0, 10).map((b) => `${b.id} (line ${b.first.line}: ${b.first.message})`).join("; ")}. Fix the code that writes them so every line follows the evidence reference of the write skill.` });

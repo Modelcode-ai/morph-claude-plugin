@@ -49,7 +49,8 @@ The change, the same for every framework:
 Record: the edit itself. If the user declines, comment the suite in `witness.toml`:
 `# no screenshots or video (user's choice)`.
 
-Then run `witness check` again: it should print `capture ok` for the suite. If it still warns,
+Then run `witness check` again: it should print `capture ok` for the suite. A test that never
+opens a screen (an API check in a UI suite) has nothing to record; the report still names it. If it still warns,
 open the check's folder (`.witness/check/*/artifacts/`) and the runner's output folder to see where
 the files went, and fix the path. The baseline run (stage 6) then shows every test's screenshots
 and video in chapter 3 of its report.
@@ -89,7 +90,10 @@ export default defineConfig({
 });
 ```
 
-A project whose own `use` sets these overrides the top level: change it there too.
+A project whose own `use` sets these overrides the top level: change it there too. A context a
+fixture opens itself (`browser.newContext()`) gets none of this: under the same guard, pass
+`recordVideo: { dir: testInfo.outputPath("videos") }` to it, and before it closes `testInfo.attach`
+a `page.screenshot()` of each page, then after it closes each `page.video().path()`.
 
 **Playwright for Python (pytest-playwright).** In `conftest.py`; the files go to the test's folder:
 
