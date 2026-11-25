@@ -478,7 +478,7 @@ export function collectArtifacts(runDir: string, outDir: string, tests: TestReco
         fs.mkdirSync(path.dirname(dst), { recursive: true });
         fs.copyFileSync(a.path, dst);
       }
-      a.path = path.relative(runDir, dst);
+      a.path = path.relative(runDir, dst).split(path.sep).join("/");
     }
   }
   const walk = (d: string, test: TestRecord | undefined, dirName: string) => {
@@ -496,7 +496,7 @@ export function collectArtifacts(runDir: string, outDir: string, tests: TestReco
         const ct = MIME[ext] ?? "application/octet-stream";
         const fromAttachment = test?.attachments?.find((a) => path.resolve(runDir, a.path) === p);
         const step = /^(?:step[-_]?)?(\d+)[-_](.+)\.\w+$/.exec(e.name);
-        const entry: ArtifactEntry = { file: path.relative(runDir, p), artifact_type: artifactType(e.name, fromAttachment?.contentType || ct), test_name: test?.name ?? dirName, test_id: test?.id ?? null, content_type: fromAttachment?.contentType || ct, size_bytes: fileSize(p) };
+        const entry: ArtifactEntry = { file: path.relative(runDir, p).split(path.sep).join("/"), artifact_type: artifactType(e.name, fromAttachment?.contentType || ct), test_name: test?.name ?? dirName, test_id: test?.id ?? null, content_type: fromAttachment?.contentType || ct, size_bytes: fileSize(p) };
         if (step) {
           entry.step_index = Number(step[1]);
           entry.step_label = step[2].replace(/[-_]+/g, " ");

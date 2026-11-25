@@ -2,7 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { checkCommand, downCommand, reportCommand, statusCommand, upCommand } from "./commands.ts";
-import { type Config, ConfigError, findConfig, loadConfig, rootFor } from "./config.ts";
+import { type Config, ConfigError, findConfig, loadConfig as parseConfigFile, rootFor } from "./config.ts";
 import { VERSION } from "./ctrf.ts";
 import { diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { initCommand } from "./init.ts";
@@ -10,6 +10,7 @@ import { scanCommand } from "./scan.ts";
 import { lintCommand } from "./lint.ts";
 import { skillsCommand } from "./skills.ts";
 import { type Plan, parsePlan, planCheckCommand } from "./plan.ts";
+import { ShellError, useShell } from "./proc.ts";
 import { EXIT } from "./reconcile.ts";
 import { ensureScratch, runCommand, UsageError } from "./run.ts";
 
@@ -33,6 +34,18 @@ Usage:
 Common: --json (machine output on stdout) · --config <path> (default .witness/witness.toml)
         --run-dir-root <path> (default .witness/runs)
 Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout · 5 interrupted · 64 usage`;
+
+/** Load the config and pick the shell its commands run under. */
+function loadConfig(file: string): Config {
+  const cfg = parseConfigFile(file);
+  try {
+    useShell(cfg.run.shell);
+  } catch (e) {
+    if (e instanceof ShellError) throw new ConfigError("run.shell", e.message);
+    throw e;
+  }
+  return cfg;
+}
 
 const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix", "profile"]);
 const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link", "scan"]);

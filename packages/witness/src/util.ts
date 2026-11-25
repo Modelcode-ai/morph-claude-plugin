@@ -184,7 +184,19 @@ export function shellWords(cmd: string): string[] | null {
   return out;
 }
 
-/** Quote a word for bash. */
-export const shq = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+let quoteStyle: "posix" | "cmd" = "posix";
+
+/** How shq quotes from now on; follows the shell commands run under (proc.ts useShell). */
+export function setQuoteStyle(style: "posix" | "cmd") {
+  quoteStyle = style;
+}
+
+/** Quote a word for the shell commands run under: bash, or cmd.exe on Windows without Git Bash. */
+export const shq = (s: string) => (quoteStyle === "cmd" ? cmdq(s) : posixq(s));
+
+export const posixq = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
+
+/** Quote a word for cmd.exe and the MSVC argument parser most Windows programs use. */
+export const cmdq = (s: string) => (/^[\w@+=:,./\\-]+$/.test(s) ? s : `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`);
 
 export const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

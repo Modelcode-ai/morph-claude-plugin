@@ -234,7 +234,7 @@ describe("witness run: outcomes and causes", { concurrency: 4 }, () => {
 });
 
 describe("witness run: lifecycle", { concurrency: 2 }, () => {
-  test("SIGINT -> interrupted, exit 5, run dir kept, service killed", async () => {
+  test("SIGINT -> interrupted, exit 5, run dir kept, service killed", { skip: process.platform === "win32" && "Windows can't send SIGINT to one process; process.kill terminates it" }, async () => {
     const dir = tmpRepo(`version = 1\n${service("ok")}${suite("slow")}${RUN}`);
     let pid = 0;
     const p = witness(dir, ["run", "--json"], { onSpawn: (x) => (pid = x) });
@@ -260,7 +260,7 @@ describe("witness run: lifecycle", { concurrency: 2 }, () => {
 
   test("stale run is reaped on the next invocation (process group killed, marked interrupted)", async () => {
     const dir = tmpRepo(`version = 1\n${service("ok")}${suite("pass")}${RUN}`);
-    const orphan = spawn("bash", ["-c", "sleep 300"], { detached: true, stdio: "ignore" });
+    const orphan = spawn(process.execPath, ["-e", "setTimeout(() => {}, 300_000)"], { detached: true, stdio: "ignore" });
     orphan.unref();
     const stale = path.join(dir, ".witness", "runs", "r-20260101-000000-abcd");
     fs.mkdirSync(stale, { recursive: true });

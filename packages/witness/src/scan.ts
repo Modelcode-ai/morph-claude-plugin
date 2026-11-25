@@ -7,6 +7,7 @@ import type { AdapterName } from "./adapters.ts";
 import { type Config, ConfigError, type Kind, loadConfig, parseEnvFile } from "./config.ts";
 import { type Confidence, type GuessedService, guess } from "./init.ts";
 import { isTestPath } from "./lint.ts";
+import { envGet } from "./proc.ts";
 import { globFiles } from "./util.ts";
 
 export interface Fact {
@@ -324,9 +325,9 @@ const TOOLS: [string, (o: ScanResult) => boolean][] = [
 ];
 const PLAYWRIGHT = /^(@playwright\/test|playwright|pytest-playwright|Microsoft\.Playwright(\.\w+)?)$/i;
 
-export function onPath(tool: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const exts = process.platform === "win32" ? (env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";") : [""];
-  for (const dir of (env.PATH ?? "").split(path.delimiter).filter(Boolean))
+export function onPath(tool: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string | undefined {
+  const exts = platform === "win32" ? (envGet(env, "PATHEXT", platform) ?? ".EXE;.CMD;.BAT").split(";") : [""];
+  for (const dir of (envGet(env, "PATH", platform) ?? "").split(platform === "win32" ? ";" : ":").filter(Boolean))
     for (const e of exts) {
       const f = path.join(dir, tool + e);
       try {
@@ -339,11 +340,14 @@ export function onPath(tool: string, env: NodeJS.ProcessEnv = process.env): stri
 }
 
 /** Where Playwright keeps its browsers (PLAYWRIGHT_BROWSERS_PATH, else the per-OS cache). */
-export function playwrightCache(env: NodeJS.ProcessEnv = process.env): string {
+export function playwrightCache(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
   if (env.PLAYWRIGHT_BROWSERS_PATH && env.PLAYWRIGHT_BROWSERS_PATH !== "0") return env.PLAYWRIGHT_BROWSERS_PATH;
+  if (platform === "win32") {
+    const home = envGet(env, "USERPROFILE", platform) ?? os.homedir();
+    return path.join(envGet(env, "LOCALAPPDATA", platform) ?? path.join(home, "AppData", "Local"), "ms-playwright");
+  }
   const home = env.HOME ?? os.homedir();
-  if (process.platform === "darwin") return path.join(home, "Library", "Caches", "ms-playwright");
-  if (process.platform === "win32") return path.join(env.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "ms-playwright");
+  if (platform === "darwin") return path.join(home, "Library", "Caches", "ms-playwright");
   return path.join(env.XDG_CACHE_HOME ?? path.join(home, ".cache"), "ms-playwright");
 }
 

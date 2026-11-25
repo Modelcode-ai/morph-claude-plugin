@@ -161,7 +161,7 @@ test("init --scan prints JSON, writes nothing, and plain init still writes the e
 test("scan: machine facts say which tools are on PATH and which Playwright browsers are downloaded", () => {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "witness-bin-"));
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "witness-pw-"));
-  fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\n", { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, process.platform === "win32" ? "node.cmd" : "node"), "#!/bin/sh\n", { mode: 0o755 });
   fs.mkdirSync(path.join(cache, "chromium-1248"));
   fs.mkdirSync(path.join(cache, "ffmpeg-1011"));
   fs.mkdirSync(path.join(cache, ".links"));
