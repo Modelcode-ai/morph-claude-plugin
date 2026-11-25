@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { resolveRun } from "../src/rundir.ts";
 
 export const PKG = path.resolve(import.meta.dirname, "..");
 export const APPS = path.join(PKG, "testdata", "apps");
@@ -11,7 +12,7 @@ export const CLI = path.join(PKG, "src", "cli.ts");
 export function tmpRepo(toml: string, opts: { git?: boolean; files?: Record<string, string> } = {}): string {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-test-")));
   fs.mkdirSync(path.join(dir, ".witness"), { recursive: true });
-  fs.writeFileSync(path.join(dir, ".witness", "witness.toml"), toml.replace(/\$APPS/g, APPS));
+  fs.writeFileSync(path.join(dir, ".witness", "witness.toml"), toml.replace(/\$APPS/g, APPS.split(path.sep).join("/")));
   fs.writeFileSync(path.join(dir, ".witness", ".gitignore"), "runs/\ncheck/\ncache/\nup/\nup.json\nrun.lock\n.env\n");
   for (const [f, c] of Object.entries(opts.files ?? {})) {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
@@ -58,8 +59,9 @@ export function witness(cwd: string, args: string[], opts: { env?: Record<string
   });
 }
 
+/** The latest run's folder, whichever way `latest` points at it (symlink, junction or pointer file). */
 export function latest(dir: string): string {
-  return path.join(dir, ".witness", "runs", "latest");
+  return resolveRun(path.join(dir, ".witness", "runs"), "latest") ?? path.join(dir, ".witness", "runs", "latest");
 }
 
 export function readJson(file: string): any {

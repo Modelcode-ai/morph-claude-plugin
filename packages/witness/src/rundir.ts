@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Diagnosis } from "./diagnosis.ts";
-import { groupAlive, killGroup } from "./proc.ts";
+import { groupAlive, killGroup, runShellSync, signalPid } from "./proc.ts";
 import type { Outcome, SuiteSummary } from "./reconcile.ts";
 import { git, pidAlive, randHex, readJson, writeJson } from "./util.ts";
 
@@ -106,12 +106,15 @@ export class RunDir {
   tracker(kind: TrackedProc["kind"], name: string) {
     return (pgid: number, running: boolean) => (running ? this.track({ kind, name, pid: pgid, pgid }) : this.untrack(pgid));
   }
-  linkLatest() {
+  /** `latest` is a symlink to the run; on Windows a junction (needs no symlink rights); else a file holding the run id. */
+  linkLatest(platform: NodeJS.Platform = process.platform) {
     const link = path.join(this.root, "latest");
     try {
       fs.rmSync(link, { force: true });
-      fs.symlinkSync(this.status.run_id, link);
+      if (platform === "win32") fs.symlinkSync(this.dir, link, "junction");
+      else fs.symlinkSync(this.status.run_id, link);
     } catch {
+      fs.rmSync(link, { force: true });
       fs.writeFileSync(link, this.status.run_id);
     }
   }
@@ -122,7 +125,7 @@ export function resolveRun(root: string, id: string | undefined): string | null 
   const p = path.join(root, which);
   try {
     const st = fs.lstatSync(p);
-    if (st.isSymbolicLink()) return path.join(root, fs.readlinkSync(p));
+    if (st.isSymbolicLink()) return path.resolve(root, fs.readlinkSync(p));
     if (st.isFile()) return path.join(root, fs.readFileSync(p, "utf8").trim());
     if (st.isDirectory()) return p;
   } catch {
@@ -173,12 +176,12 @@ export async function killTracked(p: TrackedProc, graceMs: number, opts: { runSt
   let hit = false;
   const pid = p.pidfile ? Number(readText(p.pidfile)) : 0;
   if (p.stop && opts.runStop !== false && (pidAlive(pid) || groupAlive(p.pgid))) {
-    spawnSync("bash", ["-c", p.stop], { cwd: p.cwd, stdio: "ignore", timeout: 60_000 });
+    runShellSync(p.stop, { cwd: p.cwd, timeoutMs: 60_000 });
     hit = true;
   }
   if (pid > 1 && pidAlive(pid)) {
     try {
-      process.kill(pid, graceMs ? "SIGTERM" : "SIGKILL");
+      signalPid(pid, !graceMs);
     } catch {
       /* gone */
     }
@@ -186,7 +189,7 @@ export async function killTracked(p: TrackedProc, graceMs: number, opts: { runSt
     while (pidAlive(pid) && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
     if (pidAlive(pid)) {
       try {
-        process.kill(pid, "SIGKILL");
+        signalPid(pid, true);
       } catch {
         /* gone */
       }

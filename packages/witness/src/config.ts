@@ -124,7 +124,7 @@ export interface Config {
   suites: Suite[];
   reference?: Reference;
   repos: Repo[];
-  run: { stallMs: number; heartbeatMs: number; keepRuns: number; graceMs: number };
+  run: { stallMs: number; heartbeatMs: number; keepRuns: number; graceMs: number; shell?: "auto" | "bash" | "cmd" };
 }
 
 export class ConfigError extends Error {
@@ -148,7 +148,7 @@ const KEYS = {
   ready: ["http", "cmd", "status", "timeout"],
   suite: ["name", "kind", "service", "adapter", "repo", "cwd", "cmd", "timeout", "per_test_timeout", "per_test_timeout_arg", "report", "select", "list", "env"],
   list: ["cmd", "format", "report"],
-  run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace"],
+  run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace", "shell"],
 };
 
 export function closest(word: string, options: string[]): string | undefined {
@@ -417,6 +417,8 @@ export function parseConfig(doc: Obj, file: string, chain: Link[] = []): Config 
   checkKeys(runT, KEYS.run, "run");
   const keepRuns = runT.keep_runs ?? 10;
   if (typeof keepRuns !== "number" || keepRuns < 1) throw new ConfigError("run.keep_runs", "expected a positive number");
+  const shell = str(runT, "shell", "run") ?? "auto";
+  if (shell !== "auto" && shell !== "bash" && shell !== "cmd") throw new ConfigError("run.shell", `expected "auto", "bash" or "cmd", got "${shell}"`);
 
   const listed = parseRepos(doc, root, chain.length ? chain : [{ name: path.basename(root), root: real(root) }]);
   for (const x of [...services, ...suites]) {
@@ -443,6 +445,7 @@ export function parseConfig(doc: Obj, file: string, chain: Link[] = []): Config 
       heartbeatMs: dur(runT, "heartbeat", "run", 60_000)!,
       keepRuns,
       graceMs: dur(runT, "kill_grace", "run", 5_000)!,
+      shell,
     },
   };
   validateRefs(cfg);
@@ -678,11 +681,15 @@ export function loadEnv(cfg: Config): { env: Record<string, string>; missing: st
 
 export type Vars = Record<string, string | undefined>;
 
+/** Witness's own folders; on Windows they are substituted with forward slashes, which bash and Windows programs both read. */
+const PATH_VARS = new Set(["CHECKOUT", "WITNESS_RUN_DIR", "WITNESS_REPORT_DIR"]);
+
 /** Replace ${NAME} and ${svc.url}; unknown names are left for the shell. */
-export function substitute(text: string, vars: Vars): string {
+export function substitute(text: string, vars: Vars, platform: NodeJS.Platform = process.platform): string {
   return text.replace(/\$\{([A-Za-z_][\w.-]*)\}/g, (m, name: string) => {
     const v = vars[name];
-    return v === undefined ? m : v;
+    if (v === undefined) return m;
+    return platform === "win32" && PATH_VARS.has(name) ? v.replace(/\\/g, "/") : v;
   });
 }
 

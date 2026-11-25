@@ -9,7 +9,7 @@ import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { functionalWarnings } from "./functional.ts";
 import { type Capabilities, capabilities, capabilityLine, listSuiteTests } from "./listing.ts";
 import { color, outcomeColor, Progress } from "./output.ts";
-import { childEnv, groupAlive, killGroup, runCapture } from "./proc.ts";
+import { childEnv, groupAlive, killGroup, runCapture, signalPid } from "./proc.ts";
 import { EXIT, type TestRecord } from "./reconcile.ts";
 import { acquireLock, LockError, newRunId, reapStale, RunDir, resolveRun, type Status } from "./rundir.ts";
 import { type ReferenceSide, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
@@ -284,7 +284,7 @@ export async function downCommand(cfg: Config, o: { json: boolean }): Promise<nu
     if (svc?.stop) await runCapture(svc.stop, { cwd: path.resolve(svc.root ?? cfg.root, svc.cwd), env: childEnv(envOf(svc.repo), { PORT: String(s.port ?? "") }), timeoutMs: 60_000, log: s.log });
     if (s.pid && pidAlive(s.pid)) {
       try {
-        process.kill(s.pid, "SIGTERM");
+        signalPid(s.pid, false);
       } catch {
         /* gone */
       }

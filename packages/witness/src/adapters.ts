@@ -83,6 +83,9 @@ export function normFile(f: string | undefined, cwd?: string): string | undefine
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
+/** The null device as a shell word; on Windows `NUL`, which cmd.exe and Git Bash both pass through unchanged (unlike `\\.\nul`). */
+export const nullDevice = (platform: NodeJS.Platform = process.platform) => (platform === "win32" ? "NUL" : "/dev/null");
+
 /** Insert `--` for npm scripts so the args reach the test runner, not npm. */
 export function appendArgs(cmd: string, args: string): string {
   if (!args) return cmd;
@@ -458,7 +461,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => ids.map((id) => `-e ${shq(id.split(" > ").slice(1).join(" > "))}`).join(" "),
     list: { args: "--dry-run", format: "report" },
-    plugins: [{ name: "rspec_junit_formatter", needed: () => true, probeArgs: "--dry-run --format RspecJunitFormatter --out /dev/null", missing: /cannot load such file -- rspec_junit_formatter|Formatter '?RspecJunitFormatter'? unknown|uninitialized constant RspecJunitFormatter/, hint: 'witness reads rspec results through the rspec_junit_formatter gem: add gem "rspec_junit_formatter" to the Gemfile (test group) and bundle install' }],
+    plugins: [{ name: "rspec_junit_formatter", needed: () => true, probeArgs: `--dry-run --format RspecJunitFormatter --out ${nullDevice()}`, missing: /cannot load such file -- rspec_junit_formatter|Formatter '?RspecJunitFormatter'? unknown|uninitialized constant RspecJunitFormatter/, hint: 'witness reads rspec results through the rspec_junit_formatter gem: add gem "rspec_junit_formatter" to the Gemfile (test group) and bundle install' }],
     id: (c) => [normFile(c.file) ?? c.classname, clean(c.name)].filter(Boolean).join(" > "),
   },
   phpunit: {

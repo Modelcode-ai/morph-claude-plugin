@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { type Config, type Dependency, type InRepo, type Service, substitute, topoOrder, urlEnvName, type Vars } from "./config.ts";
 import { type Cause, type Diagnosis, diagnose, type Stage } from "./diagnosis.ts";
 import type { Progress } from "./output.ts";
-import { allocatePort, childEnv, groupAlive, httpProbe, killGroup, portAnswers, type Proc, runCapture, spawnGroup } from "./proc.ts";
+import { allocatePort, childEnv, groupAlive, httpProbe, killGroup, portAnswers, type Proc, runCapture, signalPid, spawnGroup } from "./proc.ts";
 import type { RunDir } from "./rundir.ts";
 import { fmtDuration, git, pidAlive, readJson, sha, sleep, writeJson } from "./util.ts";
 
@@ -335,7 +335,7 @@ export class Stack {
     }
     if (ls.pid && pidAlive(ls.pid)) {
       try {
-        process.kill(ls.pid, "SIGTERM");
+        signalPid(ls.pid, false);
       } catch {
         /* gone */
       }
@@ -343,7 +343,7 @@ export class Stack {
       while (pidAlive(ls.pid) && Date.now() < until) await sleep(100);
       if (pidAlive(ls.pid)) {
         try {
-          process.kill(ls.pid, "SIGKILL");
+          signalPid(ls.pid, true);
         } catch {
           /* gone */
         }
