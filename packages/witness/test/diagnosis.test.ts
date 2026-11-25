@@ -21,6 +21,15 @@ test("evidence is the exception line of the last command, not a stack frame or b
   assert.match(diagnose({ stage: "boot", cause: "setup_failed", service: "web", log: log(build) }).evidence!, /error CS1525/);
 });
 
+test("evidence skips Maven and npm boilerplate and names the compiler error", () => {
+  const mvn = "[INFO] BUILD FAILURE\n[ERROR] COMPILATION ERROR : \n[ERROR] /r/src/main/java/App.java:[121,65] illegal start of expression\n[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.15.0:compile (default-compile) on project app: Compilation failure\n[ERROR] -> [Help 1]\n[ERROR] \n[ERROR] Re-run Maven using the -X switch to enable full debug logging.\n[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException\n";
+  assert.equal(diagnose({ stage: "boot", cause: "setup_failed", service: "api", log: log(mvn) }).evidence, "[ERROR] /r/src/main/java/App.java:[121,65] illegal start of expression");
+  const gate = "[INFO] Tests run: 138, Failures: 0, Errors: 0, Skipped: 0\n[INFO] BUILD FAILURE\n[ERROR] Failed to execute goal org.jacoco:jacoco-maven-plugin:0.8.16:check (check) on project app: Coverage checks have not been met. See log for details. -> [Help 1]\n[ERROR] \n[ERROR] For more information about the errors and possible solutions, please read the following articles:\n[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException\n";
+  assert.match(diagnose({ stage: "report", cause: "report_incomplete", suite: "api", log: log(gate) }).evidence!, /Coverage checks have not been met/);
+  const npx = "$ npx ng serve --port 4000\nnpm error could not determine executable to run\nnpm error A complete log of this run can be found in: /home/u/.npm/_logs/x-debug-0.log\n";
+  assert.equal(diagnose({ stage: "boot", cause: "exited_before_ready", service: "web", log: log(npx) }).evidence, "npm error could not determine executable to run");
+});
+
 describe("diagnosis heuristics", () => {
   const cases: [string, string, string, RegExp][] = [
     ["exited_before_ready", "Error: listen EADDRINUSE: address already in use :::3000\n", "port_in_use", /EADDRINUSE/],

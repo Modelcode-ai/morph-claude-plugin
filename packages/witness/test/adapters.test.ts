@@ -5,7 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { ADAPTERS, appendArgs, dotnetFqnToId, pytestId, selectCommand, trxHint } from "../src/adapters.ts";
 import { splitIds } from "../src/cli.ts";
-import { buildFailure, reportPathEvidence, suiteCommand } from "../src/suite.ts";
+import { buildFailure, incompleteEvidence, reportPathEvidence, suiteCommand } from "../src/suite.ts";
 import type { Suite } from "../src/config.ts";
 
 const suite = (adapter: Suite["adapter"], cmd: string, extra: Partial<Suite> = {}): Suite => ({ name: "s", kind: "api", adapter, cmd, cwd: ".", timeoutMs: 60_000, env: {}, ...extra });
@@ -66,9 +66,17 @@ describe("adapter table", () => {
 });
 
 describe("eShopOnWeb eval fixes: build failures, report paths, TRX hint", () => {
+  test("report_incomplete evidence adds the log's error line (a coverage gate after a clean report)", () => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "witness-inc-")), "suite.log");
+    fs.writeFileSync(f, "[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0\n[ERROR] Failed to execute goal org.jacoco:jacoco-maven-plugin:0.8.16:check (check) on project app: Coverage checks have not been met. See log for details. -> [Help 1]\n[ERROR] \n");
+    assert.match(incompleteEvidence("exit code 1 but the report shows no failures", 1, f)!, /^exit code 1 but the report shows no failures; the log says: .*Coverage checks have not been met/);
+    fs.writeFileSync(f, "all good\n");
+    assert.equal(incompleteEvidence("exit code 1 but the report shows no failures", 1, f), "exit code 1 but the report shows no failures");
+  });
+
   test("buildFailure finds compile errors and missing commands, nothing in plain test output", () => {
     assert.match(buildFailure("Restore complete\nsrc/Basket.cs(13,59): error CS1525: Invalid expression term\nBuild FAILED.", 1)!, /error CS1525/);
-    assert.match(buildFailure("[ERROR] COMPILATION ERROR :\n[ERROR] Foo.java:[3,1] ';' expected", 1)!, /COMPILATION ERROR/);
+    assert.equal(buildFailure("[ERROR] COMPILATION ERROR :\n[ERROR] /r/src/Foo.java:[3,1] ';' expected\n[ERROR] -> [Help 1]", 1), "[ERROR] /r/src/Foo.java:[3,1] ';' expected");
     assert.match(buildFailure("FAIL\texample.com/x [build failed]", 1)!, /build failed/);
     assert.match(buildFailure("bash: .witness/dotnet: No such file or directory", 127)!, /No such file/);
     assert.match(buildFailure("A compatible .NET SDK was not found.\n\nRequested SDK version: 11.0.100\nglobal.json file: /repo/global.json\n\nInstalled SDKs:\n10.0.403 [/usr/local/share/dotnet/sdk]", 155)!, /compatible \.NET SDK was not found/);

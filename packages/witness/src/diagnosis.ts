@@ -63,7 +63,7 @@ const PATTERNS: Pattern[] = [
   { cause: "auth_failed", re: /\b401 Unauthorized\b|HTTP\/\d(?:\.\d)? 401\b|[Ss]tatus(?: code)?[:= ]+401\b|password authentication failed|[Aa]uthentication failed|Access denied for user|invalid_grant|[Ii]nvalid credentials|Login failed for user/ },
   { cause: "network", re: /\bENOTFOUND\b|\bEAI_AGAIN\b|getaddrinfo (?:ENOTFOUND|EAI_AGAIN|failed)|Name or service not known|Temporary failure in name resolution|nodename nor servname provided|Could not resolve host|No such host is known|NameResolutionError|UnknownHostException/ },
   { cause: "dependency_unreachable", re: /\bECONNREFUSED\b|[Cc]onnection refused|could not connect to server|actively refused|Connection reset by peer|Is the server running on host|server was not found or was not accessible/ },
-  { cause: "missing_tool", re: /ModuleNotFoundError|No module named|Cannot find module|MODULE_NOT_FOUND|command not found|is not recognized as an internal or external command|Could not find or load main class|ClassNotFoundException|No such file or directory|ERR_MODULE_NOT_FOUND|You must install or update \.NET|A compatible \.NET SDK was not found|Could not execute because the specified command or file was not found/i },
+  { cause: "missing_tool", re: /ModuleNotFoundError|No module named|Cannot find module|MODULE_NOT_FOUND|command not found|is not recognized as an internal or external command|Could not find or load main class|ClassNotFoundException|No such file or directory|ERR_MODULE_NOT_FOUND|You must install or update \.NET|A compatible \.NET SDK was not found|Could not execute because the specified command or file was not found|could not determine executable to run/i },
 ];
 
 const NO_REFINE = new Set<Cause>(["bad_config", "missing_env", "stalled", "suite_timeout"]);
@@ -71,6 +71,9 @@ const RETRYABLE = new Set<Cause>(["port_in_use", "network", "service_died", "sta
 
 const FRAME = /^\s+(at\s|File "|\.\.\. \d+ more)|^\s+\S+\.go:\d+/;
 const ERRORISH = /exception|error|fatal|panic|unhandled|traceback/i;
+// lines a build tool prints after every failure; they never say what went wrong
+const BOILERPLATE = /^\[ERROR\]\s*(->\s*)?(\[Help \d+\].*|To see the full stack trace.*|Re-run Maven .*|For more information about the errors.*)?$|^npm (error|ERR!) A complete log of this run can be found in/;
+export const COMPILER_ERROR = /^\[ERROR\] \S.*\.(java|kt|scala|groovy):\[\d+,\d+\] |^\S.*\.(java|kt):\d+: error: /;
 
 /** The error line of the last command's output, skipping stack frames; else its last line. */
 function lastMeaningful(lines: string[], preferError: boolean): string | undefined {
@@ -78,9 +81,17 @@ function lastMeaningful(lines: string[], preferError: boolean): string | undefin
   lines.forEach((l, i) => {
     if (/^\s*\$ /.test(l)) start = i + 1;
   });
-  const cand = lines.slice(start).filter((l) => l.trim().length > 1 && !FRAME.test(l));
+  const cand = lines.slice(start).filter((l) => l.trim().length > 1 && !FRAME.test(l) && !BOILERPLATE.test(l.trim()));
+  const compiler = preferError ? cand.find((l) => COMPILER_ERROR.test(l.trim())) : undefined;
+  if (compiler) return compiler.trim();
   const pool = cand.length ? cand : lines.filter((l) => !/^\s*\$ /.test(l) && l.trim().length > 1);
   return ((preferError ? [...pool].reverse().find((l) => ERRORISH.test(l) && !/^\s*\d+ Error\(s\)\s*$|\b0 errors?\b/i.test(l)) : undefined) ?? pool.at(-1))?.trim();
+}
+
+/** The log's error line, when it has one; for failures outside the tests (a coverage gate after a clean run). */
+export function logErrorLine(log: string | undefined): string | undefined {
+  const line = log ? lastMeaningful(tailLines(log, 200), true) : undefined;
+  return line && ERRORISH.test(line) ? line.slice(0, 400) : undefined;
 }
 
 /** Turn a failure into cause + evidence + next commands, using the log tail to refine the cause. */

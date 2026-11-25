@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ADAPTERS, type Adapter, addArgs, fillSelect, hasSelectVar, presetEnv, selectCommand, stableId } from "./adapters.ts";
 import { type Config, type Suite, substitute } from "./config.ts";
-import { type Diagnosis, diagnose } from "./diagnosis.ts";
+import { COMPILER_ERROR, type Diagnosis, diagnose, logErrorLine } from "./diagnosis.ts";
 import { listSuiteTests, type TestList, writeListCache } from "./listing.ts";
 import type { Progress } from "./output.ts";
 import { parseReportFile } from "./parsers/index.ts";
@@ -63,9 +63,14 @@ export function buildFailure(text: string, exitCode: number | null): string | un
   const lines = text.split(/\r?\n/);
   for (const re of BUILD_FAILED) {
     const hit = lines.find((l) => re.test(l.trim()));
-    if (hit) return hit.trim().slice(0, 500);
+    if (hit) return (lines.find((l) => COMPILER_ERROR.test(l.trim())) ?? hit).trim().slice(0, 500);
   }
   return exitCode === 127 ? lines.filter((l) => l.trim()).at(-1)?.trim().slice(0, 500) : undefined;
+}
+
+export function incompleteEvidence(note: string | undefined, code: number | null, log: string): string | undefined {
+  const line = code ? logErrorLine(log) : undefined;
+  return line ? `${note}; the log says: ${line}` : note;
 }
 
 /** A report file the framework says it wrote; it explains a missing report when that path is empty here. */
@@ -262,7 +267,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
   if (exec.died) diagnosis = exec.died;
   else if (res.cause && res.state !== "failed" && res.state !== "passed") {
     const h = res.cause === "report_missing" ? hint : undefined;
-    const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? res.note : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
+    const evidence = res.evidence ?? h ?? (res.cause === "report_unreadable" ? files.find((f) => f.error)?.error : res.cause === "report_incomplete" ? incompleteEvidence(res.note, exec.code, log) : res.cause === "report_missing" ? reportPathEvidence(output) : undefined);
     const extraTry = [h, res.hint].filter((x): x is string => !!x);
     diagnosis = diagnose({ stage: res.cause.startsWith("report") ? "report" : "suite", cause: res.cause, suite: suite.name, command: cmd, log, cwd: suite.cwd, evidence, extraTry, perTestTimeout: !!(adapter.perTestTimeoutEnv || adapter.perTestTimeout?.(60_000, cwd, cmd)), adapter: suite.adapter });
   }
