@@ -41,6 +41,9 @@ export interface Framework {
   evidence: { kind: string } | { file: string };
 }
 
+const WIN = process.platform === "win32";
+const PYTHON = WIN ? "python" : "python3";
+const VENV = WIN ? ".venv/Scripts" : ".venv/bin";
 const docker = (args: string) => (t: Tool): Record<string, string> => (t.docker ? { KIT_DOCKER_ARGS: args } : {});
 const node = (bin: string) => `node_modules/.bin/${bin}`;
 const dotnet = () => process.env.KIT_DOTNET ?? "dotnet";
@@ -59,12 +62,12 @@ export const FRAMEWORKS: Framework[] = [
     adapter: "pytest",
     project: "pytest",
     ids: { pass: "tests/test_items.py::test_lists_items", fail: "tests/test_items.py::test_item_name", skip: "tests/test_items.py::test_skipped", hang: "tests/test_items.py::test_hangs" },
-    local: "python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))'",
+    local: `${PYTHON} -c 'import sys; sys.exit(sys.version_info < (3, 10))'`,
     docker: { image: "python:3.12-slim", args: "-v witness-kit-pyvenv:/venv" },
-    prepare: (t) => (t.docker ? t.run("sh -c 'python -m venv /venv && /venv/bin/pip install -q -r requirements.txt'") : "python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt"),
-    cmd: (t) => t.run(t.docker ? "/venv/bin/pytest" : ".venv/bin/pytest"),
-    compound: (t) => `cd tests/.. && ${t.run(t.docker ? "/venv/bin/pytest" : ".venv/bin/pytest")} \${WITNESS_SELECT:-tests} && echo kit-done`,
-    versions: (t) => t.run(t.docker ? "/venv/bin/pytest --version" : ".venv/bin/python --version && .venv/bin/pytest --version"),
+    prepare: (t) => (t.docker ? t.run("sh -c 'python -m venv /venv && /venv/bin/pip install -q -r requirements.txt'") : `${PYTHON} -m venv .venv && ${VENV}/pip install -q -r requirements.txt`),
+    cmd: (t) => t.run(t.docker ? "/venv/bin/pytest" : `${VENV}/pytest`),
+    compound: (t) => `cd tests/.. && ${t.run(t.docker ? "/venv/bin/pytest" : `${VENV}/pytest`)} \${WITNESS_SELECT:-tests} && echo kit-done`,
+    versions: (t) => t.run(t.docker ? "/venv/bin/pytest --version" : `${VENV}/python --version && ${VENV}/pytest --version`),
     env: docker("-v witness-kit-pyvenv:/venv"),
     list: "native",
     timeout: { perTest: "3s" },
@@ -116,7 +119,7 @@ export const FRAMEWORKS: Framework[] = [
     kind: "ui",
     project: "playwright",
     ids: { pass: "page.spec.ts > items page > shows the items", fail: "page.spec.ts > items page > heading", skip: "page.spec.ts > items page > skipped", hang: "page.spec.ts > items page > hangs" },
-    prepare: () => `npm install --no-audit --no-fund --loglevel=error && ${node("playwright")} install${process.env.CI ? " --with-deps" : ""} chromium`,
+    prepare: () => `npm install --no-audit --no-fund --loglevel=error && ${node("playwright")} install${process.env.CI && !WIN ? " --with-deps" : ""} chromium`,
     cmd: () => `BASE_URL=\${app.url} ${node("playwright")} test`,
     compound: () => `export BASE_URL=\${app.url} && ${node("playwright")} test \${WITNESS_SELECT} && echo kit-done`,
     versions: () => `node --version && ${node("playwright")} --version`,

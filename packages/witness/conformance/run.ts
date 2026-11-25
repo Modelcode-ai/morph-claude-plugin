@@ -1,6 +1,8 @@
 // Conformance kit: runs witness against tiny real projects of every supported framework and prints a matrix.
 // Usage: npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario s,...]
 import { readEvidence, titleOf } from "../src/evidence/contract.ts";
+import { resolveShell, shellArgv } from "../src/proc.ts";
+import { resolveRun } from "../src/rundir.ts";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -8,8 +10,10 @@ import { FRAMEWORKS, type Framework, IN_DOCKER, KIT, type Scenario, SCENARIOS, t
 
 const PKG = path.dirname(KIT);
 const CLI = path.join(PKG, "src", "cli.ts");
-const APP = path.join(KIT, "app", "server.mjs");
-const BREAK = path.join(KIT, "bin", "break-report.mjs");
+// forward slashes: these go into commands, where bash would eat a Windows path's backslashes
+const fwd = (p: string) => (process.platform === "win32" ? p.replace(/\\/g, "/") : p);
+const APP = fwd(path.join(KIT, "app", "server.mjs"));
+const BREAK = fwd(path.join(KIT, "bin", "break-report.mjs"));
 
 type Cell = { result: "pass" | "fail" | "n.a."; detail: string; ms: number };
 interface FwResult {
@@ -37,7 +41,12 @@ function args() {
   return o;
 }
 
-const sh = (cmd: string, cwd: string, env: Record<string, string> = {}) => spawnSync("bash", ["-c", cmd], { cwd, env: { ...process.env, ...env }, encoding: "utf8", timeout: 20 * 60_000 });
+// the kit's commands are POSIX shell, so on Windows they need Git Bash
+const SHELL = resolveShell("bash");
+const sh = (cmd: string, cwd: string, env: Record<string, string> = {}) => {
+  const a = shellArgv(SHELL, cmd);
+  return spawnSync(a.file, a.args, { cwd, env: { ...process.env, ...env }, encoding: "utf8", timeout: 20 * 60_000 });
+};
 
 function pickTool(fw: Framework, forceDocker: boolean): Tool | string {
   const dir = path.join(KIT, "projects", fw.project);
@@ -88,6 +97,7 @@ function toml(fw: Framework, t: Tool, o: { cmd: string; env?: Record<string, str
     "[run]",
     'stall_timeout = "4m"',
     "keep_runs = 100",
+    ...(process.platform === "win32" ? ['shell = "bash"'] : []),
     "",
   ].join("\n");
 }
@@ -112,10 +122,10 @@ function witness(dir: string, config: string, argv: string[]): Promise<W> {
     const timer = setTimeout(() => child.kill("SIGINT"), 15 * 60_000);
     child.on("close", (code) => {
       clearTimeout(timer);
-      const latest = path.join(dir, ".witness", "runs", "latest");
+      const latest = resolveRun(path.join(dir, ".witness", "runs"), "latest");
       const read = (f: string) => {
         try {
-          return JSON.parse(fs.readFileSync(path.join(latest, f), "utf8"));
+          return JSON.parse(fs.readFileSync(path.join(latest!, f), "utf8"));
         } catch {
           return undefined;
         }
@@ -240,7 +250,7 @@ async function runScenario(fw: Framework, t: Tool, dir: string, sc: Scenario): P
       case "evidence": {
         const w = await witness(dir, cfg(sc, { cmd: fw.cmd(t) }), ["run", "--json", ...sel([fw.ids.pass])]);
         expectRows(w, fw, { [fw.ids.pass]: { status: "passed" } });
-        const run = path.join(dir, ".witness", "runs", "latest");
+        const run = resolveRun(path.join(dir, ".witness", "runs"), "latest")!;
         const arts: { file: string; test_id: string | null; artifact_type: string }[] = JSON.parse(fs.readFileSync(path.join(run, "artifacts.json"), "utf8"));
         const own = arts.filter((a) => a.test_id === `${fw.adapter}:${fw.ids.pass}`);
         if ("file" in fw.evidence) {

@@ -10,7 +10,8 @@ const keep = /[/\\](rerun|retry)[/\\]|[/\\]list$/.test(dir);
 const stdoutReport = process.env.KIT_STDOUT_REPORT === "1" && !keep;
 const t0 = Date.now() - 1000;
 
-const child = spawn("env", cmd, { stdio: ["ignore", stdoutReport ? "pipe" : "inherit", "inherit"] });
+const stdio = ["ignore", stdoutReport ? "pipe" : "inherit", "inherit"];
+const child = process.platform === "win32" ? await underBash(cmd) : spawn("env", cmd, { stdio });
 const out = [];
 child.stdout?.on("data", (d) => out.push(d));
 for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => child.kill(sig));
@@ -40,4 +41,17 @@ function walk(d) {
     return [];
   }
   return es.flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+}
+
+/** Windows has no `env`, and npm's .bin shims there are shell scripts: run the words (NAME=value first) under Git Bash. */
+async function underBash(words) {
+  const { resolveShell } = await import("../../src/proc.ts");
+  const { posixq } = await import("../../src/util.ts");
+  let assigning = true;
+  const quoted = words.map((w) => {
+    const m = assigning && /^([A-Za-z_]\w*)=(.*)$/s.exec(w);
+    assigning = !!m;
+    return m ? `${m[1]}=${posixq(m[2])}` : posixq(w);
+  });
+  return spawn(resolveShell("bash").file, ["-c", quoted.join(" ")], { stdio });
 }
