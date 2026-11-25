@@ -135,8 +135,13 @@ export function guess(root: string): Guess {
   const javaTest = (r: string) => /(^|\/)src\/test\/.*\.(java|kt)$/.test(r);
   const pom = has(/(^|\/)pom\.xml$/).sort((a, b) => a.length - b.length)[0];
   if (pom) {
-    projects.push({ label: dirOf(pom), adapter: "junit-maven", cwd: dirOf(pom), dir: dirOf(pom), manifest: pom, cmd: "mvn -B verify", nameBase: "maven-tests", include: javaTest });
-    if (/spring-boot/.test(read(path.join(root, pom)))) g.services.push({ name: name("app"), cwd: dirOf(pom), setup: "mvn -B -DskipTests package", start: "mvn -B spring-boot:run -Dspring-boot.run.arguments=--server.port=${PORT}", ready: "${self.url}/actuator/health", why: "spring-boot in pom.xml", confidence: "medium", evidence: [pom] });
+    const mvn = fs.existsSync(path.join(root, dirOf(pom), "mvnw")) ? "./mvnw" : "mvn";
+    projects.push({ label: dirOf(pom), adapter: "junit-maven", cwd: dirOf(pom), dir: dirOf(pom), manifest: pom, cmd: `${mvn} -B verify`, nameBase: "maven-tests", include: javaTest });
+    const xml = read(path.join(root, pom));
+    if (/spring-boot/.test(xml)) {
+      const ready = `\${self.url}${springContextPath(path.join(root, dirOf(pom)))}${/spring-boot-starter-actuator/.test(xml) ? "/actuator/health" : "/"}`;
+      g.services.push({ name: name("app"), cwd: dirOf(pom), setup: `${mvn} -B -DskipTests package`, start: `${mvn} -B spring-boot:run -Dspring-boot.run.arguments=--server.port=\${PORT}`, ready, why: "spring-boot in pom.xml", confidence: "medium", evidence: [pom] });
+    }
   }
   const gradle = has(/(^|\/)build\.gradle(\.kts)?$/).sort((a, b) => a.length - b.length)[0];
   if (gradle) projects.push({ label: dirOf(gradle), adapter: "junit-gradle", cwd: dirOf(gradle), dir: dirOf(gradle), manifest: gradle, cmd: fs.existsSync(path.join(root, dirOf(gradle), "gradlew")) ? "./gradlew test" : "gradle test", nameBase: "gradle-tests", include: javaTest });
@@ -419,4 +424,13 @@ export function initCommand(root: string, json: boolean): number {
     if (!fs.existsSync(path.join(dir, "witness.toml"))) w(`review it, then: mv ${example} ${path.join(dir, "witness.toml")}`);
   }
   return 0;
+}
+
+/** `server.servlet.context-path` from the app's main application.properties or .yml, without a trailing slash. */
+export function springContextPath(dir: string): string {
+  const res = path.join(dir, "src", "main", "resources");
+  const props = /^\s*server\.servlet\.context-path\s*[=:]\s*(\S+)/m.exec(read(path.join(res, "application.properties")))?.[1];
+  const yml = /^server:\s*\n(?:[ \t]+.*\n)*?[ \t]+servlet:\s*\n(?:[ \t]+.*\n)*?[ \t]+context-path:\s*["']?([^\s"']+)/m.exec(read(path.join(res, "application.yml")) || read(path.join(res, "application.yaml")))?.[1];
+  const p = (props ?? yml ?? "").replace(/\/+$/, "");
+  return p && !p.includes("$") ? (p.startsWith("/") ? p : `/${p}`) : "";
 }

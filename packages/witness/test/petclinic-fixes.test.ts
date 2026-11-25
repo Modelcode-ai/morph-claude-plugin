@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 import type { TestRecord } from "../src/reconcile.ts";
+import { guess, springContextPath } from "../src/init.ts";
 import { machineFacts, type ScanResult } from "../src/scan.ts";
 import { collectArtifacts, copyAttachments } from "../src/suite.ts";
 import { suite, tmpRepo, witness } from "./helpers.ts";
@@ -51,5 +52,22 @@ ready = { http = "\${self.url}/health", timeout = "3s" }
     assert.match(java.evidence.join(" "), /Unable to locate a Java Runtime/);
     fs.writeFileSync(path.join(bin, "java"), "#!/bin/sh\necho 'openjdk version \"17.0.12\"' >&2\n", { mode: 0o755 });
     assert.equal(machineFacts(out, { PATH: bin }).find((f) => f.tool === "java")!.found, true);
+  });
+
+  test("init's Spring Boot service: the Maven wrapper, the context path and the actuator health route", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "witness-spring-"));
+    const write = (f: string, c: string) => {
+      fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      fs.writeFileSync(path.join(dir, f), c);
+    };
+    write("pom.xml", "<project><parent><artifactId>spring-boot-starter-parent</artifactId></parent><dependencies><dependency><artifactId>spring-boot-starter-actuator</artifactId></dependency></dependencies></project>");
+    write("mvnw", "#!/bin/sh\n");
+    write("src/main/resources/application.properties", "server.port=9966\nserver.servlet.context-path=/petclinic/\n");
+    const app = guess(dir).services.find((s) => s.name === "app")!;
+    assert.equal(app.ready, "${self.url}/petclinic/actuator/health");
+    assert.match(app.start, /^\.\/mvnw -B spring-boot:run/);
+    fs.rmSync(path.join(dir, "src/main/resources/application.properties"));
+    write("src/main/resources/application.yml", "server:\n  port: 8080\n  servlet:\n    context-path: /api\n");
+    assert.equal(springContextPath(dir), "/api");
   });
 });
