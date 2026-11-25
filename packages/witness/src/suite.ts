@@ -259,6 +259,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
     if (!res.tests.some((t) => t.status === "failed")) res = { ...res, state: "passed" };
   }
 
+  copyAttachments(ctx.run.dir, ctx.outDir, res.tests);
   const summary = summarize(suite.name, res.state, res.tests);
   summary.exit_code = exec.code;
   if (res.cause) summary.cause = res.cause;
@@ -465,6 +466,22 @@ function bySuffix(tests: TestRecord[], dir: string): TestRecord | undefined {
   return hits.length === 1 ? hits[0] : undefined;
 }
 
+/** Copy framework attachments into artifacts/<test-id>/ right after their suite: a later suite may clear the runner's output folder. */
+export function copyAttachments(runDir: string, outDir: string, tests: TestRecord[]): void {
+  const artDir = path.join(outDir, "artifacts");
+  for (const t of tests) {
+    for (const a of t.attachments ?? []) {
+      if (!path.isAbsolute(a.path) || !fs.existsSync(a.path) || fs.statSync(a.path).size > 200 * 1024 * 1024) continue;
+      const dst = path.join(artDir, safeId(t.id), path.basename(a.path));
+      if (path.resolve(a.path) !== dst) {
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        fs.copyFileSync(a.path, dst);
+      }
+      a.path = path.relative(runDir, dst).split(path.sep).join("/");
+    }
+  }
+}
+
 /** Manifest of files the suites left under artifacts/<test-id>/, plus framework attachments copied in. */
 export function collectArtifacts(runDir: string, outDir: string, tests: TestRecord[]): ArtifactEntry[] {
   const out: ArtifactEntry[] = [];
@@ -475,17 +492,7 @@ export function collectArtifacts(runDir: string, outDir: string, tests: TestReco
     bySafe.set(folderKey(t.id.slice(t.adapter.length + 1)), t);
     bySafe.set(folderKey(t.name), t);
   }
-  for (const t of tests) {
-    for (const a of t.attachments ?? []) {
-      if (!fs.existsSync(a.path) || fs.statSync(a.path).size > 200 * 1024 * 1024) continue;
-      const dst = path.join(artDir, safeId(t.id), path.basename(a.path));
-      if (path.resolve(a.path) !== dst) {
-        fs.mkdirSync(path.dirname(dst), { recursive: true });
-        fs.copyFileSync(a.path, dst);
-      }
-      a.path = path.relative(runDir, dst).split(path.sep).join("/");
-    }
-  }
+  copyAttachments(runDir, outDir, tests);
   const walk = (d: string, test: TestRecord | undefined, dirName: string) => {
     let es: fs.Dirent[];
     try {
