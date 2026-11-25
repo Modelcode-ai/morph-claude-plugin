@@ -181,7 +181,7 @@ export class Stack {
     const vars = this.vars(ls);
     const env = childEnv(this.envOf(svc.repo), { PORT: String(alloc.port), ...this.serviceUrlEnv(svc.repo), ...mapValues(svc.env, (v) => substitute(v, vars)) });
 
-    if (svc.setup) await this.setup(svc, cwd, env, vars, log);
+    const cachedSetup = svc.setup ? await this.setup(svc, cwd, env, vars, log) : undefined;
     if (this.o.abort.aborted) return;
 
     const readyUrl = svc.ready?.http ? substitute(svc.ready.http, vars) : undefined;
@@ -200,6 +200,11 @@ export class Stack {
     } catch (e) {
       this.live.delete(alias);
       await this.stopOne(ls);
+      if (cachedSetup && e instanceof Failure) {
+        // its inputs were unchanged, but its output (target/, node_modules) may be gone
+        fs.rmSync(cachedSetup, { force: true });
+        e.diagnosis.try.unshift(`setup of ${svc.name} was skipped (inputs unchanged since its last success); if its output was removed, the next run runs it again`);
+      }
       throw e;
     }
     if (this.o.abort.aborted) return;
@@ -207,7 +212,8 @@ export class Stack {
     this.o.progress.line(`boot   ${svc.name} · ready at ${ls.url} (${fmtDuration(Date.now() - t0)})`);
   }
 
-  private async setup(svc: Service, cwd: string, env: Record<string, string>, vars: Vars, log: string) {
+  /** Returns the cache file when setup was skipped because its inputs were unchanged. */
+  private async setup(svc: Service, cwd: string, env: Record<string, string>, vars: Vars, log: string): Promise<string | undefined> {
     const cmd = substitute(svc.setup!, vars);
     if (this.o.noSetup) {
       this.o.progress.line(`setup  ${svc.name} · skipped (--no-setup)`);
@@ -217,7 +223,7 @@ export class Stack {
     const cacheFile = this.o.setupCacheDir ? path.join(this.o.setupCacheDir, `${svc.name}.json`) : null;
     if (hash && cacheFile && readJson<{ hash?: string }>(cacheFile, {}).hash === hash) {
       this.o.progress.line(`setup  ${svc.name} · skipped (inputs unchanged since the last successful setup)`);
-      return;
+      return cacheFile;
     }
     const t0 = Date.now();
     this.o.progress.line(`setup  ${svc.name} · ${cmd}`);
