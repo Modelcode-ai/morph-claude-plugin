@@ -78,6 +78,12 @@ Builds and runs can take minutes: follow the "Long commands" rules of the `test-
 Never add back an excluded project, mark a suite `generic` without a report, or drop a service's
 readiness check just to make `witness check` pass.
 
+## Another repo's app
+
+When a suite needs an app from another repo running (a frontend's tests against its backend),
+read `repos.md` in this skill's folder at stage 2: it lists the repo in `[[repo]]` and reuses that
+repo's own services.
+
 ## Report
 
 - The services and suites configured, the check result and each suite's first VERDICT.

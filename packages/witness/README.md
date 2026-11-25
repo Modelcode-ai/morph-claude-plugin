@@ -29,6 +29,7 @@ bin/witness check --stage boot --against main   # does main boot? (temporary wor
 bin/witness run                       # everything; exit code is the outcome
 bin/witness run --suite api --select pytest:tests/e2e/test_a.py::test_b --retries 1
 bin/witness run --against main        # same suites on main too; per-test parity in the results
+bin/witness run --against main --against backend=main   # with [[repo]]: a base per listed repo
 bin/witness up / down                 # leave services running between runs
 bin/witness status latest
 bin/witness report --format md|json
@@ -175,6 +176,70 @@ the section and checks out `<ref>` instead. A git URL is cloned once into
 `mistrial`; the VERDICT names the cause and the suite whenever the origin side could not be
 compared. `[reference]` and `role = "origin"` services are two ways to say the same thing; a config
 uses one.
+
+### Other repos: `[[repo]]`
+
+When a suite needs another repo's app running (a frontend's browser tests against its backend),
+list that repo. Its own `.witness/witness.toml` says how its services start; this config reuses
+them by name instead of copying them:
+
+```toml
+[[repo]]
+name = "backend"
+path = "../backend"              # relative to this repo's root
+services = ["api"]               # optional; default: every target service in its config
+suites = ["api"]                 # optional: its suites to run here too; default none
+env = { CORS_ORIGINS = "*" }     # optional: set for its services, over their own env
+
+[[service]]
+name = "web"
+start = "npm start -- --port ${PORT}"
+depends_on = ["backend.api"]
+env = { API_URL = "${backend.api.url}" }
+ready = { http = "${self.url}/", timeout = "180s" }
+
+[[suite]]
+name = "e2e"
+kind = "ui"
+service = ["web"]                # boots backend.api first, through depends_on
+adapter = "playwright"
+cmd = "npx playwright test"
+```
+
+- Names: the repo's services, dependencies and suites become `<repo>.<name>` (`backend.api`).
+  Inside them, `${api.url}`, `depends_on` and a suite's `service` are renamed the same way, so the
+  other config works unchanged. Its suites without `service` need all its services. Local names
+  can't contain a dot, so they never clash with these.
+- Folders: a listed repo's services, dependencies and suites run from that repo; `cwd` is relative
+  to it and `${CHECKOUT}` is its root. `setup` runs there too, with its own setup cache. A suite
+  defined here can also run in a listed repo: `repo = "backend"` makes its `cwd` relative to that
+  repo; so can a `[[service]]` defined here (for a repo with no config, listed with `services = []`).
+- Env: each repo's services, dependencies and suites get its own `[env] file` under the process
+  environment, then `[[repo]] env`; its `[env] required` names must be set (a missing one is
+  reported as `backend:NAME` with that repo's env file).
+- URLs and ports: every service gets its own port from the same pool, whatever repo it comes from.
+  `${backend.api.url}` and `WITNESS_BACKEND_API_URL` reach it from anywhere; the listed repo's own
+  commands also see its services under their own names (`WITNESS_API_URL`).
+- Ignored in a listed repo's config: `[reference]`, `role = "origin"` services and `[run]`.
+- A listed repo's own `[[repo]]` tables come along, under the names that config gives them.
+- Errors: no `path`, or one that does not exist; a repo with no config to take services or
+  suites from (set `services = []` to list it only for its commit); an unknown repo in
+  `repo = ...`, `[reference] repos` or `--against`; a service or suite the repo doesn't have; one
+  name for two folders or two names for one folder; two services whose `WITNESS_..._URL` would be
+  the same; a repo that lists a repo that lists it back (`cycle: frontend -> backend -> frontend`).
+
+Every run records each listed repo's path, commit, branch and dirty state: `status.json` and the
+CTRF (`repos`), `context.json` (with its change since its base) and the report's header.
+
+`--against <ref>` compares this checkout with `<ref>` as before, and each listed repo with its
+merge base with its default branch (`origin/HEAD`, `origin/main`, `main`, `origin/master`,
+`master`). `--against backend=<ref>` (repeatable) picks another base for one repo; given alone,
+this checkout goes to `[reference]` when the section says something, else to its merge base.
+`[reference] repos = { backend = "release" }` sets a repo's base in the config; the flag wins.
+A repo whose base is its own clean HEAD runs from its checkout; the others are checked out in a
+temporary worktree (with the repo's `.witness/` copied in), run from there and removed. Its
+suites run from that worktree when this repo's tests do (`tests = "reference"`), otherwise from
+its checkout. `status.json` gives each repo's base in `against.repos`.
 
 ## Test plans, lint and agent skills
 
@@ -326,7 +391,7 @@ The Playwright preset turns traces on. Anything else comes from a small hook in 
 
 `report.md` has the same content for agents. `report.html` is one self-contained file; it loads only the Geist font. The run keeps the plan as it was when the run started (`plan.yaml`), the change since the base and the lint result of the plan's tests (`context.json`). `SHA256SUMS` lists every file of the run in `sha256sum -c` format; the report shows the hash of that list. `witness report --format html` rewrites a run's report.
 
-The CTRF file carries `results.extra.witness` (run id, outcome, commit, branch, dirty, source,
+The CTRF file carries `results.extra.witness` (run id, outcome, commit, branch, dirty, repos, source,
 against, diagnosis) and per-test `extra.witness` (id, suite, kind, services, adapter, obtained, status_detail,
 parity, origin_status). Each suite in `status.json` has `kind` and `services`: the services witness
 started for it, empty when the tests host the app themselves (they don't exercise those services,
@@ -379,4 +444,5 @@ CI runs it per framework on native toolchains.
 Fixtures live in `testdata/`: report corpus per framework (including broken files) under
 `testdata/reports/`, small node apps for the integration tests under `testdata/apps/`, and one
 unit, functional and mixed repo per stack for the `init` classifier under `testdata/functional/`
-(CLI stacks under `testdata/functional/cli/`).
+(CLI stacks under `testdata/functional/cli/`). `testdata/multirepo/` holds two repos for
+`[[repo]]`: a frontend whose e2e suite reads a page that shows what the backend's api answers.

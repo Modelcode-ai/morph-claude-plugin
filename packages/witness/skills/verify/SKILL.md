@@ -37,6 +37,8 @@ suites on the base too and records, for each test, whether its outcome is the sa
 - When the reference app lives in another repo or starts differently (a port or rewrite), ask the
   user where it is and how it runs, and record it in `[reference]`: `repo`, `ref`, `setup` and
   `[reference.service.<name>]` with the commands that differ.
+- With `[[repo]]`, each listed repo runs at its merge base too; pick another base with
+  `--against <repo>=<ref>`.
 <!-- endif -->
 
 ## 2. Read the result
