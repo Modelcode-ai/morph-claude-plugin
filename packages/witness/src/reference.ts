@@ -5,6 +5,7 @@ import { type Config, type Reference, referenceServices, substitute } from "./co
 import { type Diagnosis, diagnose } from "./diagnosis.ts";
 import { childEnv, runCapture } from "./proc.ts";
 import type { RunDir } from "./rundir.ts";
+import { atRepoSides, releaseRepoSides, type RepoSide, resolveRepoSides } from "./repos.ts";
 import { git } from "./util.ts";
 
 /** Where and how `--against` runs the app it compares with. */
@@ -24,17 +25,31 @@ export interface ReferenceSide {
   setupCacheDir: string | null;
   setup?: string;
   setupTimeoutMs: number;
+  /** The listed repos on the reference side. */
+  repos: RepoSide[];
 }
 
 export const NO_REF = '--against reference: [reference] has no ref, repo or service override, so there is nothing to compare with: set ref = "<base branch>" in [reference], or pass --against <base branch>';
 
 const isUrl = (s: string) => /^(https?|ssh|git|file):\/\//.test(s) || /^[\w.-]+@[\w.-]+:/.test(s);
 
-/** The configured [reference], or this repo at `against` when there is none; `against` other than "reference" overrides its ref. */
-export function resolveReference(cfg: Config, against: string): ReferenceSide | { diagnosis: Diagnosis } {
+/** The configured [reference], or this repo at `against` when there is none; `against` other than "reference" overrides its ref. Listed repos go to `repoRefs`, else their merge base. */
+export function resolveReference(cfg: Config, against: string, repoRefs: Record<string, string> = {}): ReferenceSide | { diagnosis: Diagnosis } {
+  const side = resolvePrimary(cfg, against);
+  if ("diagnosis" in side || !cfg.repos.length) return side;
+  const repos = resolveRepoSides(cfg, repoRefs);
+  if ("diagnosis" in repos) {
+    releaseReference(side);
+    return repos;
+  }
+  const fresh = repos.some((r) => r.worktree);
+  return { ...side, repos, cfg: atRepoSides(side.cfg, repos, side.suiteRoot === side.root), setupCacheDir: fresh ? null : side.setupCacheDir };
+}
+
+function resolvePrimary(cfg: Config, against: string): ReferenceSide | { diagnosis: Diagnosis } {
   const bad = (evidence: string) => ({ diagnosis: diagnose({ stage: "config", cause: "bad_config", evidence }) });
   if (against === "reference" && !cfg.reference) return bad('--against reference: the config has no [reference] section (add one, or pass a branch, tag or commit)');
-  const r: Reference = cfg.reference ?? { services: {}, setupTimeoutMs: 0 };
+  const r: Reference = cfg.reference ?? { services: {}, setupTimeoutMs: 0, repos: {} };
   if (against === "reference" && !r.ref && !r.repo && !Object.keys(r.services).length) return bad(NO_REF);
   let ref = against === "reference" ? r.ref : against;
   let repoDir = gitTop(cfg.root);
@@ -52,7 +67,7 @@ export function resolveReference(cfg: Config, against: string): ReferenceSide | 
   const tests = r.tests ?? (r.repo || !ref ? "target" : "reference");
   const label = `${r.repo ? `${r.repo}${ref ? "@" : ""}` : ""}${ref ?? (r.repo ? "" : "this checkout")}`;
   const cfgRef: Config = cfg.reference ? { ...cfg, services: referenceServices(cfg) } : cfg;
-  const base = { cfg: cfgRef, label, setup: r.setup, setupTimeoutMs: r.setupTimeoutMs };
+  const base = { cfg: cfgRef, label, setup: r.setup, setupTimeoutMs: r.setupTimeoutMs, repos: [] };
   if (!ref) {
     const root = sameRepo ? cfg.root : repoDir;
     return { ...base, root, suiteRoot: tests === "target" ? cfg.root : root, copied: false, setupCacheDir: path.join(cfg.root, ".witness", "cache", sameRepo ? "setup-reference" : "setup-reference-repo") };
@@ -72,6 +87,7 @@ export function resolveReference(cfg: Config, against: string): ReferenceSide | 
 }
 
 export function releaseReference(side: ReferenceSide) {
+  releaseRepoSides(side.repos);
   if (!side.worktree || !side.repoDir) return;
   removeWorktree(side.repoDir, side.worktree);
 }

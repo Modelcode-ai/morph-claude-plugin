@@ -10,6 +10,7 @@ import { acquireLock, killTracked, LockError, newRunId, pruneRuns, reapStale, Ru
 import { Failure, readUp, Stack } from "./stack.ts";
 import { type ArtifactEntry, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
 import { NO_REF, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
+import { atRepoSides, describeRepoSide, releaseRepoSides, type RepoSide, repoStates, resolveRepoSides } from "./repos.ts";
 import { snapshotPlan, writeContext } from "./report/context.ts";
 import { writeReport, writeRunsIndex } from "./report/index.ts";
 import { fmtDuration, git, gitInfo, writeJson } from "./util.ts";
@@ -20,6 +21,8 @@ export interface RunOptions {
   retries: number;
   noSetup: boolean;
   against?: string;
+  /** `--against <repo>=<ref>` per listed repo. */
+  againstRepos?: Record<string, string>;
   label?: string;
   json: boolean;
   runDirRoot: string;
@@ -84,6 +87,8 @@ export function originMap(cfg: Config): Map<string, Service> {
 }
 
 interface Side {
+  /** Listed repos on the reference side. */
+  repos?: RepoSide[];
   outcome: Outcome;
   suites: SuiteSummary[];
   tests: TestRecord[];
@@ -99,6 +104,10 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   if (opts.against === "reference" && !cfg.reference!.ref && !cfg.reference!.repo && !Object.keys(cfg.reference!.services).length) throw new UsageError(NO_REF);
   if (opts.against && opts.against !== "reference" && !originMap(cfg).size && !cfg.reference?.repo && !git(cfg.root, ["rev-parse", "--verify", "--quiet", `${opts.against}^{commit}`]).ok)
     throw new UsageError(`--against ${opts.against}: not a commit in this repo (try a branch, tag or sha from \`git log\`, or --against reference)`);
+  for (const [name, ref] of Object.entries(opts.againstRepos ?? {})) {
+    const r = cfg.repos.find((x) => x.name === name)!;
+    if (!git(r.root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).ok) throw new UsageError(`--against ${name}=${ref}: not a commit in ${r.root}`);
+  }
   if (!suites.length) throw new UsageError("no [[suite]] in the config");
   for (const [name, ids] of select ?? []) {
     const s = suites.find((x) => x.name === name)!;
@@ -117,13 +126,15 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   }
   await reapStale(opts.runDirRoot, cfg.run.graceMs, (m) => progress.line(m));
   const g = gitInfo(cfg.root);
-  const run = new RunDir(opts.runDirRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: opts.label });
+  const repos = repoStates(cfg);
+  const run = new RunDir(opts.runDirRoot, newRunId(), { commit: g.commit, branch: g.branch, dirty: g.dirty, label: opts.label, ...(repos ? { repos } : {}) });
   run.linkLatest();
   snapshotPlan(cfg, run.dir);
   const abort = { aborted: false };
   const activity = { text: "" };
   const t0 = Date.now();
   progress.line(`run ${run.runId} · ${g.branch || "(no branch)"} @ ${g.commit.slice(0, 10) || "(no commit)"}${g.dirty ? " (dirty)" : ""} · ${suites.length} suite(s)`);
+  for (const [n, r] of Object.entries(repos ?? {})) progress.line(`repo   ${n} · ${r.branch || "(no branch)"} @ ${r.commit.slice(0, 10) || "(no commit)"}${r.dirty ? " (dirty)" : ""} · ${r.root}`);
 
   let sigints = 0;
   const onSignal = (sig: NodeJS.Signals) => {
@@ -147,14 +158,14 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
     if (Date.now() - progress.lastAt >= cfg.run.heartbeatMs) progress.line(`… ${activity.text || run.status.last_event}`);
   }, Math.min(cfg.run.heartbeatMs, 1000));
 
-  const { env: baseEnv, missing } = loadEnv(cfg);
+  const { env: baseEnv, missing, missingFiles, repos: repoEnvs } = loadEnv(cfg);
   let target: Side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
-  let against: { ref: string; outcome: Outcome; parity?: Record<Parity, number>; diagnosis?: Diagnosis } | undefined;
+  let against: { ref: string; outcome: Outcome; parity?: Record<Parity, number>; diagnosis?: Diagnosis; repos?: Record<string, { ref: string; commit?: string }> } | undefined;
   let internalError: string | undefined;
 
   try {
     if (missing.length) {
-      target = { ...target, outcome: "mistrial", diagnosis: diagnose({ stage: "config", cause: "missing_env", envMissing: missing }) };
+      target = { ...target, outcome: "mistrial", diagnosis: diagnose({ stage: "config", cause: "missing_env", envMissing: missing, envFiles: missingFiles }) };
     } else {
       target = await runSide(cfg, {
         root: cfg.root,
@@ -164,6 +175,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
         abort,
         activity,
         baseEnv,
+        repoEnvs,
         suites,
         select,
         retries: opts.retries,
@@ -173,10 +185,10 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
       });
       if (opts.against && !abort.aborted && target.outcome !== "mistrial") {
         run.setPhase("against", `running against ${opts.against}`);
-        const origin = await runAgainst(cfg, opts, { run, progress, abort, activity, baseEnv, suites, select });
+        const origin = await runAgainst(cfg, opts, { run, progress, abort, activity, baseEnv, repoEnvs, suites, select });
         const { tests, counts } = applyParity(target.tests, origin.tests);
         target.tests = tests;
-        against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis };
+        against = { ref: opts.against, outcome: origin.outcome, parity: counts, diagnosis: origin.diagnosis, ...(origin.repos?.length ? { repos: Object.fromEntries(origin.repos.map((r) => [r.name, { ref: r.label, ...(r.sha ? { commit: r.sha } : {}) }])) } : {}) };
         target.artifacts.push(...origin.artifacts);
         progress.line(`against ${opts.against} · origin ${origin.outcome} · parity: ${counts.same} same, ${counts.differs} differ, ${counts.target_only} only on target, ${counts.origin_only} only on origin`);
         if (origin.diagnosis && origin.outcome !== "passed" && origin.outcome !== "failed") {
@@ -201,7 +213,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   status.outcome = target.outcome;
   if (target.diagnosis) status.diagnosis = target.diagnosis;
   if (internalError) status.internal_error = internalError.split("\n")[0];
-  if (against) status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...(against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {}) };
+  if (against) status.against = { ref: against.ref, outcome: against.outcome, parity: against.parity, ...(against.repos ? { repos: against.repos } : {}), ...(against.diagnosis && against.outcome !== "passed" && against.outcome !== "failed" ? { diagnosis: against.diagnosis } : {}) };
   const ctrf = buildCtrf(
     {
       runId: run.runId,
@@ -209,11 +221,12 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
       commit: g.commit,
       branch: g.branch,
       dirty: g.dirty,
+      repos,
       label: opts.label,
       startedAt: t0,
       finishedAt,
       diagnosis: target.diagnosis,
-      against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity } : undefined,
+      against: against ? { ref: against.ref, outcome: against.outcome, parity: against.parity, ...(against.repos ? { repos: against.repos } : {}) } : undefined,
       adapters: [...new Set(suites.map((s) => s.adapter))],
       kinds: Object.fromEntries(suites.map((s) => [s.name, s.kind])),
       services: Object.fromEntries(suites.map((s) => [s.name, suiteMeta(cfg, s).services])),
@@ -232,7 +245,7 @@ export async function runCommand(cfg: Config, opts: RunOptions): Promise<number>
   process.off("SIGTERM", onSignal);
   let report: string | undefined;
   try {
-    writeContext(cfg, run.dir, { against: opts.against, selected: !!select?.size });
+    writeContext(cfg, run.dir, { against: opts.against, selected: !!select?.size, againstRepos: against?.repos, repos });
     report = writeReport(run.dir).html;
   } catch (e) {
     progress.line(color.yellow(`report · could not write the run report: ${(e as Error).message}`));
@@ -264,7 +277,8 @@ export function verdictSummary(status: Status, ms?: number): string {
   if (status.against) {
     const d = status.against.diagnosis;
     const why = d ? ` (${d.cause}${d.suite ? ` in ${d.suite}` : d.service ? ` in ${d.service}` : ""}: no comparison${d.suite ? " for that suite" : ""})` : "";
-    parts.push(`against ${status.against.ref}: origin ${status.against.outcome}${why}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
+    const repos = Object.entries(status.against.repos ?? {}).map(([n, r]) => `, ${n}=${r.ref}`).join("");
+    parts.push(`against ${status.against.ref}${repos}: origin ${status.against.outcome}${why}${status.against.parity ? `, ${status.against.parity.differs} differ` : ""}`);
   }
   if (ms != null) parts.push(fmtDuration(ms));
   return parts.join(" · ");
@@ -289,6 +303,7 @@ interface SideOpts {
   abort: { aborted: boolean };
   activity: { text: string };
   baseEnv: Record<string, string>;
+  repoEnvs: Record<string, Record<string, string>>;
   suites: Suite[];
   select?: Map<string, string[]>;
   retries: number;
@@ -304,7 +319,7 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
   const side: Side = { outcome: "passed", suites: [], tests: [], artifacts: [] };
   const logDir = path.join(o.outDir, "logs");
   fs.mkdirSync(logDir, { recursive: true });
-  const stack = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp(cfg.root) : null });
+  const stack = new Stack({ cfg, root: o.root, baseEnv: o.baseEnv, repoEnvs: o.repoEnvs, logDir, progress: o.progress, run: o.run, noSetup: o.noSetup, setupCacheDir: o.setupCacheDir, runDirPath: o.run.dir, abort: o.abort, reuse: o.reuseUp ? readUp(cfg.root) : null });
   const isTarget = !o.prefix;
   try {
     if (isTarget) o.run.setPhase("deps", "checking dependencies");
@@ -380,29 +395,46 @@ async function runSide(cfg: Config, o: SideOpts): Promise<Side> {
 async function runAgainst(cfg: Config, opts: RunOptions, o: Omit<SideOpts, "root" | "outDir" | "retries" | "noSetup" | "setupCacheDir" | "reuseUp">): Promise<Side> {
   const outDir = path.join(o.run.dir, "against");
   const origin = originMap(cfg);
+  const mistrial = (diagnosis: Diagnosis): Side => ({ outcome: "mistrial", suites: [], tests: [], diagnosis, artifacts: [] });
+  const track = (wts: (string | undefined)[], on: boolean) => {
+    const list = wts.filter((w): w is string => !!w);
+    if (!list.length) return;
+    o.run.state.worktrees = on ? [...o.run.state.worktrees, ...list] : o.run.state.worktrees.filter((x) => !list.includes(x));
+    o.run.saveState();
+  };
+  const showRepos = (repos: RepoSide[]) => {
+    track(repos.map((r) => r.worktree), true);
+    for (const r of repos) o.progress.line(`against repo ${r.name} · ${describeRepoSide(r)}`);
+  };
   if (origin.size) {
     o.progress.line(`against ${opts.against} · using role = "origin" services: ${[...origin.values()].map((s) => s.name).join(", ")}`);
-    return runSide(cfg, { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup, setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin });
+    const repos = resolveRepoSides(cfg, opts.againstRepos);
+    if ("diagnosis" in repos) return mistrial(repos.diagnosis);
+    showRepos(repos);
+    const fresh = repos.some((r) => r.worktree);
+    try {
+      return { ...(await runSide(atRepoSides(cfg, repos, false), { ...o, root: cfg.root, outDir, retries: 0, noSetup: opts.noSetup && !fresh, setupCacheDir: fresh ? null : path.join(cfg.root, ".witness", "cache", "setup-origin"), reuseUp: false, prefix: "origin ", origin })), repos };
+    } finally {
+      releaseRepoSides(repos);
+      track(repos.map((r) => r.worktree), false);
+    }
   }
-  const side = resolveReference(cfg, opts.against!);
-  if ("diagnosis" in side) return { outcome: "mistrial", suites: [], tests: [], diagnosis: side.diagnosis, artifacts: [] };
+  const side = resolveReference(cfg, opts.against!, opts.againstRepos);
+  if ("diagnosis" in side) return mistrial(side.diagnosis);
+  track([side.worktree], true);
   if (side.worktree) {
-    o.run.state.worktrees.push(side.worktree);
-    o.run.saveState();
     o.progress.line(`against ${side.label} · checked out ${side.sha!.slice(0, 10)} in ${side.worktree}`);
     if (side.copied) o.progress.line(`against ${side.label} · copied the target's .witness/ (config helpers) into the worktree`);
   } else o.progress.line(`against ${side.label} · reference services run in ${side.root}`);
+  showRepos(side.repos);
   if (side.suiteRoot !== side.root) o.progress.line(`against ${side.label} · suites run from this checkout against the reference services`);
   try {
     const failed = await referenceSetup(side, { cfg, baseEnv: o.baseEnv, logDir: path.join(outDir, "logs"), abort: o.abort, run: o.run });
-    if (failed) return { outcome: "mistrial", suites: [], tests: [], diagnosis: failed, artifacts: [] };
-    return await runSide(side.cfg, { ...o, root: side.root, suiteRoot: side.suiteRoot, outDir, retries: 0, noSetup: side.setupCacheDir ? opts.noSetup : false, setupCacheDir: side.setupCacheDir, reuseUp: false, prefix: "origin " });
+    if (failed) return { ...mistrial(failed), repos: side.repos };
+    return { ...(await runSide(side.cfg, { ...o, root: side.root, suiteRoot: side.suiteRoot, outDir, retries: 0, noSetup: side.setupCacheDir ? opts.noSetup : false, setupCacheDir: side.setupCacheDir, reuseUp: false, prefix: "origin " })), repos: side.repos };
   } finally {
     releaseReference(side);
-    if (side.worktree) {
-      o.run.state.worktrees = o.run.state.worktrees.filter((x) => x !== side.worktree);
-      o.run.saveState();
-    }
+    track([side.worktree, ...side.repos.map((r) => r.worktree)], false);
   }
 }
 

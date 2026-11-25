@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { LineCounter, parseDocument } from "yaml";
 import { ADAPTERS, type AdapterName } from "./adapters.ts";
-import { closest, type Config, loadEnv, type Suite } from "./config.ts";
+import { closest, type Config, loadEnv, type Suite, urlEnvName } from "./config.ts";
 import { type ListSource, listSuiteTests } from "./listing.ts";
 import { childEnv } from "./proc.ts";
 import { readUp } from "./stack.ts";
@@ -153,20 +153,21 @@ function listingUrls(cfg: Config): Record<string, string> {
   for (const s of cfg.services) {
     const url = up?.root === cfg.root ? up.services[s.name]?.url : undefined;
     vars[`${s.name}.url`] = url ?? "http://127.0.0.1:9";
-    vars[`WITNESS_${s.name.toUpperCase().replace(/-/g, "_")}_URL`] = url ?? "http://127.0.0.1:9";
+    vars[urlEnvName(s.name)] = url ?? "http://127.0.0.1:9";
   }
   return vars;
 }
 
 /** List the tests of every suite whose adapter the plan references. */
 export async function listSuites(cfg: Config, adapters: Set<AdapterName>, logDir: string, onStart?: (s: Suite) => void, onDone?: (s: Suite, l: Listing) => void): Promise<Listing[]> {
-  const { env } = loadEnv(cfg);
+  const { env, repos } = loadEnv(cfg);
   const urls = listingUrls(cfg);
   const urlEnv = Object.fromEntries(Object.entries(urls).filter(([k]) => !k.includes(".")));
   const out: Listing[] = [];
   for (const s of cfg.suites.filter((x) => adapters.has(x.adapter))) {
     onStart?.(s);
-    const l = await listSuiteTests(s, { root: cfg.root, cwd: path.resolve(cfg.root, s.cwd), vars: { ...env, CHECKOUT: cfg.root, ...urls }, env: childEnv(env, urlEnv), log: path.join(logDir, `${s.name}.list.log`), scratch: path.join(logDir, "list", s.name) });
+    const senv = (s.repo && repos[s.repo]) || env;
+    const l = await listSuiteTests(s, { root: cfg.root, cwd: path.resolve(s.root ?? cfg.root, s.cwd), vars: { ...senv, CHECKOUT: s.root ?? cfg.root, ...urls }, env: childEnv(senv, urlEnv), log: path.join(logDir, `${s.name}.list.log`), scratch: path.join(logDir, "list", s.name) });
     const listing: Listing = { suite: s.name, adapter: s.adapter, ids: l.ids, error: l.ids ? undefined : l.error, log: l.log, source: l.source, detail: l.detail };
     onDone?.(s, listing);
     out.push(listing);

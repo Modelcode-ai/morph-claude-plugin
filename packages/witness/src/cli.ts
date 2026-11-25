@@ -11,6 +11,7 @@ import { lintCommand } from "./lint.ts";
 import { skillsCommand } from "./skills.ts";
 import { type Plan, parsePlan, planCheckCommand } from "./plan.ts";
 import { EXIT } from "./reconcile.ts";
+import { defaultAgainst, parseAgainst } from "./repos.ts";
 import { ensureScratch, runCommand, UsageError } from "./run.ts";
 
 const HELP = `witness ${VERSION}: boot the app, run its own tests, and record results you can trust.
@@ -18,6 +19,7 @@ const HELP = `witness ${VERSION}: boot the app, run its own tests, and record re
 Usage:
   witness check  [--stage config|deps|boot|suite] [--service s] [--suite s] [--no-setup] [--against <git-ref>|reference]
   witness run    [--suite s]... [--select id,...] [--retries n] [--no-setup] [--against <git-ref>|reference] [--label name]
+                 with [[repo]]: also --against <repo>=<git-ref> per listed repo (default: its merge base)
   witness up     [--service s] [--no-setup]        start services and leave them running (run reuses them)
   witness down                                    stop what \`witness up\` started
   witness status [run-id|latest]
@@ -36,7 +38,7 @@ Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout �
 
 const VALUE_FLAGS = new Set(["config", "run-dir-root", "stage", "service", "suite", "select", "retries", "against", "label", "format", "plan", "dir", "prefix", "profile"]);
 const BOOL_FLAGS = new Set(["json", "no-setup", "help", "version", "draft", "no-list", "link", "scan"]);
-const REPEAT = new Set(["suite", "select"]);
+const REPEAT = new Set(["suite", "select", "against"]);
 
 /** Split a --select list on commas outside brackets and quotes; a piece without an `adapter:` prefix continues the previous id (a title with a comma). */
 export function splitIds(v: string): string[] {
@@ -163,18 +165,23 @@ export async function main(argv: string[]): Promise<number> {
     if (!needsConfig) throw new UsageError(`unknown command "${cmd}"`);
     cfg = loadConfig(configPath(flags));
     ensureScratch(cfg.root);
+    const parsed = parseAgainst(cfg, lists.against);
+    if ("error" in parsed) throw new UsageError(parsed.error);
+    const againstRepos = parsed.repos;
+    const against = parsed.against ?? (Object.keys(againstRepos).length ? defaultAgainst(cfg) : undefined);
+    if (!against && Object.keys(againstRepos).length) throw new UsageError("--against <repo>=<ref>: this checkout has no merge base with a default branch to compare with; add --against <ref> for it");
     const rr = runRoot(flags, cfg.root);
     switch (cmd) {
       case "check": {
         const stage = flags.stage as string | undefined;
         if (stage && !["config", "deps", "boot", "suite"].includes(stage)) throw new UsageError(`--stage must be config, deps, boot or suite`);
         if (typeof flags.service === "string" && !cfg.services.some((s) => s.name === flags.service)) throw new UsageError(`unknown service "${flags.service}"`);
-        return await checkCommand(cfg, { stage: stage as "config" | undefined, service: flags.service as string | undefined, suites: lists.suite, json, noSetup: !!flags["no-setup"], against: flags.against as string | undefined });
+        return await checkCommand(cfg, { stage: stage as "config" | undefined, service: flags.service as string | undefined, suites: lists.suite, json, noSetup: !!flags["no-setup"], against, againstRepos });
       }
       case "run": {
         const retries = flags.retries === undefined ? 0 : Number(flags.retries);
         if (!Number.isInteger(retries) || retries < 0 || retries > 10) throw new UsageError("--retries must be a whole number from 0 to 10");
-        return await runCommand(cfg, { suites: lists.suite, select: lists.select, retries, noSetup: !!flags["no-setup"], against: flags.against as string | undefined, label: flags.label as string | undefined, json, runDirRoot: rr });
+        return await runCommand(cfg, { suites: lists.suite, select: lists.select, retries, noSetup: !!flags["no-setup"], against, againstRepos, label: flags.label as string | undefined, json, runDirRoot: rr });
       }
       case "up":
         if (typeof flags.service === "string" && !cfg.services.some((s) => s.name === flags.service)) throw new UsageError(`unknown service "${flags.service}"`);

@@ -13,6 +13,7 @@ import { childEnv, groupAlive, killGroup, runCapture } from "./proc.ts";
 import { EXIT } from "./reconcile.ts";
 import { acquireLock, LockError, newRunId, reapStale, RunDir, resolveRun, type Status } from "./rundir.ts";
 import { type ReferenceSide, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
+import { describeRepoSide } from "./repos.ts";
 import { neededServices, pickSuites, verdictSummary } from "./run.ts";
 import { Failure, readUp, Stack, upFile, type UpState } from "./stack.ts";
 import { runSuite } from "./suite.ts";
@@ -26,18 +27,19 @@ function printDiag(p: Progress, d: Diagnosis) {
 }
 
 /** Validate config, env, deps, boot each service, then list or smoke-run each suite. */
-export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: string; suites?: string[]; json: boolean; noSetup: boolean; against?: string }): Promise<number> {
+export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: string; suites?: string[]; json: boolean; noSetup: boolean; against?: string; againstRepos?: Record<string, string> }): Promise<number> {
   const p = new Progress();
   const upTo = STAGES.indexOf(o.stage ?? "suite");
   const report: { stage: Stage; ok: boolean; detail: string; diagnosis?: Diagnosis }[] = [];
   const warnings = functionalWarnings(cfg);
-  const caps: Capabilities[] = pickSuites(cfg, o.suites).map((s) => capabilities(s, cfg.root, path.resolve(cfg.root, s.cwd), { stallMs: cfg.run.stallMs }));
+  const caps: Capabilities[] = pickSuites(cfg, o.suites).map((s) => capabilities(s, cfg.root, path.resolve(s.root ?? cfg.root, s.cwd), { stallMs: cfg.run.stallMs }));
   const done = (code: number) => {
     if (o.json) process.stdout.write(JSON.stringify({ ok: code === 0, stages: report, warnings, capabilities: caps }, null, 2) + "\n");
     return code;
   };
   report.push({ stage: "config", ok: true, detail: `${cfg.services.length} service(s), ${cfg.suites.length} suite(s), adapters: ${[...new Set(cfg.suites.map((s) => s.adapter))].join(", ") || "-"}` });
   p.line(`check  config · ok · ${report[0].detail}`);
+  for (const r of cfg.repos) p.line(`check  repo ${r.name} · ${r.root}${r.file ? "" : " (no witness.toml: listed for its commit and suites)"}${r.via ? ` · listed by ${r.via}` : ""}`);
   for (const w of warnings) p.line(color.yellow(`check  warn · ${w.message}`));
   for (const c of caps) {
     p.line(`check  suite ${c.suite} · ${capabilityLine(c)}`);
@@ -48,9 +50,9 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
     return done(0);
   }
 
-  const { env, missing, fileUsed } = loadEnv(cfg);
+  const { env, missing, fileUsed, repos: repoEnvs, missingFiles } = loadEnv(cfg);
   if (missing.length) {
-    const d = diagnose({ stage: "config", cause: "missing_env", envMissing: missing });
+    const d = diagnose({ stage: "config", cause: "missing_env", envMissing: missing, envFiles: missingFiles });
     report.push({ stage: "deps", ok: false, detail: "missing env", diagnosis: d });
     p.line(color.red(`check  env · missing ${missing.join(", ")}${fileUsed ? ` (env file ${fileUsed})` : ""}`));
     printDiag(p, d);
@@ -77,7 +79,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   process.on("SIGTERM", onSig);
   let side: ReferenceSide | undefined;
   if (o.against) {
-    const r = resolveReference(cfg, o.against);
+    const r = resolveReference(cfg, o.against, o.againstRepos);
     if ("diagnosis" in r) {
       release();
       p.line(color.red(`check  --against ${o.against} · ${r.diagnosis.evidence}`));
@@ -89,11 +91,16 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
       run.saveState();
       p.line(`check  against ${r.label} · checked out ${r.sha!.slice(0, 10)} in ${r.worktree}${r.copied ? " (with this checkout's .witness/)" : ""}`);
     } else p.line(`check  against ${r.label} · reference services run in ${r.root}`);
+    for (const x of r.repos) p.line(`check  against repo ${x.name} · ${describeRepoSide(x)}`);
+    if (r.repos.some((x) => x.worktree)) {
+      run.state.worktrees.push(...r.repos.flatMap((x) => (x.worktree ? [x.worktree] : [])));
+      run.saveState();
+    }
   }
   const root = side?.root ?? cfg.root;
   const suiteRoot = side?.suiteRoot ?? cfg.root;
-  const fresh = !!side?.worktree;
-  const stack = new Stack({ cfg: side?.cfg ?? cfg, root, baseEnv: env, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !fresh, setupCacheDir: side ? side.setupCacheDir : path.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: side ? null : readUp(cfg.root) });
+  const fresh = !!side?.worktree || !!side?.repos.some((x) => x.worktree);
+  const stack = new Stack({ cfg: side?.cfg ?? cfg, root, baseEnv: env, repoEnvs, logDir: run.file("logs"), progress: p, run, noSetup: o.noSetup && !fresh, setupCacheDir: side ? side.setupCacheDir : path.join(cfg.root, ".witness", "cache", "setup"), runDirPath: run.dir, abort, reuse: side ? null : readUp(cfg.root) });
   let code = 0;
   try {
     if (side) {
@@ -118,11 +125,11 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
       p.plain(color.green(`CHECK ok · up to boot${o.against ? ` · against ${o.against}` : ""}`));
       return done(0);
     }
-    const suites = pickSuites(cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
+    const suites = pickSuites(side?.cfg ?? cfg, o.suites).filter((s) => !o.service || !s.services || s.services.includes(o.service));
     const ctx = { cfg, root: suiteRoot, outDir: run.dir, stack, run, progress: p, abort, baseEnv: env, activity: { text: "" } };
     for (const s of suites) {
       const ad = ADAPTERS[s.adapter];
-      const hint = s.report ? undefined : ad.reportHint?.(path.resolve(suiteRoot, s.cwd), s.cmd);
+      const hint = s.report ? undefined : ad.reportHint?.(path.resolve(s.root ?? suiteRoot, s.cwd), s.cmd);
       if (hint) {
         const d = diagnose({ stage: "report", cause: "report_missing", suite: s.name, command: s.cmd, evidence: hint, extraTry: [hint] });
         report.push({ stage: "suite", ok: false, detail: `${s.name}: cannot write a per-test report`, diagnosis: d });
@@ -131,12 +138,13 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
         code = Math.max(code, EXIT.error);
         continue;
       }
-      const cwd = path.resolve(suiteRoot, s.cwd);
-      const cenv = childEnv(env, { ...stack.serviceUrlEnv(), ...ad.env, ...Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, substitute(v, stack.vars())])) });
+      const cwd = path.resolve(s.root ?? suiteRoot, s.cwd);
+      const svars = stack.vars(undefined, s);
+      const cenv = childEnv(stack.envOf(s.repo), { ...stack.serviceUrlEnv(s.repo), ...ad.env, ...Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, substitute(v, svars)])) });
       let pluginMissing = false;
       for (const pl of ad.plugins ?? []) {
         if (!pl.needed(!!s.perTestTimeoutMs) || !pl.probeArgs) continue;
-        const r = await runCapture(fillSelect(addArgs(substitute(s.cmd, stack.vars()), pl.probeArgs)), { cwd, env: cenv, timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.plugins.log`), abort, track: run.tracker("list", s.name) });
+        const r = await runCapture(fillSelect(addArgs(substitute(s.cmd, svars), pl.probeArgs)), { cwd, env: cenv, timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.plugins.log`), abort, track: run.tracker("list", s.name) });
         if (r.code === 0 || !pl.missing.test(r.out)) continue;
         const d = diagnose({ stage: "suite", cause: "setup_failed", suite: s.name, command: s.cmd, evidence: r.out.split(/\r?\n/).find((l) => pl.missing.test(l))?.trim(), extraTry: [pl.hint] });
         report.push({ stage: "suite", ok: false, detail: `${s.name}: ${pl.name} is missing`, diagnosis: d });
@@ -146,7 +154,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
         pluginMissing = true;
       }
       if (pluginMissing) continue;
-      const l = await listSuiteTests(s, { root: cfg.root, cwd, vars: stack.vars(), env: cenv, log: run.file("logs", `${s.name}.list.log`), scratch: run.file("reports", s.name, "list"), abort, track: run.tracker("list", s.name) });
+      const l = await listSuiteTests(s, { root: cfg.root, cwd, vars: svars, env: cenv, log: run.file("logs", `${s.name}.list.log`), scratch: run.file("reports", s.name, "list"), abort, track: run.tracker("list", s.name) });
       const cap = caps.find((c) => c.suite === s.name);
       if (cap) cap.list = l.detail.replace(/^list: /, "");
       if (l.ids && l.source !== "last-report") {
@@ -200,16 +208,16 @@ export async function upCommand(cfg: Config, o: { service?: string; noSetup: boo
     p.plain(`services are already up (${Object.keys(existing.services).join(", ")}); run \`witness down\` first`);
     return EXIT.error;
   }
-  const { env, missing } = loadEnv(cfg);
+  const { env, missing, missingFiles, repos: repoEnvs } = loadEnv(cfg);
   if (missing.length) {
-    printDiag(p, diagnose({ stage: "config", cause: "missing_env", envMissing: missing }));
+    printDiag(p, diagnose({ stage: "config", cause: "missing_env", envMissing: missing, envFiles: missingFiles }));
     return EXIT.mistrial;
   }
   await reapStale(o.runDirRoot, cfg.run.graceMs, (m) => p.line(m));
   const logDir = path.join(cfg.root, ".witness", "up", "logs");
   fs.mkdirSync(logDir, { recursive: true });
   const abort = { aborted: false };
-  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, logDir, progress: p, noSetup: o.noSetup, setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup"), abort });
+  const stack = new Stack({ cfg, root: cfg.root, baseEnv: env, repoEnvs, logDir, progress: p, noSetup: o.noSetup, setupCacheDir: path.join(cfg.root, ".witness", "cache", "setup"), abort });
   try {
     await stack.checkDeps();
     await stack.boot(o.service ? [o.service] : neededServices(cfg, cfg.suites));
@@ -236,11 +244,12 @@ export async function downCommand(cfg: Config, o: { json: boolean }): Promise<nu
     p.plain("nothing is up");
     return 0;
   }
-  const { env } = loadEnv(cfg);
+  const { env, repos } = loadEnv(cfg);
+  const envOf = (repo?: string) => (repo && repos[repo]) || env;
   for (const [name, s] of Object.entries(state.services).reverse()) {
     const svc = cfg.services.find((x) => x.name === name);
     if (s.external) continue;
-    if (svc?.stop) await runCapture(svc.stop, { cwd: path.resolve(cfg.root, svc.cwd), env: childEnv(env, { PORT: String(s.port ?? "") }), timeoutMs: 60_000, log: s.log });
+    if (svc?.stop) await runCapture(svc.stop, { cwd: path.resolve(svc.root ?? cfg.root, svc.cwd), env: childEnv(envOf(svc.repo), { PORT: String(s.port ?? "") }), timeoutMs: 60_000, log: s.log });
     if (s.pid && pidAlive(s.pid)) {
       try {
         process.kill(s.pid, "SIGTERM");
@@ -255,7 +264,7 @@ export async function downCommand(cfg: Config, o: { json: boolean }): Promise<nu
   for (const d of [...state.deps_started].reverse()) {
     const dep = cfg.dependencies.find((x) => x.name === d);
     if (dep?.stop) {
-      await runCapture(dep.stop, { cwd: cfg.root, env: childEnv(env), timeoutMs: 120_000 });
+      await runCapture(dep.stop, { cwd: dep.root ?? cfg.root, env: childEnv(envOf(dep.repo)), timeoutMs: 120_000 });
       p.line(`down   ${d} · stopped`);
     }
   }
@@ -277,6 +286,7 @@ export function statusCommand(runRoot: string, id: string | undefined, json: boo
   }
   const o = st.outcome ?? "running";
   const lines = [`${st.run_id} · ${st.phase}${st.outcome ? ` · ${outcomeColor(o)(o)}` : ""} · ${st.branch} @ ${st.commit.slice(0, 10)}${st.dirty ? " (dirty)" : ""}`];
+  for (const [n, r] of Object.entries(st.repos ?? {})) lines.push(`repo ${n} · ${r.branch} @ ${r.commit.slice(0, 10)}${r.dirty ? " (dirty)" : ""}`);
   lines.push(`last event: ${st.last_event}`);
   if (st.phase !== "finished" && !pidAlive(st.pid)) lines.push(color.yellow(`witness (pid ${st.pid}) is gone; the next run will reap this one`));
   for (const s of st.suites) lines.push(`  ${s.name.padEnd(20)} ${(s.kind ?? "").padEnd(7)} ${s.state.padEnd(11)} ${s.passed} passed, ${s.failed} failed, ${s.error} error, ${s.missing} missing, ${s.skipped} skipped${s.cause ? ` · ${s.cause}` : ""}${s.state === "skipped" && s.note ? ` · ${s.note}` : ""}`);
@@ -318,7 +328,7 @@ export function reportCommand(runRoot: string, id: string | undefined, format: s
   const bad = tests.filter((t) => t.status === "failed" || t.status === "other");
   const differs = tests.filter((t) => t.extra?.witness?.parity === "differs");
   if (format === "json") {
-    const out = { run_id: st.run_id, outcome: st.outcome, commit: st.commit, branch: st.branch, dirty: st.dirty, summary: st.summary, suites: st.suites, diagnosis: st.diagnosis, against: st.against, not_passing: bad.map((t) => ({ id: t.extra?.witness?.id, status: t.status, status_detail: t.extra?.witness?.status_detail, message: t.message })), parity_differs: differs.map((t) => ({ id: t.extra?.witness?.id, status: t.status, origin_status: t.extra?.witness?.origin_status })) };
+    const out = { run_id: st.run_id, outcome: st.outcome, commit: st.commit, branch: st.branch, dirty: st.dirty, ...(st.repos ? { repos: st.repos } : {}), summary: st.summary, suites: st.suites, diagnosis: st.diagnosis, against: st.against, not_passing: bad.map((t) => ({ id: t.extra?.witness?.id, status: t.status, status_detail: t.extra?.witness?.status_detail, message: t.message })), parity_differs: differs.map((t) => ({ id: t.extra?.witness?.id, status: t.status, origin_status: t.extra?.witness?.origin_status })) };
     process.stdout.write(JSON.stringify(out, null, 2) + "\n");
     return 0;
   }

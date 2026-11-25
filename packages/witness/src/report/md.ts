@@ -14,6 +14,8 @@ export function renderMd(m: ReportModel): string {
   md.push(`# Witness run ${m.run.id}: ${m.run.outcome}`, "");
   md.push(`> ${m.headline}`, "");
   md.push([`${m.run.branch || "(no branch)"} @ \`${m.run.commit.slice(0, 12)}\`${m.run.dirty ? " (uncommitted changes)" : ""}`, m.against ? `compared with ${m.against.ref}` : "", m.run.label ?? "", m.run.ms != null ? fmtMs(m.run.ms) : "", m.run.selected ? "selected tests only" : ""].filter(Boolean).join(" · "), "");
+  for (const r of m.repos ?? []) md.push(`- repo ${r.name}: ${r.branch || "(no branch)"} @ \`${r.commit.slice(0, 12) || "-"}\`${r.dirty ? " (uncommitted changes)" : ""}${r.against ? ` · compared with ${r.against}` : ""}${r.change ? ` · ${r.change.commits} commit(s), ${r.change.files} file(s) since ${r.change.baseLabel}` : ""}`);
+  if (m.repos?.length) md.push("");
 
   md.push("## Summary", "");
   md.push(`- **Verdict:** ${outcomeLabel(m.run.outcome)}`);

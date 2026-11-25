@@ -3,7 +3,8 @@ import * as path from "node:path";
 import type { Config } from "../config.ts";
 import { changedTestFiles, type Finding, isTestPath, langOf, lintSource, planFiles } from "../lint.ts";
 import { type Plan, parsePlan } from "../plan.ts";
-import { git, writeJson } from "../util.ts";
+import { mergeBase } from "../repos.ts";
+import { git, gitInfo, writeJson } from "../util.ts";
 
 export type FileRole = "app" | "test" | "witness" | "other";
 
@@ -25,6 +26,17 @@ export interface RunContext {
   selected: boolean;
   change?: { base: string; baseLabel: string; commits: Commit[]; files: ChangedFile[] };
   lint?: { files: string[]; tests: number; findings: Finding[] };
+  /** Each listed repo's checkout and its change since the base it was compared with (or its merge base). */
+  repos?: RepoContext[];
+}
+
+export interface RepoContext {
+  name: string;
+  path: string;
+  commit: string;
+  branch: string;
+  dirty: boolean;
+  change?: { base: string; baseLabel: string; commits: number; files: number };
 }
 
 const OTHER = /(^|\/)(README|CHANGELOG|LICENSE|NOTES)[^/]*$|\.(md|txt|rst|adoc)$|(^|\/)docs?\//i;
@@ -122,8 +134,24 @@ export function snapshotPlan(cfg: Config, runDir: string) {
   if (fs.existsSync(f)) fs.copyFileSync(f, path.join(runDir, "plan.yaml"));
 }
 
-export function writeContext(cfg: Config, runDir: string, o: { against?: string; selected: boolean }) {
+type RepoAgainst = Record<string, { ref: string; commit?: string }>;
+type RepoStates = Record<string, { commit: string; branch: string; dirty: boolean }>;
+
+/** `states`: what the run recorded when it started; read now when absent. */
+export function repoContexts(cfg: Config, against?: RepoAgainst, states?: RepoStates): RepoContext[] | undefined {
+  if (!cfg.repos.length) return undefined;
+  return cfg.repos.map((r) => {
+    const a = against?.[r.name];
+    const base = a?.commit ? { sha: a.commit, label: a.ref } : mergeBase(r.root);
+    const ch = base ? collectChange(r.root, base) : undefined;
+    const g = states?.[r.name] ?? gitInfo(r.root);
+    return { name: r.name, path: r.path, commit: g.commit, branch: g.branch, dirty: g.dirty, ...(ch ? { change: { base: ch.base, baseLabel: ch.baseLabel, commits: ch.commits.length, files: ch.files.length } } : {}) };
+  });
+}
+
+export function writeContext(cfg: Config, runDir: string, o: { against?: string; selected: boolean; againstRepos?: RepoAgainst; repos?: RepoStates }) {
   const base = changeBase(cfg.root, o.against === "reference" ? cfg.reference?.ref : o.against);
-  const ctx: RunContext = { selected: o.selected, change: base ? collectChange(cfg.root, base) : undefined, lint: lintForReport(cfg, readPlanSnapshot(runDir)) };
+  const repos = repoContexts(cfg, o.againstRepos, o.repos);
+  const ctx: RunContext = { selected: o.selected, change: base ? collectChange(cfg.root, base) : undefined, lint: lintForReport(cfg, readPlanSnapshot(runDir)), ...(repos ? { repos } : {}) };
   writeJson(path.join(runDir, "context.json"), ctx);
 }

@@ -11,7 +11,15 @@ export interface Ready {
   timeoutMs: number;
 }
 
-export interface Dependency {
+/** Where an entry from a listed repo lives; unset on this checkout's own entries. */
+export interface InRepo {
+  /** The `[[repo]]` name. */
+  repo?: string;
+  /** That repo's root (absolute); `cwd` resolves against it. */
+  root?: string;
+}
+
+export interface Dependency extends InRepo {
   name: string;
   check?: string;
   checkHttp?: string;
@@ -20,8 +28,10 @@ export interface Dependency {
   timeoutMs: number;
 }
 
-export interface Service {
+export interface Service extends InRepo {
   name: string;
+  /** Its name in its own repo's config, for that repo's `WITNESS_<NAME>_URL`. */
+  local?: string;
   cwd: string;
   setup?: string;
   start?: string;
@@ -41,8 +51,9 @@ export type Kind = (typeof KINDS)[number];
 
 export const KIND_HELP = 'set kind = "api" for tests that drive the app over HTTP (in the test process or at its URL), "ui" for tests that drive it in a browser, "cli" for tests that run its built binary or command and check the output, exit code or files, "desktop" for a desktop app driven through its window (Electron, WinAppDriver, pywinauto, TestFX), or "mobile" for an app on a device or emulator (Appium, Detox, Espresso, XCUITest, Maestro, Flutter integration_test). Unit and integration tests don\'t belong in Witness: the project\'s own build and test scripts run them';
 
-export interface Suite {
+export interface Suite extends InRepo {
   name: string;
+  local?: string;
   kind: Kind;
   /** undefined: every target service must be up. */
   services?: string[];
@@ -82,6 +93,24 @@ export interface Reference {
   tests?: "reference" | "target";
   /** Per target service; unset keys come from the target's service. `env` is merged. */
   services: Record<string, ServiceOverride>;
+  /** `[reference] repos = { <name> = "<ref>" }`: the ref a listed repo runs at on the reference side. */
+  repos: Record<string, string>;
+}
+
+/** Another checkout this config uses: its services (from its own witness.toml), its suites, its commit in the run record. */
+export interface Repo {
+  name: string;
+  /** As written in the config that listed it. */
+  path: string;
+  root: string;
+  /** Its `.witness/witness.toml`, when it has one. */
+  file?: string;
+  envFile?: string;
+  required: string[];
+  /** `[[repo]] env`: set for each of its services, over their own env. */
+  env: Record<string, string>;
+  /** The repo whose config listed it, when it came in through another repo. */
+  via?: string;
 }
 
 export interface Config {
@@ -94,6 +123,7 @@ export interface Config {
   services: Service[];
   suites: Suite[];
   reference?: Reference;
+  repos: Repo[];
   run: { stallMs: number; heartbeatMs: number; keepRuns: number; graceMs: number };
 }
 
@@ -108,14 +138,15 @@ export class ConfigError extends Error {
 const NAME = /^[A-Za-z][\w-]*$/;
 
 const KEYS = {
-  top: ["version", "env", "dependency", "service", "suite", "reference", "run"],
-  reference: ["ref", "repo", "setup", "setup_timeout", "tests", "service"],
+  top: ["version", "env", "dependency", "service", "suite", "reference", "repo", "run"],
+  reference: ["ref", "repo", "repos", "setup", "setup_timeout", "tests", "service"],
+  repo: ["name", "path", "services", "suites", "env"],
   override: ["cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external"],
   env: ["file", "required"],
   dependency: ["name", "check", "check_http", "start", "stop", "timeout"],
-  service: ["name", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for"],
+  service: ["name", "repo", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for"],
   ready: ["http", "cmd", "status", "timeout"],
-  suite: ["name", "kind", "service", "adapter", "cwd", "cmd", "timeout", "per_test_timeout", "per_test_timeout_arg", "report", "select", "list", "env"],
+  suite: ["name", "kind", "service", "adapter", "repo", "cwd", "cmd", "timeout", "per_test_timeout", "per_test_timeout_arg", "report", "select", "list", "env"],
   list: ["cmd", "format", "report"],
   run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace"],
 };
@@ -219,6 +250,7 @@ function parseReference(v: unknown): Reference | undefined {
   checkKeys(v, KEYS.reference, "reference");
   const svcT = v.service ?? {};
   if (!isObj(svcT)) throw new ConfigError("reference.service", "expected [reference.service.<name>] tables");
+  const repos = strMap(v, "repos", "reference");
   const services: Record<string, ServiceOverride> = {};
   for (const [name, o] of Object.entries(svcT)) {
     const where = `reference.service.${name}`;
@@ -237,8 +269,8 @@ function parseReference(v: unknown): Reference | undefined {
   const repo = str(v, "repo", "reference");
   const tests = str(v, "tests", "reference");
   if (tests !== undefined && tests !== "reference" && tests !== "target") throw new ConfigError("reference.tests", `expected "reference" (the reference checkout's tests) or "target" (this checkout's tests, run against the reference services), got "${tests}"`);
-  if (!ref && !repo && !v.setup && !Object.keys(services).length) throw new ConfigError("reference", "needs ref (a branch, tag or commit), repo (another repo's path or git URL), setup, or a [reference.service.<name>] override");
-  return { ref, repo, setup: str(v, "setup", "reference"), setupTimeoutMs: dur(v, "setup_timeout", "reference", 30 * 60_000)!, tests, services };
+  if (!ref && !repo && !v.setup && !Object.keys(services).length && !Object.keys(repos).length) throw new ConfigError("reference", "needs ref (a branch, tag or commit), repo (another repo's path or git URL), setup, or a [reference.service.<name>] override");
+  return { ref, repo, setup: str(v, "setup", "reference"), setupTimeoutMs: dur(v, "setup_timeout", "reference", 30 * 60_000)!, tests, services, repos };
 }
 
 function parsePorts(v: unknown, where: string): [number, number] | undefined {
@@ -271,17 +303,29 @@ export function rootFor(configFile: string): string {
 
 export function loadConfig(file: string): Config {
   if (!fs.existsSync(file)) throw new ConfigError("", `config not found: ${file} (run \`witness init\`)`);
-  let doc: Obj;
+  return parseConfig(readToml(file), file);
+}
+
+function readToml(file: string): Obj {
   try {
-    doc = parseToml(fs.readFileSync(file, "utf8")) as Obj;
+    return parseToml(fs.readFileSync(file, "utf8")) as Obj;
   } catch (e) {
     const err = e as Error & { line?: number; column?: number };
     throw new ConfigError("", `${path.basename(file)} is not valid TOML${err.line ? ` (line ${err.line}, column ${err.column})` : ""}: ${err.message.split("\n")[0]}`);
   }
-  return parseConfig(doc, file);
 }
 
-export function parseConfig(doc: Obj, file: string): Config {
+/** A config on the path from the config being loaded to the one listing it, for cycle errors. */
+interface Link {
+  name: string;
+  root: string;
+}
+
+class RepoCycle extends ConfigError {}
+
+const real = (p: string) => (fs.existsSync(p) ? fs.realpathSync(p) : p);
+
+export function parseConfig(doc: Obj, file: string, chain: Link[] = []): Config {
   checkKeys(doc, KEYS.top, "");
   if (doc.version === undefined) throw new ConfigError("version", "is required (version = 1)");
   if (doc.version !== 1) throw new ConfigError("version", `unsupported version ${JSON.stringify(doc.version)}; this witness reads version 1`);
@@ -318,6 +362,7 @@ export function parseConfig(doc: Obj, file: string): Config {
     if (role !== "target" && role !== "origin") throw new ConfigError(`${where}.role`, `expected "target" or "origin", got "${role}"`);
     const svc: Service = {
       name,
+      repo: str(s, "repo", where),
       cwd: str(s, "cwd", where) ?? ".",
       setup: str(s, "setup", where),
       start: str(s, "start", where),
@@ -356,6 +401,7 @@ export function parseConfig(doc: Obj, file: string): Config {
       list: parseList(s.list, `${where}.list`, adapter as AdapterName),
       services: s.service === undefined ? undefined : strList(s, "service", where),
       adapter: adapter as AdapterName,
+      repo: str(s, "repo", where),
       cwd: str(s, "cwd", where) ?? ".",
       cmd: str(s, "cmd", where, true)!,
       timeoutMs: dur(s, "timeout", where, 30 * 60_000)!,
@@ -372,16 +418,26 @@ export function parseConfig(doc: Obj, file: string): Config {
   const keepRuns = runT.keep_runs ?? 10;
   if (typeof keepRuns !== "number" || keepRuns < 1) throw new ConfigError("run.keep_runs", "expected a positive number");
 
+  const listed = parseRepos(doc, root, chain.length ? chain : [{ name: path.basename(root), root: real(root) }]);
+  for (const x of [...services, ...suites]) {
+    if (!x.repo) continue;
+    const r = listed.repos.find((y) => y.name === x.repo);
+    const where = `${services.includes(x as Service) ? "service" : "suite"}.${x.name}.repo`;
+    if (!r) throw new ConfigError(where, `unknown repo "${x.repo}"${listed.repos.length ? `; repos: ${listed.repos.map((y) => y.name).join(", ")}` : "; list it in a [[repo]] table"}`);
+    x.root = r.root;
+  }
+
   const cfg: Config = {
     version: 1,
     root,
     file: path.resolve(file),
     envFile: str(envT, "file", "env"),
     required: strList(envT, "required", "env"),
-    dependencies,
-    services,
-    suites,
+    dependencies: [...dependencies, ...listed.dependencies],
+    services: [...services, ...listed.services],
+    suites: [...suites, ...listed.suites],
     reference: parseReference(doc.reference),
+    repos: listed.repos,
     run: {
       stallMs: dur(runT, "stall_timeout", "run", 5 * 60_000)!,
       heartbeatMs: dur(runT, "heartbeat", "run", 60_000)!,
@@ -391,6 +447,103 @@ export function parseConfig(doc: Obj, file: string): Config {
   };
   validateRefs(cfg);
   return cfg;
+}
+
+interface Listed {
+  repos: Repo[];
+  services: Service[];
+  dependencies: Dependency[];
+  suites: Suite[];
+}
+
+/** `[[repo]]` tables: each repo's config is loaded and the services and suites this config takes from it are renamed `<repo>.<name>`. */
+function parseRepos(doc: Obj, root: string, chain: Link[]): Listed {
+  const out: Listed = { repos: [], services: [], dependencies: [], suites: [] };
+  const add = (r: Repo, where: string) => {
+    const sameName = out.repos.find((x) => x.name === r.name);
+    const sameRoot = out.repos.find((x) => x.root === r.root);
+    if (sameName && sameName.root === r.root) return;
+    const from = (x: Repo) => (x.via ? `repo ${x.via}'s config` : "this config");
+    if (sameName) throw new ConfigError(where, `name clash: "${r.name}" is ${sameName.root} in ${from(sameName)} and ${r.root} in ${from(r)}; one name can only stand for one repo`);
+    if (sameRoot) throw new ConfigError(where, `name clash: ${r.root} is listed as "${sameRoot.name}" in ${from(sameRoot)} and as "${r.name}" in ${from(r)}; give it the same name in both`);
+    out.repos.push(r);
+  };
+  const entries = tables(doc, "repo").map((t, i) => {
+    let where = `repo[${i}]`;
+    checkKeys(t, KEYS.repo, where);
+    const name = str(t, "name", where, true)!;
+    if (!NAME.test(name)) throw new ConfigError(`${where}.name`, `"${name}" must start with a letter and use only letters, digits, - and _`);
+    where = `repo.${name}`;
+    const rel = str(t, "path", where);
+    if (!rel) throw new ConfigError(`${where}.path`, 'is required: the folder of the other checkout, relative to this repo (e.g. path = "../backend")');
+    const dir = path.resolve(root, rel);
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new ConfigError(`${where}.path`, `${dir} does not exist; clone the repo there or fix the path`);
+    const repoRoot = fs.realpathSync(dir);
+    const loop = chain.findIndex((l) => l.root === repoRoot);
+    if (loop >= 0) throw new RepoCycle(where, `cycle: ${[...chain.slice(loop).map((l) => l.name), name].join(" -> ")}; a repo can't list a repo that lists it back (directly or through others)`);
+    const file = path.join(repoRoot, ".witness", "witness.toml");
+    const services = t.services === undefined ? undefined : strList(t, "services", where);
+    const suites = strList(t, "suites", where);
+    const has = fs.existsSync(file);
+    if (!has && (services === undefined || services.length || suites.length))
+      throw new ConfigError(where, `${repoRoot} has no .witness/witness.toml to take ${suites.length ? "suites" : "services"} from; run \`witness init\` there, or set services = [] to list it only for its commit and for suites defined here with repo = "${name}"`);
+    const repo: Repo = { name, path: rel, root: repoRoot, required: [], env: strMap(t, "env", where) };
+    add(repo, where);
+    return { repo, where, file: has ? file : undefined, services, suites };
+  });
+  for (const e of entries) {
+    if (!e.file) continue;
+    let sub: Config;
+    try {
+      sub = parseConfig(readToml(e.file), e.file, [...chain, { name: e.repo.name, root: e.repo.root }]);
+    } catch (err) {
+      if (err instanceof RepoCycle || !(err instanceof ConfigError)) throw err;
+      throw new ConfigError(e.where, `in ${e.file}: ${err.message}`);
+    }
+    Object.assign(e.repo, { file: e.file, envFile: sub.envFile && path.resolve(sub.root, sub.envFile), required: sub.required });
+    for (const r of sub.repos) add({ ...r, via: r.via ?? e.repo.name }, e.where);
+    const got = importRepo(e.repo, sub, e.services, e.suites, e.where);
+    const fresh = <T extends { name: string }>(have: T[], add: T[]) => add.filter((x) => !have.some((y) => y.name === x.name));
+    out.services.push(...fresh(out.services, got.services));
+    out.dependencies.push(...fresh(out.dependencies, got.dependencies));
+    out.suites.push(...fresh(out.suites, got.suites));
+  }
+  return out;
+}
+
+function importRepo(r: Repo, sub: Config, wantServices: string[] | undefined, wantSuites: string[], where: string): Omit<Listed, "repos"> {
+  // dotted names already belong to a repo the listed repo itself lists
+  const q = (n: string) => (n.includes(".") ? n : `${r.name}.${n}`);
+  const own = new Set(sub.services.filter((s) => !s.name.includes(".")).map((s) => s.name));
+  const rw = (t: string | undefined) => t?.replace(/\$\{([A-Za-z][\w-]*)\.url\}/g, (m, n: string) => (own.has(n) ? `\${${q(n)}.url}` : m));
+  const rwMap = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, rw(v)!]));
+  const targets = sub.services.filter((s) => s.role === "target");
+  const names = wantServices ?? targets.filter((s) => !s.name.includes(".")).map((s) => s.name);
+  for (const n of names) if (!targets.some((s) => s.name === n)) throw new ConfigError(`${where}.services`, `no service "${n}" in ${sub.file}${closest(n, targets.map((s) => s.name)) ? ` (did you mean "${closest(n, targets.map((s) => s.name))}"?)` : ""}; its services: ${targets.map((s) => s.name).join(", ") || "(none)"}`);
+  const suites = wantSuites.map((n) => {
+    const s = sub.suites.find((x) => x.name === n);
+    if (!s) throw new ConfigError(`${where}.suites`, `no suite "${n}" in ${sub.file}; its suites: ${sub.suites.map((x) => x.name).join(", ") || "(none)"}`);
+    const services = s.services ?? targets.map((x) => x.name);
+    names.push(...services);
+    return { ...s, name: q(s.name), local: s.local ?? s.name, repo: s.repo ?? r.name, root: s.root ?? r.root, services: services.map(q), cmd: rw(s.cmd)!, select: rw(s.select), list: s.list && { ...s.list, cmd: rw(s.list.cmd)! }, env: rwMap(s.env) };
+  });
+  const services = topoOrder(sub.services, [...new Set(names)]).map((s): Service => ({
+    ...s,
+    name: q(s.name),
+    local: s.local ?? s.name,
+    repo: s.repo ?? r.name,
+    root: s.root ?? r.root,
+    setup: rw(s.setup),
+    start: rw(s.start),
+    stop: rw(s.stop),
+    pidfile: rw(s.pidfile),
+    ready: s.ready && { ...s.ready, http: rw(s.ready.http), cmd: rw(s.ready.cmd) },
+    env: { ...rwMap(s.env), ...(s.repo ? {} : r.env) },
+    dependsOn: s.dependsOn.map(q),
+    originFor: undefined,
+  }));
+  const dependencies = sub.dependencies.map((d) => ({ ...d, name: q(d.name), repo: d.repo ?? r.name, root: d.root ?? r.root }));
+  return { services, dependencies, suites };
 }
 
 function parseList(v: unknown, where: string, adapter: AdapterName): ListTemplate | undefined {
@@ -407,12 +560,19 @@ function parseList(v: unknown, where: string, adapter: AdapterName): ListTemplat
   return { cmd, format, report: str(v, "report", where) };
 }
 
+export const urlEnvName = (service: string) => `WITNESS_${service.toUpperCase().replace(/[-.]/g, "_")}_URL`;
+
 function validateRefs(cfg: Config) {
   const names = new Set<string>();
+  const urlVars = new Map<string, string>();
   for (const s of cfg.services) {
     if (names.has(s.name)) throw new ConfigError(`service.${s.name}`, "duplicate service name");
     names.add(s.name);
+    const v = urlEnvName(s.name);
+    if (urlVars.has(v)) throw new ConfigError(`service.${s.name}`, `name clash: its URL variable ${v} is also ${urlVars.get(v)}'s; rename one of them`);
+    urlVars.set(v, s.name);
   }
+  for (const n of Object.keys(cfg.reference?.repos ?? {})) if (!cfg.repos.some((r) => r.name === n)) throw new ConfigError(`reference.repos.${n}`, `unknown repo "${n}"${cfg.repos.length ? `; repos: ${cfg.repos.map((r) => r.name).join(", ")}` : "; list it in a [[repo]] table"}`);
   for (const s of cfg.services) {
     for (const d of s.dependsOn) if (!names.has(d)) throw new ConfigError(`service.${s.name}.depends_on`, `unknown service "${d}"`);
     if (s.originFor && !names.has(s.originFor)) throw new ConfigError(`service.${s.name}.origin_for`, `unknown service "${s.originFor}"`);
@@ -436,7 +596,7 @@ function validateRefs(cfg: Config) {
     for (const svc of s.services ?? []) if (!names.has(svc)) throw new ConfigError(`suite.${s.name}.service`, `unknown service "${svc}"`);
   }
   const refs = (where: string, text: string | undefined) => {
-    for (const m of (text ?? "").matchAll(/\$\{([A-Za-z][\w-]*)\.url\}/g)) {
+    for (const m of (text ?? "").matchAll(/\$\{([A-Za-z][\w-]*(?:\.[A-Za-z][\w-]*)?)\.url\}/g)) {
       if (m[1] !== "self" && !names.has(m[1])) throw new ConfigError(where, `\${${m[1]}.url} refers to an unknown service`);
     }
   };
@@ -492,20 +652,28 @@ export function parseEnvFile(text: string): Record<string, string> {
   return out;
 }
 
-/** The base environment for every child: the env file under the process env (process env wins). */
-export function loadEnv(cfg: Config): { env: Record<string, string>; missing: string[]; fileUsed?: string } {
+function envFrom(file: string | undefined, over: Record<string, string> = {}): { env: Record<string, string>; fileUsed?: string } {
   const env: Record<string, string> = {};
-  let fileUsed: string | undefined;
-  if (cfg.envFile) {
-    const f = path.resolve(cfg.root, cfg.envFile);
-    if (fs.existsSync(f)) {
-      Object.assign(env, parseEnvFile(fs.readFileSync(f, "utf8")));
-      fileUsed = f;
+  const fileUsed = file && fs.existsSync(file) ? file : undefined;
+  if (fileUsed) Object.assign(env, parseEnvFile(fs.readFileSync(fileUsed, "utf8")));
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+  return { env: { ...env, ...over }, fileUsed };
+}
+
+/** The base environment for every child: the env file under the process env (process env wins). Each listed repo gets its own, from its env file and `[[repo]] env`. */
+export function loadEnv(cfg: Config): { env: Record<string, string>; missing: string[]; fileUsed?: string; repos: Record<string, Record<string, string>>; missingFiles: Record<string, string> } {
+  const { env, fileUsed } = envFrom(cfg.envFile && path.resolve(cfg.root, cfg.envFile));
+  const missing = cfg.required.filter((k) => !env[k]);
+  const repos: Record<string, Record<string, string>> = {};
+  const missingFiles: Record<string, string> = {};
+  for (const r of cfg.repos) {
+    repos[r.name] = envFrom(r.envFile, r.env).env;
+    for (const k of r.required.filter((k) => !repos[r.name][k])) {
+      missing.push(`${r.name}:${k}`);
+      missingFiles[`${r.name}:${k}`] = r.envFile ?? path.join(r.root, ".witness", ".env");
     }
   }
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-  const missing = cfg.required.filter((k) => !env[k]);
-  return { env, missing, fileUsed };
+  return { env, missing, fileUsed, repos, missingFiles };
 }
 
 export type Vars = Record<string, string | undefined>;

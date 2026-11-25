@@ -89,6 +89,8 @@ export interface ReportModel {
   version: string;
   run: { id: string; label?: string; outcome: Outcome | "running"; branch: string; commit: string; dirty: boolean; startedAt: string; finishedAt?: string; ms?: number; selected: boolean; hash?: string; dir: string };
   headline: string;
+  /** Listed repos: their checkout, what --against compared them with, and their change. */
+  repos?: { name: string; branch: string; commit: string; dirty: boolean; against?: string; change?: { baseLabel: string; commits: number; files: number } }[];
   change?: { baseLabel: string; base: string; commits: Commit[]; files: ChangedFile[] };
   plan?: { source: string; items: PlanItemView[] };
   totals: { tests: number; passed: number; failed: number; skipped: number; other: number };
@@ -276,6 +278,7 @@ export function buildModel(dir: string): ReportModel {
     version: VERSION,
     run: { id: st.run_id, label: st.label, outcome, branch: st.branch, commit: st.commit, dirty: st.dirty, startedAt: st.started_at, finishedAt: st.finished_at, ms: st.finished_at ? Date.parse(st.finished_at) - Date.parse(st.started_at) : undefined, selected: ctx.selected, hash, dir },
     headline,
+    repos: st.repos ? Object.entries(st.repos).map(([name, r]) => ({ name, branch: r.branch, commit: r.commit, dirty: r.dirty, against: st.against?.repos?.[name]?.ref, change: ctx.repos?.find((x) => x.name === name)?.change })) : undefined,
     change: ctx.change,
     plan: plan && items ? { source: plan.source, items } : undefined,
     totals,

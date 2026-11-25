@@ -174,14 +174,14 @@ export function missingPlugin(adapter: Adapter, output: string, perTestTimeout: 
 
 export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | undefined, retries: number): Promise<SuiteRun> {
   const adapter = ADAPTERS[suite.adapter];
-  const cwd = path.resolve(ctx.root, suite.cwd);
+  const cwd = path.resolve(suite.root ?? ctx.root, suite.cwd);
   const p = ctx.prefix ?? "";
   const reportDir = path.join(ctx.outDir, "reports", suite.name);
   const log = path.join(ctx.outDir, "logs", `${suite.name}.log`);
   fs.rmSync(reportDir, { recursive: true, force: true });
   fs.mkdirSync(reportDir, { recursive: true });
   const t0 = Date.now();
-  const vars = { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir };
+  const vars = { ...ctx.stack.vars(undefined, suite), WITNESS_REPORT_DIR: reportDir };
   const cmd = suiteCommand(suite, adapter, vars, reportDir, select, cwd);
   ctx.progress.line(`${p}suite  ${suite.name} · ${cmd}`);
   ctx.run.event("suite_started", { suite: suite.name, cmd, origin: !!p }, `${p}suite ${suite.name} running`);
@@ -276,9 +276,9 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
 async function execWatched(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cmd: string, cwd: string, reportDir: string, log: string, timeoutMs: number): Promise<Exec> {
   const artifacts = path.join(ctx.outDir, "artifacts");
   fs.mkdirSync(artifacts, { recursive: true });
-  const vars = ctx.stack.vars();
-  const env = childEnv(ctx.baseEnv, {
-    ...ctx.stack.serviceUrlEnv(),
+  const vars = ctx.stack.vars(undefined, suite);
+  const env = childEnv(ctx.stack.envOf(suite.repo), {
+    ...ctx.stack.serviceUrlEnv(suite.repo),
     WITNESS_REPORT_DIR: reportDir,
     WITNESS_ARTIFACTS: artifacts,
     WITNESS_EVIDENCE: "1",
@@ -334,7 +334,7 @@ async function execWatched(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cmd: s
 /** Report files the adapter or `report` globs find outside the run's report dir (e.g. TestResults/, target/surefire-reports/). */
 function outsideReports(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, reportDir: string): { src: string; rel: string }[] {
   const out: { src: string; rel: string }[] = [];
-  const globs = suite.report ? [{ base: "cwd" as const, glob: substitute(suite.report, { ...ctx.stack.vars(), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
+  const globs = suite.report ? [{ base: "cwd" as const, glob: substitute(suite.report, { ...ctx.stack.vars(undefined, suite), WITNESS_REPORT_DIR: reportDir }) }] : adapter.reportGlobs;
   for (const g of globs) {
     if (g.base === "report-dir") continue;
     let base = cwd;
@@ -394,7 +394,7 @@ function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, rep
 
 async function listTests(ctx: SuiteCtx, suite: Suite, cwd: string, log: string): Promise<TestList> {
   ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · listing tests to see what the run left out`);
-  const l = await listSuiteTests(suite, { root: ctx.cfg.root, cwd, vars: ctx.stack.vars(), env: childEnv(ctx.baseEnv, ctx.stack.serviceUrlEnv()), log: log.replace(/\.log$/, ".list.log"), scratch: path.join(ctx.outDir, "reports", suite.name, "list"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
+  const l = await listSuiteTests(suite, { root: ctx.cfg.root, cwd, vars: ctx.stack.vars(undefined, suite), env: childEnv(ctx.stack.envOf(suite.repo), ctx.stack.serviceUrlEnv(suite.repo)), log: log.replace(/\.log$/, ".list.log"), scratch: path.join(ctx.outDir, "reports", suite.name, "list"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
   ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · ${l.ids ? `${l.ids.length} test(s), ` : ""}${l.detail}`);
   return l;
 }

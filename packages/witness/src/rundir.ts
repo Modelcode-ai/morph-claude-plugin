@@ -17,13 +17,15 @@ export interface Status {
   commit: string;
   branch: string;
   dirty: boolean;
+  /** Each listed repo's checkout, by its [[repo]] name. */
+  repos?: Record<string, { path: string; root: string; commit: string; branch: string; dirty: boolean; via?: string }>;
   label?: string;
   suites: SuiteSummary[];
   diagnosis?: Diagnosis;
   internal_error?: string;
   last_event: string;
   summary?: { tests: number; passed: number; failed: number; skipped: number; pending: number; other: number };
-  against?: { ref: string; outcome?: Outcome; parity?: Record<string, number>; diagnosis?: Diagnosis };
+  against?: { ref: string; outcome?: Outcome; parity?: Record<string, number>; diagnosis?: Diagnosis; repos?: Record<string, { ref: string; commit?: string }> };
   pid: number;
 }
 

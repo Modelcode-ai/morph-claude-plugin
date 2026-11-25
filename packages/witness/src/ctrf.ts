@@ -10,11 +10,13 @@ export interface RunMeta {
   commit: string;
   branch: string;
   dirty: boolean;
+  /** Each listed repo's checkout. */
+  repos?: Record<string, { commit: string; branch: string; dirty: boolean }>;
   label?: string;
   startedAt: number;
   finishedAt: number;
   diagnosis?: Diagnosis;
-  against?: { ref: string; outcome: Outcome; parity?: Record<Parity, number> };
+  against?: { ref: string; outcome: Outcome; parity?: Record<Parity, number>; repos?: Record<string, { ref: string; commit?: string }> };
   adapters: string[];
   kinds?: Record<string, string>;
   services?: Record<string, string[]>;
@@ -42,6 +44,7 @@ export function buildCtrf(meta: RunMeta, tests: TestRecord[]) {
     started_at: new Date(meta.startedAt).toISOString(),
     finished_at: new Date(meta.finishedAt).toISOString(),
   };
+  if (meta.repos) witness.repos = meta.repos;
   if (meta.label) witness.label = meta.label;
   if (meta.against) witness.against = meta.against;
   if (meta.diagnosis) witness.diagnosis = meta.diagnosis;

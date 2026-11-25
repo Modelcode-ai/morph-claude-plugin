@@ -37,7 +37,7 @@ interface ListCache {
 const cacheFile = (root: string, suite: string) => path.join(root, ".witness", "cache", "tests", `${suite}.json`);
 
 /** What the cached list depends on. Not the command: wrapping or adding flags keeps the tests; ids that are gone end as missing, never failed. */
-export const suiteKey = (s: Suite) => sha(JSON.stringify([s.adapter, s.cwd]));
+export const suiteKey = (s: Suite) => sha(JSON.stringify(s.repo ? [s.adapter, s.cwd, s.repo] : [s.adapter, s.cwd]));
 
 export function readListCache(root: string, suite: Suite): ListCache | undefined {
   const c = readJson<ListCache | null>(cacheFile(root, suite.name), null);

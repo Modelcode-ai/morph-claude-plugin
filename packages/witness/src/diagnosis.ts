@@ -42,6 +42,8 @@ export interface DiagnoseInput {
   port?: number;
   url?: string;
   envMissing?: string[];
+  /** For a `<repo>:<NAME>` in envMissing: that repo's env file. */
+  envFiles?: Record<string, string>;
   evidence?: string;
   extraTry?: string[];
   /** The adapter can pass a per-test timeout for this suite. */
@@ -126,7 +128,10 @@ function suggestions(d: Diagnosis, inp: DiagnoseInput, missingTool: boolean): st
   const svc = inp.service;
   switch (d.cause) {
     case "missing_env":
-      for (const k of inp.envMissing ?? []) t.push(`echo '${k}=...' >> .witness/.env   # or export ${k}=...`);
+      for (const k of inp.envMissing ?? []) {
+        const name = inp.envFiles?.[k] ? k.slice(k.indexOf(":") + 1) : k;
+        t.push(`echo '${name}=...' >> ${inp.envFiles?.[k] ?? ".witness/.env"}   # or export ${name}=...`);
+      }
       break;
     case "bad_config":
       t.push("witness check --stage config");
