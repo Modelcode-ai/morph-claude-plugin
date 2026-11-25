@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { describe, test } from "node:test";
-import { alive, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
+import { alive, APPS_FWD, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "2s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
 
@@ -324,9 +324,9 @@ ${RUN}`);
 
   test("--against <ref>: per-test parity in CTRF; outcome from the target", async () => {
     const toml = `version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "bash run.sh"\n${RUN}`;
-    const dir = tmpRepo(toml, { git: true, files: { "run.sh": `node ${path.join(import.meta.dirname, "..", "testdata", "apps", "suite.mjs")} pass\n` } });
+    const dir = tmpRepo(toml, { git: true, files: { "run.sh": `node ${APPS_FWD}/suite.mjs pass\n` } });
     const { spawnSync } = await import("node:child_process");
-    fs.writeFileSync(path.join(dir, "run.sh"), `EXTRA_TEST=newtest FLIP=Calc#add node ${path.join(import.meta.dirname, "..", "testdata", "apps", "suite.mjs")} pass\n`);
+    fs.writeFileSync(path.join(dir, "run.sh"), `EXTRA_TEST=newtest FLIP=Calc#add node ${APPS_FWD}/suite.mjs pass\n`);
     spawnSync("git", ["commit", "-qam", "change"], { cwd: dir });
     const r = await witness(dir, ["run", "--json", "--against", "HEAD~1"]);
     assert.equal(r.code, 1, r.stderr);
