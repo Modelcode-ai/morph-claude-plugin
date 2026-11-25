@@ -1,0 +1,22 @@
+version = 1
+
+[env]
+file = ".witness/.env"
+
+[[service]]
+name = "store"
+start = "node store.mjs"
+ready = { http = "${self.url}/health", timeout = "10s" }
+
+[[service]]
+name = "api"
+start = "node api.mjs"
+depends_on = ["store"]
+env = { STORE_URL = "${store.url}" }
+ready = { http = "${self.url}/health", timeout = "10s" }
+
+[[suite]]
+name = "api"
+kind = "api"
+service = ["api"]
+cmd = "node --test --test-reporter=junit --test-reporter-destination=${WITNESS_REPORT_DIR}/junit.xml test/*.test.mjs"

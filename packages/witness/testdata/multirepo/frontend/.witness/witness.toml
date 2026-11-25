@@ -1,0 +1,21 @@
+version = 1
+
+# The page shows what the backend's api answers; the backend's own config says how to start it.
+[[repo]]
+name = "backend"
+path = "../backend"
+suites = ["api"]
+env = { GREETING_NAME = "witness" }
+
+[[service]]
+name = "web"
+start = "node web.mjs"
+depends_on = ["backend.api"]
+env = { API_URL = "${backend.api.url}" }
+ready = { http = "${self.url}/health", timeout = "10s" }
+
+[[suite]]
+name = "e2e"
+kind = "api"
+service = ["web"]
+cmd = "node --test --test-reporter=junit --test-reporter-destination=${WITNESS_REPORT_DIR}/junit.xml test/*.test.mjs"
