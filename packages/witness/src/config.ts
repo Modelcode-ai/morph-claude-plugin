@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { ADAPTERS, type AdapterName } from "./adapters.ts";
-import { parseDuration } from "./util.ts";
+import { envGet } from "./proc.ts";
+import { parseDuration, slashPath } from "./util.ts";
 
 export interface Ready {
   http?: string;
@@ -666,12 +667,12 @@ function envFrom(file: string | undefined, over: Record<string, string> = {}): {
 /** The base environment for every child: the env file under the process env (process env wins). Each listed repo gets its own, from its env file and `[[repo]] env`. */
 export function loadEnv(cfg: Config): { env: Record<string, string>; missing: string[]; fileUsed?: string; repos: Record<string, Record<string, string>>; missingFiles: Record<string, string> } {
   const { env, fileUsed } = envFrom(cfg.envFile && path.resolve(cfg.root, cfg.envFile));
-  const missing = cfg.required.filter((k) => !env[k]);
+  const missing = cfg.required.filter((k) => !envGet(env, k));
   const repos: Record<string, Record<string, string>> = {};
   const missingFiles: Record<string, string> = {};
   for (const r of cfg.repos) {
     repos[r.name] = envFrom(r.envFile, r.env).env;
-    for (const k of r.required.filter((k) => !repos[r.name][k])) {
+    for (const k of r.required.filter((k) => !envGet(repos[r.name], k))) {
       missing.push(`${r.name}:${k}`);
       missingFiles[`${r.name}:${k}`] = r.envFile ?? path.join(r.root, ".witness", ".env");
     }
@@ -689,7 +690,7 @@ export function substitute(text: string, vars: Vars, platform: NodeJS.Platform =
   return text.replace(/\$\{([A-Za-z_][\w.-]*)\}/g, (m, name: string) => {
     const v = vars[name];
     if (v === undefined) return m;
-    return platform === "win32" && PATH_VARS.has(name) ? v.replace(/\\/g, "/") : v;
+    return PATH_VARS.has(name) ? slashPath(v, platform) : v;
   });
 }
 

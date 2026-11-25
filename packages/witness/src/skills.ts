@@ -100,7 +100,7 @@ export function renderSkill(text: string, profile: Profile, file?: string): stri
 }
 
 function walk(dir: string, rel = ""): string[] {
-  return fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(dir, path.join(rel, e.name)) : [path.join(rel, e.name)]));
+  return fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(dir, `${rel}${e.name}/`) : [`${rel}${e.name}`]));
 }
 
 /** Every file of every skill rendered for `profile`, keyed `<prefix><dir>/<file>`; SKILL.md's name gets the prefix. */
@@ -113,7 +113,7 @@ export function renderSkillFiles(src: string, profile: Profile, prefix = ""): Re
       let text = fs.readFileSync(file, "utf8");
       if (f.endsWith(".md")) text = renderSkill(text, profile, path.relative(process.cwd(), file));
       if (f === "SKILL.md" && prefix) text = text.replace(/^(---\r?\n[\s\S]*?^name:\s*).*$/m, `$1${prefix}${s.name}`);
-      files[path.join(dir, f)] = text;
+      files[`${dir}/${f}`] = text;
     }
   }
   return files;

@@ -6,13 +6,15 @@ import { resolveRun } from "../src/rundir.ts";
 
 export const PKG = path.resolve(import.meta.dirname, "..");
 export const APPS = path.join(PKG, "testdata", "apps");
+/** APPS with forward slashes, for shell scripts and TOML strings (where a backslash is an escape). */
+export const APPS_FWD = APPS.split(path.sep).join("/");
 export const REPORTS = path.join(PKG, "testdata", "reports");
 export const CLI = path.join(PKG, "src", "cli.ts");
 
 export function tmpRepo(toml: string, opts: { git?: boolean; files?: Record<string, string> } = {}): string {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-test-")));
   fs.mkdirSync(path.join(dir, ".witness"), { recursive: true });
-  fs.writeFileSync(path.join(dir, ".witness", "witness.toml"), toml.replace(/\$APPS/g, APPS.split(path.sep).join("/")));
+  fs.writeFileSync(path.join(dir, ".witness", "witness.toml"), toml.replace(/\$APPS/g, APPS_FWD));
   fs.writeFileSync(path.join(dir, ".witness", ".gitignore"), "runs/\ncheck/\ncache/\nup/\nup.json\nrun.lock\n.env\n");
   for (const [f, c] of Object.entries(opts.files ?? {})) {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });

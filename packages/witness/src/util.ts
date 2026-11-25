@@ -90,6 +90,18 @@ export function pidAlive(pid: number | undefined | null): boolean {
   }
 }
 
+/** `p` with forward slashes on Windows, which bash and Windows programs both read. */
+export const slashPath = (p: string, platform: NodeJS.Platform = process.platform) => (platform === "win32" ? p.replace(/\\/g, "/") : p);
+
+/** The canonical path; native, so Windows 8.3 short names (RUNNER~1) expand as they do in the paths git prints. */
+export function realPath(p: string): string {
+  try {
+    return fs.realpathSync.native(p);
+  } catch {
+    return p;
+  }
+}
+
 export function git(cwd: string, args: string[]): { ok: boolean; out: string; err: string } {
   const r = spawnSync("git", args, { cwd, encoding: "utf8" });
   return { ok: r.status === 0, out: (r.stdout ?? "").trim(), err: (r.stderr ?? "").trim() };

@@ -4,7 +4,7 @@ import { parse as parseToml } from "smol-toml";
 import type { AdapterName } from "./adapters.ts";
 import type { Config, Kind } from "./config.ts";
 import { expandArgs, findTests, type Lang, langOf, mask } from "./lint.ts";
-import { globFiles, shellWords } from "./util.ts";
+import { globFiles, shellWords, slashPath } from "./util.ts";
 
 type SigType = "api" | "http" | "call" | "host" | "url" | "self" | "ui" | "db" | "httpmock" | "note" | "cli" | "exec" | "desktop" | "mobile";
 
@@ -653,11 +653,11 @@ export function functionalWarnings(cfg: Config): SuiteWarning[] {
     const scans = [...new Set([...expandArgs(roots, cwd), ...extra])]
       .filter((f) => fLangOf(f))
       .slice(0, MAX_SCAN)
-      .map((f) => scanFile(cfg.root, path.relative(cfg.root, f), undefined, entries))
+      .map((f) => scanFile(cfg.root, slashPath(path.relative(cfg.root, f)), undefined, entries))
       .filter((f): f is FileScan => !!f);
     const v = classify(scans, s.name);
     if (!v.tests) continue;
-    const where = roots.map((r) => path.relative(cfg.root, r) || ".").join(", ");
+    const where = roots.map((r) => slashPath(path.relative(cfg.root, r)) || ".").join(", ");
     const fix = "Witness runs functional tests only: give the suite a filter that selects the tests that drive the app (over HTTP, in a browser, through its command line, window or device), or remove it";
     const sample = (xs: FileScan[]) => `${xs.slice(0, 3).map((f) => f.rel).join(", ")}${xs.length > 3 ? ", ..." : ""}`;
     if (v.status === "excluded") out.push({ suite: s.name, files: v.other.map((f) => f.rel), message: `suite ${s.name} looks non-functional: ${v.reason}. Scanned ${v.tests} test file(s) under ${where} (${sample(v.other)}). ${fix}.` });

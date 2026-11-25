@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ParsedFile, RawCase, ReportFormat } from "./parsers/types.ts";
-import { escapeRegExp, shellWords, shq } from "./util.ts";
+import { escapeRegExp, shellWords, shq, slashPath } from "./util.ts";
 
 export type AdapterName =
   | "pytest"
@@ -85,6 +85,9 @@ const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /** The null device as a shell word; on Windows `NUL`, which cmd.exe and Git Bash both pass through unchanged (unlike `\\.\nul`). */
 export const nullDevice = (platform: NodeJS.Platform = process.platform) => (platform === "win32" ? "NUL" : "/dev/null");
+
+/** A report path as a shell word, forward-slashed as `${WITNESS_REPORT_DIR}` is. */
+const reportPath = (dir: string, file?: string) => shq(slashPath(file ? path.join(dir, file) : dir));
 
 /** Insert `--` for npm scripts so the args reach the test runner, not npm. */
 export function appendArgs(cmd: string, args: string): string {
@@ -321,7 +324,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   pytest: {
     name: "pytest",
     format: "junit",
-    reportArgs: (d) => `--junitxml=${shq(path.join(d, "junit.xml"))} -o junit_family=xunit1`,
+    reportArgs: (d) => `--junitxml=${reportPath(d, "junit.xml")} -o junit_family=xunit1`,
     reportMarker: /--junit-?xml/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => ids.map(shq).join(" "),
@@ -358,7 +361,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     reportArgs: (d, cwd, cmd) => {
       const mode = dotnetMode(cwd, cmd);
       if (mode === "mtp-none") return "";
-      return `${mode === "vstest" ? "--logger trx" : mode === "mtp-xunit" ? "--report-xunit-trx" : "--report-trx"} --results-directory ${shq(d)}`;
+      return `${mode === "vstest" ? "--logger trx" : mode === "mtp-xunit" ? "--report-xunit-trx" : "--report-trx"} --results-directory ${reportPath(d)}`;
     },
     reportHint: (cwd, cmd) => (dotnetMode(cwd, cmd) === "mtp-none" ? trxHint(cwd, cmd) : undefined),
     reportMarker: /--logger[ =:]+["']?trx|--report-(xunit-)?trx/,
@@ -395,7 +398,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   jest: {
     name: "jest",
     format: "jest-json",
-    reportArgs: (d) => `--json --outputFile=${shq(path.join(d, "jest.json"))}`,
+    reportArgs: (d) => `--json --outputFile=${reportPath(d, "jest.json")}`,
     reportMarker: /--json\b/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],
     selectArgs: (ids) => `-t ${shq(fullTitleRegex(ids, " "))}`,
@@ -406,7 +409,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   vitest: {
     name: "vitest",
     format: "junit",
-    reportArgs: (d) => `--reporter=default --reporter=junit --outputFile.junit=${shq(path.join(d, "junit.xml"))}`,
+    reportArgs: (d) => `--reporter=default --reporter=junit --outputFile.junit=${reportPath(d, "junit.xml")}`,
     reportMarker: /--reporter[= ]junit/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => `-t ${shq(fullTitleRegex(ids, "(?: > | )"))}`,
@@ -445,7 +448,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   mocha: {
     name: "mocha",
     format: "junit",
-    reportArgs: (d) => `--reporter xunit --reporter-option output=${shq(path.join(d, "mocha.xml"))}`,
+    reportArgs: (d) => `--reporter xunit --reporter-option output=${reportPath(d, "mocha.xml")}`,
     reportMarker: /--reporter\b/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => `--grep ${shq(fullTitleRegex(ids, " "))}`,
@@ -456,7 +459,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   rspec: {
     name: "rspec",
     format: "junit",
-    reportArgs: (d) => `--format progress --format RspecJunitFormatter --out ${shq(path.join(d, "rspec.xml"))}`,
+    reportArgs: (d) => `--format progress --format RspecJunitFormatter --out ${reportPath(d, "rspec.xml")}`,
     reportMarker: /RspecJunitFormatter/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => ids.map((id) => `-e ${shq(id.split(" > ").slice(1).join(" > "))}`).join(" "),
@@ -467,7 +470,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   phpunit: {
     name: "phpunit",
     format: "junit",
-    reportArgs: (d) => `--log-junit ${shq(path.join(d, "phpunit.xml"))}`,
+    reportArgs: (d) => `--log-junit ${reportPath(d, "phpunit.xml")}`,
     reportMarker: /--log-junit/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => {
@@ -483,7 +486,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   bats: {
     name: "bats",
     format: "junit",
-    reportArgs: (d) => `--report-formatter junit --output ${shq(d)}`,
+    reportArgs: (d) => `--report-formatter junit --output ${reportPath(d)}`,
     reportMarker: /--report-formatter\b/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.xml" }],
     selectArgs: (ids) => `--filter ${shq(`^(${ids.map((id) => escapeRegExp(splitClassHash(id)[1])).join("|")})$`)}`,

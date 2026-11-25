@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Diagnosis } from "./diagnosis.ts";
-import { groupAlive, killGroup, runShellSync, signalPid } from "./proc.ts";
+import { groupAlive, killGroup, pidFromFile, runShellSync, signalPid } from "./proc.ts";
 import type { Outcome, SuiteSummary } from "./reconcile.ts";
 import { git, pidAlive, randHex, readJson, writeJson } from "./util.ts";
 
@@ -174,7 +174,7 @@ export async function reapStale(root: string, graceMs: number, log: (msg: string
 /** Stop one tracked process: its stop command and pidfile pid (daemons that left the group), then its group. */
 export async function killTracked(p: TrackedProc, graceMs: number, opts: { runStop?: boolean } = {}): Promise<boolean> {
   let hit = false;
-  const pid = p.pidfile ? Number(readText(p.pidfile)) : 0;
+  const pid = p.pidfile ? pidFromFile(p.pidfile) : 0;
   if (p.stop && opts.runStop !== false && (pidAlive(pid) || groupAlive(p.pgid))) {
     runShellSync(p.stop, { cwd: p.cwd, timeoutMs: 60_000 });
     hit = true;
@@ -201,14 +201,6 @@ export async function killTracked(p: TrackedProc, graceMs: number, opts: { runSt
     hit = true;
   }
   return hit;
-}
-
-function readText(f: string): string {
-  try {
-    return fs.readFileSync(f, "utf8").trim();
-  } catch {
-    return "";
-  }
 }
 
 function removeWorktree(wt: string) {

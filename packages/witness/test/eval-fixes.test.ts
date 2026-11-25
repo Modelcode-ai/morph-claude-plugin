@@ -7,7 +7,7 @@ import * as path from "node:path";
 import { describe, test } from "node:test";
 import type { TestRecord } from "../src/reconcile.ts";
 import { collectArtifacts } from "../src/suite.ts";
-import { alive, APPS, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
+import { alive, APPS_FWD, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
 
@@ -154,7 +154,7 @@ describe("eShopOnWeb eval fixes: suites", { concurrency: 4 }, () => {
     const r = await witness(dir, ["run", "--json"]);
     assert.equal(r.code, 2);
     assert.equal(r.json?.diagnosis.cause, "setup_failed");
-    assert.match(r.json?.diagnosis.evidence, /\.witness\/dotnet: No such file or directory/);
+    assert.match(r.json?.diagnosis.evidence, /\.witness\/dotnet: No such file or directory/, fs.readFileSync(path.join(latest(dir), "logs", "unit.log"), "utf8"));
   });
 
   test("every test skipped -> error, not passed", async () => {
@@ -204,7 +204,7 @@ service = "api"
 cmd = "bash .witness/run-suite.sh"
 report = "\${WITNESS_REPORT_DIR}/*.xml"
 ${RUN}`, { git: true });
-    fs.writeFileSync(path.join(dir, ".witness", "run-suite.sh"), `node ${APPS}/suite.mjs pass\n`);
+    fs.writeFileSync(path.join(dir, ".witness", "run-suite.sh"), `node ${APPS_FWD}/suite.mjs pass\n`);
     spawnSync("git", ["add", "-A"], { cwd: dir });
     spawnSync("git", ["commit", "-qm", "helper"], { cwd: dir });
     const r = await witness(dir, ["run", "--json", "--against", "HEAD~1"]);
@@ -255,7 +255,7 @@ describe("principles: stale reports and leftover daemons", { concurrency: 2 }, (
     assert.equal(r.json?.suites[0].cause, "report_missing");
     const t = ctrf(dir).results.tests;
     assert.equal(t.length, 1);
-    assert.equal(t[0].status, "other", "exit 0 without a report is not a pass");
+    assert.equal(t[0].status, "other", `exit 0 without a report is not a pass: ${JSON.stringify(t[0])}\n${r.stderr}`);
     assert.equal(t[0].extra.witness.status_detail, "missing");
   });
 

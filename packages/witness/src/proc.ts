@@ -162,6 +162,20 @@ export function spawnGroup(cmd: string, opts: { name: string; cwd: string; env: 
   return p;
 }
 
+/** The pid in a pidfile (0 if none yet); under Git Bash, `$!` is an MSYS pid, mapped to its Windows pid through /proc. */
+export function pidFromFile(file: string, host: Host = HOST): number {
+  let pid = 0;
+  try {
+    pid = Number(fs.readFileSync(file, "utf8").trim()) || 0;
+  } catch {
+    return 0;
+  }
+  const sh = activeShell();
+  if (pid <= 0 || host.platform !== "win32" || sh.kind !== "bash") return pid;
+  const r = spawnSync(sh.file, ["-c", `cat /proc/${pid}/winpid 2>/dev/null`], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
+  return Number(r.stdout?.trim()) || pid;
+}
+
 /** On Windows `pgid` is the tree's root pid: the tree counts as alive while its root is. */
 export function groupAlive(pgid: number, host: Host = HOST): boolean {
   if (!pgid || pgid <= 1) return false;
