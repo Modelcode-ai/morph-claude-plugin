@@ -1,0 +1,25 @@
+name: API checks
+on: [pull_request]
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - run: npm test
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm ci
+      - name: Start the API
+        run: npm start &
+      - name: Wait for it
+        run: |
+          until curl -sf http://localhost:3000/health; do sleep 1; done
+      - name: API tests
+        run: bash scripts/api-tests.sh
+      - name: Smoke load
+        run: k6 run load/smoke.js
+      - name: Lint
+        run: npm run lint

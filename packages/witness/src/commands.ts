@@ -15,6 +15,7 @@ import { acquireLock, LockError, newRunId, reapStale, RunDir, resolveRun, type S
 import { type ReferenceSide, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
 import { describeRepoSide } from "./repos.ts";
 import { neededServices, pickSuites, verdictSummary } from "./run.ts";
+import { unclaimedWarnings } from "./scan.ts";
 import { Failure, readUp, Stack, upFile, type UpState } from "./stack.ts";
 import { canSelect, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
 import { CAPTURE_FIX, VISUAL_KINDS, visualGaps } from "./evidence/visuals.ts";
@@ -32,7 +33,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   const p = new Progress();
   const upTo = STAGES.indexOf(o.stage ?? "suite");
   const report: { stage: Stage; ok: boolean; detail: string; diagnosis?: Diagnosis }[] = [];
-  const warnings = functionalWarnings(cfg);
+  const warnings = [...functionalWarnings(cfg), ...unclaimedWarnings(cfg)];
   const caps: Capabilities[] = pickSuites(cfg, o.suites).map((s) => capabilities(s, cfg.root, path.resolve(s.root ?? cfg.root, s.cwd), { stallMs: cfg.run.stallMs }));
   const done = (code: number) => {
     if (o.json) process.stdout.write(JSON.stringify({ ok: code === 0, stages: report, warnings, capabilities: caps }, null, 2) + "\n");

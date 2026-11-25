@@ -5,9 +5,10 @@ import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { AdapterName } from "./adapters.ts";
 import { type Config, ConfigError, type Kind, loadConfig, parseEnvFile } from "./config.ts";
-import { type Confidence, type GuessedService, guess } from "./init.ts";
+import { type Confidence, type Guess, type GuessedService, guess } from "./init.ts";
 import { isTestPath } from "./lint.ts";
 import { envGet } from "./proc.ts";
+import { type CiStep, type Claim, claimOf, commentNamer, decision, findUnclaimed, type PackageScript, type UnclaimedFact } from "./unclaimed.ts";
 import { globFiles } from "./util.ts";
 
 export interface Fact {
@@ -104,7 +105,7 @@ export interface ConfigFact {
   dependencies: string[];
   required: string[];
   /** What the scan found that the config does not cover yet. */
-  missing: { testProjects: string[]; infrastructure: string[]; secrets: string[] };
+  missing: { testProjects: string[]; infrastructure: string[]; secrets: string[]; unclaimed: string[] };
   /** Config entries the scan cannot tie to anything in the repo (renamed or removed?). */
   unmatched: { suites: string[]; dependencies: string[] };
 }
@@ -130,6 +131,8 @@ export interface ScanResult {
   urls: UrlFact[];
   /** Witness adapters of the test projects that are or could be suites. */
   adapters: AdapterName[];
+  /** Things that look like tests which no test project accounts for: each needs a decision. */
+  unclaimed: UnclaimedFact[];
   /** Health or readiness routes in the app's code, with the guessed service whose folder holds them. */
   health: (Fact & { path: string; for?: string })[];
   env: EnvFact[];
@@ -171,6 +174,8 @@ const ROLE: [CommandRole, RegExp][] = [
   ["start", /(^|\s)(start|serve|server|runserver|dev|up|start:\S+|dev:\S+)(\s|$)|\bdocker run\b|\b(uvicorn|gunicorn|hypercorn|flask run|rails s|dotnet run|spring-boot:run|bootRun|quarkus:dev|php artisan serve|go run|cargo run)\b|^node \S+\.[cm]?js\b/i],
 ];
 const NOT_A_COMMAND = /^(echo|printf|cat|if|then|else|elif|fi|for|while|do|done|case|esac|export|set|cd|source|test|\[|\[\[|exit|return|true|false|sleep|mkdir|rm|cp|mv|ln|chmod|grep|sed|awk|jq|tee|curl|wget|gh|git|ls|find|xargs|read|local|trap|wait|unset|shift|eval|pre-commit|ruff|eslint|prettier|pylint|pyright|mypy|black|isort|flake8|out=)\b|^[^\w./$]|^\.\s|^(npm|pnpm|yarn|bun) (run )?(lint|format|check-format|typecheck|prepare)\b/;
+/** A step that waits until the app answers on its URL. */
+const WAITS_ON_APP = /\b(curl|wget|wait-on|wait-for-it|dockerize|nc\s+-z|http\s+--check-status)\b[^\n]*(localhost|127\.0\.0\.1|0\.0\.0\.0|https?:\/\/|\$\{?\w*(URL|HOST|PORT))/i;
 const roleOf = (cmd: string): CommandRole | undefined => (NOT_A_COMMAND.test(cmd) ? undefined : ROLE.find(([, re]) => re.test(cmd))?.[0]);
 
 const SECRET_HI = /SECRET|PASSWORD|PASSWD|TOKEN|API_?KEY|APIKEY|PRIVATE_?KEY|CREDENTIAL|ACCESS_?KEY|CLIENT_?SECRET/i;
@@ -264,13 +269,13 @@ const DB_DRIVERS: [RegExp, string][] = [
 
 interface Walk {
   files: string[];
+  ci: CiStep[];
+  scripts: PackageScript[];
 }
 
-/** Facts about how the repo builds, runs and tests, each with a confidence and its evidence. Writes nothing. */
-export function scan(root: string): ScanResult {
+function start(root: string, g: Guess): { w: Walk; out: ScanResult } {
   const files = globFiles(root, ["**/*"], { maxDepth: 8, skipDirs: SKIP }).filter((f) => !f.split("/").slice(0, -1).some((d) => d.startsWith(".") && !KEEP_DOT_DIRS.has(d)));
-  const w: Walk = { files };
-  const g = guess(root);
+  const w: Walk = { files, ci: [], scripts: [] };
   const out: ScanResult = {
     version: 1,
     root,
@@ -281,6 +286,7 @@ export function scan(root: string): ScanResult {
     infrastructure: [],
     urls: [],
     adapters: [],
+    unclaimed: [],
     health: [],
     env: [],
     data: [],
@@ -291,7 +297,32 @@ export function scan(root: string): ScanResult {
   for (const s of g.suites) out.testProjects.push({ path: s.project ?? s.cwd, adapter: s.adapter, status: "functional", kind: s.kind, reason: s.why.replace(/^[^:]*: /, ""), suite: { name: s.name, cwd: s.cwd, cmd: s.cmd, hostsApp: s.hostsApp, filtered: !!s.filtered }, confidence: s.confidence ?? "medium", evidence: s.evidence ?? [] });
   for (const n of g.needsFilter) out.testProjects.push({ path: n.path, adapter: n.adapter, status: "needs-filter", kind: n.kind, reason: n.reason, suite: { name: n.name, cwd: n.cwd, cmd: n.cmd, hostsApp: false, filtered: false }, confidence: n.confidence ?? "low", evidence: n.evidence ?? [] });
   for (const e of g.excluded) out.testProjects.push({ path: e.path, adapter: e.adapter, status: "excluded", reason: e.reason, confidence: e.confidence ?? "medium", evidence: e.evidence ?? [] });
+  return { w, out };
+}
 
+/** What each test project covers: its folder and manifest's folder, and the paths its command names. */
+function projectClaims(projects: TestProjectFact[], files: string[]): Claim[] {
+  return projects.map((t) => {
+    const p = t.path.replace(/ \(.*\)$/, "");
+    const file = files.includes(p);
+    const manifest = t.evidence[0] && !/[: ]/.test(t.evidence[0]) && files.includes(t.evidence[0]) ? [dirOf(t.evidence[0])] : [];
+    const c = claimOf({ adapter: t.adapter, cwd: t.suite?.cwd ?? ".", cmd: t.suite?.cmd ?? "" }, files, [...(file ? [] : [p]), ...manifest]);
+    if (file) c.paths.push(p);
+    return c;
+  });
+}
+
+/** Test signals no test project accounts for: what `init` and `check` list for a decision. */
+export function unclaimedSignals(root: string, g: Guess = guess(root)): { unclaimed: UnclaimedFact[]; files: string[] } {
+  const { w, out } = start(root, g);
+  scanCi(root, w, out);
+  scanPackages(root, w, out);
+  return { unclaimed: findUnclaimed(root, w.files, projectClaims(out.testProjects, w.files), w.ci, w.scripts), files: w.files };
+}
+
+/** Facts about how the repo builds, runs and tests, each with a confidence and its evidence. Writes nothing. */
+export function scan(root: string): ScanResult {
+  const { w, out } = start(root, guess(root));
   scanCi(root, w, out);
   scanPackages(root, w, out);
   scanMake(root, w, out);
@@ -305,6 +336,7 @@ export function scan(root: string): ScanResult {
   scanData(root, w, out);
   scanManifests(root, w, out);
   dedupe(out);
+  out.unclaimed = findUnclaimed(root, w.files, projectClaims(out.testProjects, w.files), w.ci, w.scripts);
   out.machine = machineFacts(out);
   out.config = existingConfig(root, out);
   return out;
@@ -447,6 +479,7 @@ function scanCi(root: string, w: Walk, out: ScanResult) {
         if (type) out.infrastructure.push({ name: svc, type, source: "ci", image, ports: (def?.ports ?? []).map(String), confidence: "medium", evidence: [at(f, lineOf(text, new RegExp(`^\\s+${svc}:\\s*$`)))] });
       }
       let from = lineOf(text, new RegExp(`^\\s+${jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*$`));
+      let started: string | undefined;
       for (const step of job?.steps ?? []) {
         const withs = step?.with ?? {};
         const setupTool = /^actions\/setup-(\w+)@/.exec(String(step?.uses ?? ""));
@@ -458,14 +491,21 @@ function scanCi(root: string, w: Walk, out: ScanResult) {
         if (typeof step?.run !== "string") continue;
         const stepEnv = { ...env, ...(step?.env ?? {}) };
         const cwd = typeof step["working-directory"] === "string" ? step["working-directory"].replace(/^\.\//, "") || "." : ".";
+        const ci: CiStep = { file: f, line: 0, cwd, cmds: [], afterStart: started };
+        let starts = WAITS_ON_APP.test(step.run);
         for (const raw of shellLines(step.run)) {
           const line = lineOf(text, raw.slice(0, 40), from) || lineOf(text, raw.slice(0, 40));
           if (line) from = line - 1;
+          ci.line ||= line;
           const cmd = raw.replace(/\$\{\{\s*env\.(\w+)\s*\}\}/g, (m, k) => (stepEnv[k] !== undefined ? String(stepEnv[k]) : m)).replace(/\s+2>&1|\s*\|\s*tee\s+\S+|\s*&$/g, "");
           if (/\$\{\{/.test(cmd) && !/\$\{\{\s*(matrix|inputs)\./.test(cmd)) continue;
           const role = roleOf(cmd);
+          if (role === "start") starts = true;
+          if (!NOT_A_COMMAND.test(cmd) && (!role || role === "test")) ci.cmds.push({ cmd: cmd.trim().replace(/\s+/g, " "), line });
           addCommand(out, { cmd, cwd, source: "ci", role, confidence: role === "start" ? "medium" : "high", evidence: [at(f, line)] });
         }
+        w.ci.push(ci);
+        if (starts) started ??= at(f, ci.line);
       }
     }
   }
@@ -521,6 +561,8 @@ function scanPackages(root: string, w: Walk, out: ScanResult) {
     const scripts = Object.entries<any>(doc.scripts ?? {});
     if (scripts.length) addCommand(out, { role: "setup", cmd: pm.install, cwd: d, source: "package", confidence: "high", evidence: [pj] });
     for (const [name, body] of scripts) {
+      const run = name === "start" || name === "test" ? `${pm.run === "npm run" ? "npm" : pm.run} ${name}` : `${pm.run} ${name}`;
+      w.scripts.push({ file: pj, line: lineOf(text, `"${name}"`), dir: d, name, cmd: run, body: String(body) });
       const r = SCRIPT_ROLE.find(([re]) => re.test(name));
       if (!r) continue;
       const cmd = name === "start" || name === "test" ? `${pm.run === "npm run" ? "npm" : pm.run} ${name}` : `${pm.run} ${name}`;
@@ -934,11 +976,9 @@ function existingConfig(root: string, out: ScanResult): ConfigFact | null {
   } catch (e) {
     if (!(e instanceof ConfigError)) throw e;
     const all = out.testProjects.filter((t) => t.status !== "excluded").map((t) => t.path);
-    return { file: rel, rendered, error: e.message, suites: [], services: [], dependencies: [], required: [], missing: { testProjects: all, infrastructure: out.infrastructure.map((i) => i.name), secrets: out.env.filter((x) => x.secret).map((x) => x.name) }, unmatched: { suites: [], dependencies: [] } };
+    return { file: rel, rendered, error: e.message, suites: [], services: [], dependencies: [], required: [], missing: { testProjects: all, infrastructure: out.infrastructure.map((i) => i.name), secrets: out.env.filter((x) => x.secret).map((x) => x.name), unclaimed: out.unclaimed.map(unclaimedName) }, unmatched: { suites: [], dependencies: [] } };
   }
-  const comments = text.split("\n").map((l) => /(?:^|\s)#(.*)$/.exec(l)?.[1] ?? "").join("\n");
-  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const named = (x: string) => new RegExp(`(^|[^\\w:./-])${esc(x)}($|[^\\w/-])`, "m").test(comments);
+  const named = commentNamer(text);
   const matched = new Set<string>();
   for (const t of out.testProjects) {
     if (t.status === "excluded") continue;
@@ -971,6 +1011,9 @@ function existingConfig(root: string, out: ScanResult): ConfigFact | null {
     const names = [e.name, e.envName].filter(Boolean) as string[];
     e.configured = given.find(([, set]) => names.some((n) => set.has(n)))?.[0] ?? (names.some(named) ? "comment" : undefined);
   }
+  const files = out.unclaimed.length ? globFiles(root, ["**/*"], { maxDepth: 8, skipDirs: SKIP }) : [];
+  const suiteClaims = cfg.suites.map((x) => ({ name: x.name, claim: claimOf(x, files) }));
+  for (const u of out.unclaimed) u.configured = decision(u, suiteClaims, named);
   const decided = (i: InfraFact) => !!i.configured || ((i.source === "env" || i.source === "appsettings") && out.infrastructure.some((o) => o.configured && o.type === i.type));
   const missingInfra = out.infrastructure.filter((i) => !decided(i) && i.source !== "dependency" && i.source !== "ci" && i.type !== "telemetry");
   const coveredStore = (name: string) => out.infrastructure.some((i) => i.name === name && decided(i));
@@ -985,9 +1028,30 @@ function existingConfig(root: string, out: ScanResult): ConfigFact | null {
       testProjects: out.testProjects.filter((t) => t.status !== "excluded" && !t.configured).map((t) => t.path),
       infrastructure: missingInfra.map((i) => i.name),
       secrets: out.env.filter((e) => e.secret && !e.configured && e.readBy.some((r) => r !== "ci") && !coveredStore(e.name)).map((e) => e.name),
+      unclaimed: out.unclaimed.filter((u) => !u.configured).map(unclaimedName),
     },
     unmatched: { suites: cfg.suites.filter((s) => !matched.has(s.name)).map((s) => s.name), dependencies: cfg.dependencies.filter((d) => !depMatched.has(d.name)).map((d) => d.name) },
   };
+}
+
+export const unclaimedName = (u: UnclaimedFact) => u.path ?? u.cmd ?? "?";
+
+/** One line per unclaimed test signal, for init's and --scan's summaries. */
+export function unclaimedLines(us: UnclaimedFact[]): string[] {
+  if (!us.length) return [];
+  return ["not recognized as a test project (decide each: make it a suite, or leave it out with a witness.toml comment that names it and says why):", ...us.map((u) => `  ${unclaimedName(u)}${u.cmd && u.path ? ` (${u.cmd})` : ""}: ${u.why} [${u.confidence}; ${u.evidence[0]}]${u.configured ? ` · decided: ${u.configured === "comment" ? "a config comment names it" : `suite ${u.configured}`}` : ""}`)];
+}
+
+/** `witness check`: one warning per test signal that no suite covers and no config comment names. */
+export function unclaimedWarnings(cfg: Config): { suite: string; files: string[]; message: string }[] {
+  const { unclaimed, files } = unclaimedSignals(cfg.root);
+  if (!unclaimed.length) return [];
+  const named = commentNamer(read(cfg.file));
+  const own = cfg.suites.filter((s) => path.resolve(s.root ?? cfg.root) === path.resolve(cfg.root));
+  const suites = own.map((x) => ({ name: x.name, claim: claimOf(x, files) }));
+  return unclaimed
+    .filter((u) => !decision(u, suites, named))
+    .map((u) => ({ suite: "", files: [unclaimedName(u)], message: `${unclaimedName(u)} looks like tests (${u.why}; ${u.evidence[0]}) but no suite covers it: make it a suite, or leave it out with a ${path.basename(cfg.file)} comment that names it and says why` }));
 }
 
 /** `witness init --scan`: print the facts as JSON on stdout and a one-line summary on stderr. */
@@ -997,7 +1061,8 @@ export function scanCommand(root: string): number {
   const n = (xs: unknown[]) => xs.length;
   const fn = r.testProjects.filter((t) => t.status === "functional").length;
   process.stderr.write(
-    `witness  scan: ${fn} functional test project(s), ${r.testProjects.filter((t) => t.status === "needs-filter").length} needing a filter, ${r.testProjects.filter((t) => t.status === "excluded").length} excluded; ${n(r.commands)} command(s), ${n(r.infrastructure)} infrastructure, ${r.env.filter((e) => e.secret).length} secret(s) of ${n(r.env)} env name(s)${r.machine.some((m) => !m.found) ? `; not on this machine: ${r.machine.filter((m) => !m.found).map((m) => m.tool).join(", ")}` : ""}${r.config ? `; config ${r.config.file}${r.config.error ? " (invalid)" : ""}` : "; no config yet"}. Nothing written.\n`,
+    `witness  scan: ${fn} functional test project(s), ${r.testProjects.filter((t) => t.status === "needs-filter").length} needing a filter, ${r.testProjects.filter((t) => t.status === "excluded").length} excluded; ${n(r.commands)} command(s), ${n(r.infrastructure)} infrastructure, ${r.env.filter((e) => e.secret).length} secret(s) of ${n(r.env)} env name(s)${r.unclaimed.length ? `; ${r.unclaimed.length} unclaimed test signal(s)` : ""}${r.machine.some((m) => !m.found) ? `; not on this machine: ${r.machine.filter((m) => !m.found).map((m) => m.tool).join(", ")}` : ""}${r.config ? `; config ${r.config.file}${r.config.error ? " (invalid)" : ""}` : "; no config yet"}. Nothing written.\n`,
   );
+  for (const l of unclaimedLines(r.unclaimed)) process.stderr.write(`witness  ${l}\n`);
   return 0;
 }

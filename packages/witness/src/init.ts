@@ -5,6 +5,7 @@ import type { Kind } from "./config.ts";
 import { classify, describeFilter, type Entries, type FileScan, fLangOf, filteredCmd, projectEntries, scanFile, type Verdict } from "./functional.ts";
 import { isTestPath } from "./lint.ts";
 import { newmanListFromCollection } from "./parsers/newman.ts";
+import { unclaimedLines, unclaimedSignals } from "./scan.ts";
 import { globFiles, shq } from "./util.ts";
 
 export type Confidence = "high" | "medium" | "low";
@@ -453,6 +454,7 @@ export function renderExample(g: Guess): string {
 
 export function initCommand(root: string, json: boolean): number {
   const g = guess(root);
+  const { unclaimed } = unclaimedSignals(root, g);
   const dir = path.join(root, ".witness");
   fs.mkdirSync(dir, { recursive: true });
   const example = path.join(dir, "witness.example.toml");
@@ -463,7 +465,7 @@ export function initCommand(root: string, json: boolean): number {
   const scratch = path.join(dir, "scratch");
   fs.mkdirSync(scratch, { recursive: true });
   if (!fs.existsSync(path.join(scratch, ".gitignore"))) fs.writeFileSync(path.join(scratch, ".gitignore"), "*\n");
-  if (json) process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g }, null, 2) + "\n");
+  if (json) process.stdout.write(JSON.stringify({ example, gitignore: gi, ...g, unclaimed }, null, 2) + "\n");
   else {
     const w = (s: string) => process.stderr.write(`witness  ${s}\n`);
     w(`wrote ${example}; temporary files go in ${scratch}/ (git ignores it)`);
@@ -473,6 +475,7 @@ export function initCommand(root: string, json: boolean): number {
     for (const n of g.needsFilter) w(`  ${n.path}: ${n.reason}`);
     if (g.excluded.length) w("excluded (Witness runs functional tests only; unit and integration tests stay with the project's own build):");
     for (const e of g.excluded) w(`  ${e.path}: ${e.reason}`);
+    for (const l of unclaimedLines(unclaimed)) w(l);
     if (!fs.existsSync(path.join(dir, "witness.toml"))) w(`review it, then: mv ${example} ${path.join(dir, "witness.toml")}`);
   }
   return 0;

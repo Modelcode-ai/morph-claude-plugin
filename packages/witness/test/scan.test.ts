@@ -123,7 +123,7 @@ test("scan: an existing config marks what it covers, counts a comment as a recor
   assert.equal(byName(r.infrastructure, "db")?.configured, "db");
   assert.equal(byName(r.env, "DATABASE_URL")?.configured, "required");
   assert.equal(byName(r.env, "POSTGRES_PASSWORD")?.configured, "comment");
-  assert.deepEqual(r.config?.missing, { testProjects: [], infrastructure: ["cache"], secrets: [] });
+  assert.deepEqual(r.config?.missing, { testProjects: [], infrastructure: ["cache"], secrets: [], unclaimed: [] });
   assert.deepEqual(r.config?.unmatched, { suites: ["old"], dependencies: [] });
   assert.equal(r.config?.rendered, false);
 
@@ -186,4 +186,74 @@ test("scan: agent instruction files (CLAUDE.md, AGENTS.md, Copilot, Cursor) give
   assert.equal(find("make test")?.cwd, ".");
   assert.ok(find("docker compose up -d"));
   assert.ok(!r.commands.some((c) => c.cmd === "install"));
+});
+
+const unclaimedOf = (r: ScanResult) => Object.fromEntries(r.unclaimed.map((u) => [u.path ?? u.cmd, u]));
+
+test("scan: test signals no project claims are listed with evidence: a script CI runs after starting the app, a k6 run, test file types, an orphan test folder", () => {
+  const r = scan(path.join(FIX, "unclaimed"));
+  const u = unclaimedOf(r);
+  assert.deepEqual(Object.keys(u).sort(), ["api", "features", "load", "scripts/api-tests.sh", "tests/contract", "tests/perf"]);
+  const hurl = u["scripts/api-tests.sh"];
+  assert.deepEqual([hurl.cmd, hurl.tool, hurl.confidence], ["bash scripts/api-tests.sh", "hurl", "high"]);
+  assert.match(hurl.why, /runs hurl \(scripts\/api-tests\.sh:4\); CI runs it after the step that starts the app \(\.github\/workflows\/api\.yml:16\)/);
+  assert.match(hurl.why, /package script "test:smoke"/, "the package script that calls the same script is the same entry");
+  assert.deepEqual(hurl.evidence.slice(0, 2), [".github/workflows/api.yml:21", "scripts/api-tests.sh:4"]);
+  assert.deepEqual([u.load.cmd, u.load.tool], ["k6 run load/smoke.js", "k6"]);
+  assert.match(u.load.why, /a k6 script \(smoke\.js\)/, "the k6 file and the CI step that runs it are one entry");
+  assert.deepEqual([u["tests/perf"].tool, u["tests/perf"].evidence], ["jmeter", ["tests/perf/checkout.jmx"]]);
+  assert.equal(u.features.tool, "gherkin");
+  assert.deepEqual([u["tests/contract"].confidence, u["tests/contract"].evidence], ["medium", ["tests/contract/test_orders_contract.py"]]);
+  assert.ok(!r.unclaimed.some((x) => /npm (test|run lint)|seed|fixtures|postman|__tests__/.test(`${x.path} ${x.cmd}`)), "jest, the proposed newman suite, lint, seeds and fixtures are not unclaimed");
+});
+
+test("scan: a Postman collection becomes a newman suite with its environment file and the base URL pointed at the app", () => {
+  const r = scan(path.join(FIX, "unclaimed"));
+  const s = r.testProjects.find((t) => t.adapter === "newman")!;
+  assert.equal(s.status, "functional");
+  assert.equal(s.suite?.cmd, "npx --yes newman@6 run api/postman/shop.postman_collection.json -e api/postman/local.postman_environment.json --env-var 'baseUrl=${web.url}/v1'");
+  assert.deepEqual(s.evidence, ["api/postman/shop.postman_collection.json", "api/postman/local.postman_environment.json"]);
+  assert.match(s.reason, /5 request\(s\) and 14 assertion\(s\), run by Newman/);
+  assert.ok(r.adapters.includes("newman"));
+});
+
+test("scan and check: a suite that runs it or a config comment naming it decides an unclaimed signal; check warns about the rest", async () => {
+  const dir = copy("unclaimed");
+  fs.mkdirSync(path.join(dir, ".witness"));
+  fs.writeFileSync(
+    path.join(dir, ".witness", "witness.toml"),
+    [
+      "version = 1",
+      "# tests/perf: a JMeter load test, not a functional suite",
+      "# features: Gherkin scenarios without step definitions, nothing runs them",
+      "[[suite]]",
+      'name = "hurl"',
+      'kind = "api"',
+      'adapter = "generic"',
+      'cmd = "bash scripts/api-tests.sh"',
+      "service = []",
+      "",
+    ].join("\n"),
+  );
+  const u = unclaimedOf(scan(dir));
+  assert.equal(u["scripts/api-tests.sh"].configured, "hurl");
+  assert.equal(u["tests/perf"].configured, "comment");
+  assert.equal(u.features.configured, "comment");
+  assert.deepEqual(scan(dir).config?.missing.unclaimed, ["load", "api", "tests/contract"]);
+
+  const c = await witness(dir, ["check", "--stage", "config", "--json"]);
+  assert.equal(c.code, 0, c.stderr);
+  const warned = (c.json?.warnings as { files: string[]; message: string }[]).filter((w) => w.message.includes("looks like tests"));
+  assert.deepEqual(warned.map((w) => w.files[0]), ["load", "api", "tests/contract"]);
+  assert.match(c.stderr, /check {2}warn · load looks like tests \(runs k6;.*\) but no suite covers it: make it a suite, or leave it out with a witness\.toml comment that names it and says why/);
+});
+
+test("init: lists the unclaimed test signals under their own heading, and in --json", async () => {
+  const dir = copy("unclaimed");
+  const w = await witness(dir, ["init"]);
+  assert.equal(w.code, 0, w.stderr);
+  assert.match(w.stderr, /witness {2}not recognized as a test project \(decide each: make it a suite, or leave it out with a witness\.toml comment that names it and says why\):\nwitness {4}scripts\/api-tests\.sh \(bash scripts\/api-tests\.sh\): runs hurl/);
+  assert.doesNotMatch(fs.readFileSync(path.join(dir, ".witness", "witness.example.toml"), "utf8"), /tests\/perf/, "the example must not name them: copying it would count as deciding");
+  const j = await witness(dir, ["init", "--json"]);
+  assert.equal((j.json?.unclaimed as unknown[]).length, 6);
 });
