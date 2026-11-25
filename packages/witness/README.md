@@ -102,7 +102,7 @@ whose process exited on its own refreshes `.witness/cache/tests/<suite>.json`. T
 the output always names it (`list: last report r-… (2h ago, 12 tests)`). An id from an old report
 that no longer exists ends as `other/missing`, never as a failure. `witness check` prints one line
 per suite with where `report`, `list`, `select` and the per-test timeout come from, and what each
-missing one costs. `npm run conformance` prints the tested support matrix (13 frameworks × 8 scenarios).
+missing one costs. `npm run conformance` prints the tested support matrix (13 frameworks × 9 scenarios).
 
 `witness init` reads each test project (per csproj, pytest root, package.json, Maven/Gradle
 build, go module, Cargo.toml, `.bats` files, Gemfile, phpunit.xml, Android `src/androidTest`,
@@ -371,7 +371,8 @@ project per framework (pytest, jest, vitest, mocha, Playwright, JUnit with Maven
 RSpec, PHPUnit, xunit v3 on Microsoft.Testing.Platform, MSTest on VSTest, and a CLI tested with
 bats). For each it runs witness
 through a full run, `--select`, listing, a deleted and a truncated report, a per-test timeout and a
-`${WITNESS_SELECT}` compound command, checks the CTRF and `status.json`, and prints a framework ×
+`${WITNESS_SELECT}` compound command, and, for UI suites, that screenshots and video reach the report and that
+`check` and the report warn without them; it checks the CTRF and `status.json`, and prints a framework ×
 scenario matrix (results in `conformance/.results/`). It uses the local toolchain when there is one,
 else a Docker image (`--docker <name>` forces it); `KIT_DOTNET=/path/to/dotnet` picks a .NET SDK.
 CI runs it per framework on native toolchains.

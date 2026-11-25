@@ -261,6 +261,33 @@ async function runScenario(fw: Framework, t: Tool, dir: string, sc: Scenario): P
         const md = fs.readFileSync(path.join(run, "report.md"), "utf8");
         return { result: "pass", detail: `${ev.observations.length} observation(s): ${titleOf(o!)}${md.includes(titleOf(o!)) ? "" : " (not in report.md)"}`, ms: Date.now() - t0 };
       }
+      case "capture": {
+        if (!fw.capture) return { result: "n.a.", detail: `a ${fw.kind ?? "api"} suite: no screenshots expected`, ms: 0 };
+        const id = `${fw.adapter}:${fw.ids.pass}`;
+        const run = path.join(dir, ".witness", "runs", "latest");
+        const read = (f: string) => fs.readFileSync(path.join(run, f), "utf8");
+        const warning = "The passing test in kit (ui) left no screenshot or video";
+        const on = cfg(sc, { cmd: fw.cmd(t) });
+        const c = await witness(dir, on, ["check", "--json"]);
+        check(c.code === 0 && /capture ok/.test(c.stderr) && !JSON.parse(c.stdout || "{}").warnings?.length, `check with capture: exit ${c.code}: ${tail(c.stderr)}`);
+        const w = await witness(dir, on, ["run", "--json", ...sel([fw.ids.pass])]);
+        expectRows(w, fw, { [fw.ids.pass]: { status: "passed" } });
+        const own = (JSON.parse(read("artifacts.json")) as { file: string; test_id: string | null; artifact_type: string }[]).filter((a) => a.test_id === id);
+        const shot = own.find((a) => a.artifact_type === "screenshot");
+        const video = own.find((a) => a.artifact_type === "video");
+        check(shot && video, `the passing test has ${JSON.stringify(own.map((a) => a.artifact_type))}, want a screenshot and a video`);
+        const html = read("report.html");
+        check(html.includes(`<img class="thumb" src="${shot!.file}"`) && html.includes(`<video class="thumb" src="${video!.file}"`), "report.html does not show the screenshot and the video");
+        check(!read("report.md").includes("left no screenshot or video"), "report.md warns although the test recorded both");
+        const off = cfg(`${sc}-off`, { cmd: fw.cmd(t), env: { WITNESS_EVIDENCE: "" } });
+        const c2 = await witness(dir, off, ["check", "--json"]);
+        const warned = (JSON.parse(c2.stdout || "{}").warnings ?? []).find((x: { suite: string }) => x.suite === "kit");
+        check(c2.code === 0 && /left no screenshot or video/.test(warned?.message ?? ""), `check without capture: exit ${c2.code}, no capture warning: ${tail(c2.stderr)}`);
+        const w2 = await witness(dir, off, ["run", "--json", ...sel([fw.ids.pass])]);
+        expectRows(w2, fw, { [fw.ids.pass]: { status: "passed" } });
+        check(read("report.md").includes(`Warning: ${warning}`) && read("report.html").includes(warning), "the report does not warn when the test left no screenshot or video");
+        return { result: "pass", detail: `${path.basename(shot!.file)} and ${path.basename(video!.file)} in report.html; check and the report warn with capture off`, ms: Date.now() - t0 };
+      }
       case "compound": {
         const config = cfg(sc, { cmd: fw.compound(t) });
         const s = await witness(dir, config, ["run", "--json", ...sel([fw.ids.pass, fw.ids.fail])]);
