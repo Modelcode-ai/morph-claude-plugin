@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 import { okOf, readEvidence, titleOf } from "../src/evidence/contract.ts";
+import { gapLine, visualGaps } from "../src/evidence/visuals.ts";
 import { renderHtml } from "../src/report/html.ts";
 import { renderMd } from "../src/report/md.ts";
 import { buildModel } from "../src/report/model.ts";
@@ -94,5 +95,29 @@ printf 'oops\\n' >> "$d/evidence.jsonl"
     assert.match(html, /src="artifacts\/Calc_add\/after\.png"/);
     assert.match(html, /On the base/);
     assert.match(renderMd(m), /- http: POST \/calc\/add → 200/);
+  });
+});
+
+describe("screenshots and video of ui, mobile and desktop tests", () => {
+  test("only passing tests of those kinds count; a trace or a log is not a screen", () => {
+    const suites = [{ name: "web", kind: "ui" }, { name: "app", kind: "mobile" }, { name: "win", kind: "desktop" }, { name: "api", kind: "api" }];
+    const tests = [
+      { id: "playwright:a", suite: "web", status: "passed" },
+      { id: "playwright:b", suite: "web", status: "failed" },
+      { id: "generic:c", suite: "app", status: "passed" },
+      { id: "generic:d", suite: "win", status: "skipped" },
+      { id: "pytest:e", suite: "api", status: "passed" },
+    ];
+    const arts = [
+      { file: "artifacts/a/trace.zip", test_id: "playwright:a", artifact_type: "trace" },
+      { file: "artifacts/c/rec.mp4", test_id: "generic:c", artifact_type: "video" },
+    ];
+    const gaps = visualGaps(suites, tests, arts);
+    assert.deepEqual(gaps, [
+      { suite: "web", kind: "ui", passed: 1, bare: ["playwright:a"] },
+      { suite: "app", kind: "mobile", passed: 1, bare: [] },
+    ]);
+    assert.equal(gapLine(gaps[0]), "The passing test in web (ui) left no screenshot or video");
+    assert.equal(gapLine(gaps[1]), undefined);
   });
 });

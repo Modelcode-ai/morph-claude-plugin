@@ -1,5 +1,6 @@
 import { formatDiagnosis } from "../diagnosis.ts";
 import { okOf, titleOf } from "../evidence/contract.ts";
+import { gapLine } from "../evidence/visuals.ts";
 import type { ReportModel } from "./model.ts";
 import { fmtMs, itemLabel, outcomeLabel, takeaways } from "./words.ts";
 
@@ -77,6 +78,13 @@ export function renderMd(m: ReportModel): string {
   md.push("", "## 3. How the app was exercised", "", `**${t.ch3}**`, "");
   md.push("| Suite | Kind | App | State | Passed | Failed | Error | Missing | Skipped |", "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |");
   for (const s of m.suites) md.push(`| ${s.name} | ${s.kind || "-"} | ${s.services.length ? s.services.join(", ") : "in the tests"} | ${s.state}${s.cause ? ` (${s.cause})` : ""}${s.state === "skipped" && s.note ? `: ${s.note}` : ""} | ${s.passed} | ${s.failed} | ${s.error} | ${s.missing} | ${s.skipped} |`);
+  if (m.visuals.length) {
+    md.push("", "Screenshots and video:", "");
+    for (const g of m.visuals) {
+      const gap = gapLine(g);
+      md.push(gap ? `- Warning: ${gap}: ${g.bare.slice(0, 10).map((id) => `\`${id}\``).join(", ")}${g.bare.length > 10 ? ` and ${g.bare.length - 10} more` : ""}` : `- ${g.suite} (${g.kind}): every passing test left a screenshot or video (${g.passed})`);
+    }
+  }
   const bad = m.tests.filter((x) => x.status === "failed" || x.status === "other");
   if (bad.length) {
     md.push("", `### Not passing (${bad.length})`, "");

@@ -101,6 +101,40 @@ describe("run report model", () => {
     assert.match(renderHtml(m), /Running app, started by Witness/);
   });
 
+  test("ui tests without a screenshot or video: a warning in both reports, a step, and a weaker evidence signal", () => {
+    const suites = [{ name: "e2e", state: "passed", passed: 3, failed: 0, skipped: 0, error: 0, missing: 0, kind: "ui", services: ["web"] }];
+    const tests: T[] = ["a", "b", "c"].map((x) => ({ id: `playwright:home.spec.ts > ${x}`, suite: "e2e", status: "passed" }));
+    const shots = [
+      { file: "artifacts/a/test-finished-1.png", test_id: tests[0].id, artifact_type: "screenshot" },
+      { file: "artifacts/a/video.webm", test_id: tests[0].id, artifact_type: "video" },
+      { file: "artifacts/b/trace.zip", test_id: tests[1].id, artifact_type: "trace" },
+      { file: "against/artifacts/c/x.png", test_id: tests[2].id, artifact_type: "screenshot" },
+    ];
+    const m = buildModel(runDir({ outcome: "passed", tests, suites, artifacts: shots }));
+    assert.deepEqual(m.visuals, [{ suite: "e2e", kind: "ui", passed: 3, bare: [tests[1].id, tests[2].id] }]);
+    const sig = m.signals.find((s) => s.key === "evidence")!;
+    assert.equal(sig.state, "p");
+    assert.match(sig.detail, /1 of 3 passing UI tests have a screenshot or video/);
+    const step = m.steps.find((s) => s.title === "Record screenshots and video for 2 tests")!;
+    assert.equal(step.detail, "2 of 3 passing tests in e2e (ui) left no screenshot or video.");
+    assert.match(step.prompt!, /WITNESS_EVIDENCE is set/);
+    assert.match(renderMd(m), /- Warning: 2 of 3 passing tests in e2e \(ui\) left no screenshot or video: `playwright:home.spec.ts > b`/);
+    const html = renderHtml(m);
+    assert.match(html, /Screenshots and video of 1 test<\/summary>/);
+    assert.match(html, /2 of 3 passing tests in e2e \(ui\) left no screenshot or video\./);
+    assert.match(html, /<video class="thumb" src="artifacts\/a\/video.webm"/);
+
+    const all = buildModel(runDir({ outcome: "passed", tests, suites, artifacts: tests.map((t) => ({ file: `artifacts/${t.id.slice(-1)}/v.webm`, test_id: t.id, artifact_type: "video" })) }));
+    assert.equal(all.visuals[0].bare.length, 0);
+    assert.ok(!all.steps.some((s) => /Record screenshots/.test(s.title)));
+    assert.match(renderMd(all), /- e2e \(ui\): every passing test left a screenshot or video \(3\)/);
+    const none = buildModel(runDir({ outcome: "passed", tests, suites }));
+    assert.equal(none.signals.find((s) => s.key === "evidence")!.state, "n");
+    assert.equal(none.steps.find((s) => /Record screenshots/.test(s.title))!.detail, "All 3 passing tests in e2e (ui) left no screenshot or video.");
+    const api = buildModel(runDir({ outcome: "passed", tests: passing }));
+    assert.deepEqual(api.visuals, []);
+  });
+
   test("names and messages are escaped in the page, including a closing script tag", () => {
     const tests: T[] = [{ id: 'pytest:t.py::test_<img src=x onerror=alert(1)>"', suite: "api", status: "failed", message: "</script><script>alert(1)</script>" }];
     const html = renderHtml(buildModel(runDir({ outcome: "failed", tests })));

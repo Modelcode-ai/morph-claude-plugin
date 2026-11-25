@@ -1,5 +1,6 @@
 import { formatDiagnosis } from "../diagnosis.ts";
 import { type Observation, okOf, titleOf } from "../evidence/contract.ts";
+import { gapLine } from "../evidence/visuals.ts";
 import type { NextStep, PlanItemView, ReportModel, SuiteView, TestEvidence, TestRow } from "./model.ts";
 import { fmtMs, itemLabel, outcomeLabel, type Take, takes } from "./words.ts";
 import { CSS, SCRIPT } from "./html-assets.ts";
@@ -136,9 +137,29 @@ function timelineOf(e: TestEvidence, base: string): string {
   const list = e.observations.slice(0, 60).map(row).join("");
   const more = e.observations.length > 60 ? `<p class="cap">… ${e.observations.length - 60} more in ${esc(e.source)}/evidence.jsonl</p>` : "";
   const files = e.files.filter((f) => !shots.has(f.file));
-  const media = files.map((f) => (f.type === "screenshot" ? `<a href="${esc(base + f.file)}"><img class="thumb" src="${esc(base + f.file)}" alt="${esc(f.file.split("/").pop())}" loading="lazy"></a>` : f.type === "video" ? `<video class="thumb" src="${esc(base + f.file)}" controls preload="none"></video>` : `<a class="mono file-link" href="${esc(base + f.file)}">${esc(f.type)} · ${esc(f.file.split("/").pop())}</a>${f.type === "trace" ? '<span class="cap">open with npx playwright show-trace</span>' : ""}`)).join("");
+  const media = mediaOf(files, base);
   const problems = e.problems.length ? `<p class="cap st-skipped">${plural(e.problems.length, "problem")} in evidence.jsonl, e.g. line ${e.problems[0].line}: ${esc(e.problems[0].message)}</p>` : "";
   return `${list}${more}${media ? `<div class="media">${media}</div>` : ""}${problems}`;
+}
+
+function mediaOf(files: { file: string; type: string }[], base = ""): string {
+  return files.map((f) => (f.type === "screenshot" ? `<a href="${esc(base + f.file)}"><img class="thumb" src="${esc(base + f.file)}" alt="${esc(f.file.split("/").pop())}" loading="lazy"></a>` : f.type === "video" ? `<video class="thumb" src="${esc(base + f.file)}" controls preload="none"></video>` : `<a class="mono file-link" href="${esc(base + f.file)}">${esc(f.type)} · ${esc(f.file.split("/").pop())}</a>${f.type === "trace" ? '<span class="cap">open with npx playwright show-trace</span>' : ""}`)).join("");
+}
+
+const MAX_SCREENS = 300;
+
+/** Every test's screenshots and video, in test order, with the suites whose passing tests left none. */
+function screens(m: ReportModel): string {
+  const shown = m.tests.flatMap((r) => {
+    const files = (m.evidence[r.id]?.here?.files ?? []).filter((f) => f.type === "screenshot" || f.type === "video");
+    return files.length ? [{ r, files: [...files.filter((f) => f.type === "screenshot").slice(-3), ...files.filter((f) => f.type === "video").slice(0, 1)] }] : [];
+  });
+  const gaps = m.visuals.map(gapLine).filter((x): x is string => !!x);
+  if (!shown.length && !gaps.length) return "";
+  const cards = shown.slice(0, MAX_SCREENS).map(({ r, files }) => `<div class="ev shot"><div class="tref"><span class="st-${esc(r.status)}">${esc(r.status)}</span><span class="mono">${esc(short(r.id))}</span></div><div class="media">${mediaOf(files)}</div></div>`).join("");
+  const warn = gaps.map((g) => `<p class="cap st-skipped">${esc(g)}. See "Record screenshots and video" in the next steps.</p>`).join("");
+  const more = shown.length > MAX_SCREENS ? `<p class="cap">… ${shown.length - MAX_SCREENS} more tests with screenshots or video in artifacts/</p>` : "";
+  return `<details class="more"${gaps.length ? " open" : ""}><summary>Screenshots and video of ${plural(shown.length, "test")}</summary><div class="more-body">${warn}${cards ? `<div class="gallery">${cards}</div>` : ""}${more}</div></details>`;
 }
 
 function evidenceFor(m: ReportModel, row?: TestRow): string {
@@ -208,7 +229,7 @@ function chapter3(m: ReportModel, t: Take): string {
   const more = tl.rows.length
     ? `<details class="more"><summary>Timeline${tl.rows.length > 1 ? " of both runs" : ""}</summary><div class="more-body"><div class="tl" role="img" aria-label="Timeline of the run">${tl.rows.map((r) => `<div class="tl-row"><span>${esc(r.label)}</span><div class="track">${r.segments.map((s) => `<div class="seg ${s.type} ${s.state === "passed" || !s.state ? "" : "bad"} ${r.label === "Base" ? "base" : ""}" style="left:${pct(s.start)};width:${pct(Math.max(s.end - s.start, tl.total * 0.004))}" title="${esc(`${s.label} ${(s.end - s.start).toFixed(1)}s`)}">${s.type === "boot" ? "" : esc(s.label)}</div>`).join("")}</div></div>`).join("")}<div class="tl-row"><span></span><div class="axis">${ticks}</div></div></div></div></details>`
     : "";
-  return chapter(3, "How the app was exercised", take(t), viz, more);
+  return chapter(3, "How the app was exercised", take(t), viz, more + screens(m));
 }
 
 function chapter(n: number, kicker: string, takeHtml: string, viz: string, more: string): string {
