@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import { parseGoJson } from "./gotest.ts";
 import { parseJestJson } from "./jest.ts";
 import { parseJUnit } from "./junit.ts";
+import { parseNewmanJson } from "./newman.ts";
 import { parsePlaywright } from "./playwright.ts";
 import { parseTrx } from "./trx.ts";
 import { type ParsedFile, type RawCase, ReportError, type ReportFormat } from "./types.ts";
@@ -29,6 +30,7 @@ export function parseReportText(text: string, hint?: ReportFormat, cwd?: string)
       throw new ReportError(`invalid JSON: ${(e as Error).message}`);
     }
     const o = doc as Record<string, unknown>;
+    if (o && typeof o === "object" && "run" in o && "collection" in o) return { format: "newman-json", cases: parseNewmanJson(o) };
     if (o && typeof o === "object" && "testResults" in o) return { format: "jest-json", cases: parseJestJson(o, cwd) };
     if (o && typeof o === "object" && "suites" in o) return { format: "playwright-json", cases: parsePlaywright(o) };
     if (o && typeof o === "object" && "Action" in o) return { format: "go-json", cases: parseGoJson(body) };

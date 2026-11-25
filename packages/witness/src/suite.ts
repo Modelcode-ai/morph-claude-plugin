@@ -259,6 +259,7 @@ export async function runSuite(ctx: SuiteCtx, suite: Suite, select: string[] | u
     if (!res.tests.some((t) => t.status === "failed")) res = { ...res, state: "passed" };
   }
 
+  writeObservations(ctx.outDir, res.tests);
   copyAttachments(ctx.run.dir, ctx.outDir, res.tests);
   const summary = summarize(suite.name, res.state, res.tests);
   summary.exit_code = exec.code;
@@ -464,6 +465,17 @@ function bySuffix(tests: TestRecord[], dir: string): TestRecord | undefined {
     return id.length > dir.length && id.endsWith(dir) && /[_@-]/.test(id[id.length - dir.length - 1]);
   });
   return hits.length === 1 ? hits[0] : undefined;
+}
+
+/** Append the evidence a report holds (Newman's requests and responses) to artifacts/<test-id>/evidence.jsonl. */
+export function writeObservations(outDir: string, tests: TestRecord[]): void {
+  for (const t of tests) {
+    if (!t.observations?.length) continue;
+    const dir = path.join(outDir, "artifacts", safeId(t.id));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, EVIDENCE_FILE), t.observations.map((o) => JSON.stringify(o)).join("\n") + "\n");
+    delete t.observations;
+  }
 }
 
 /** Copy framework attachments into artifacts/<test-id>/ right after their suite: a later suite may clear the runner's output folder. */

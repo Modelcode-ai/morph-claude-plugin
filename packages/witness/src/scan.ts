@@ -312,7 +312,7 @@ export function scan(root: string): ScanResult {
 
 const TOOLS: [string, (o: ScanResult) => boolean][] = [
   ["dotnet", (o) => o.adapters.includes("dotnet") || o.frameworks.some((f) => f.name === "dotnet")],
-  ["node", (o) => o.adapters.some((a) => ["jest", "vitest", "mocha", "playwright"].includes(a)) || o.frameworks.some((f) => f.name === "node")],
+  ["node", (o) => o.adapters.some((a) => ["jest", "vitest", "mocha", "playwright", "newman"].includes(a)) || o.frameworks.some((f) => f.name === "node")],
   ["python3", (o) => o.adapters.includes("pytest") || o.frameworks.some((f) => f.name === "python")],
   ["java", (o) => o.adapters.some((a) => a.startsWith("junit"))],
   ["mvn", (o) => o.adapters.includes("junit-maven")],

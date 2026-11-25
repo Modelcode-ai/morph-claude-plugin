@@ -3,6 +3,7 @@ import { type Adapter, normFile, stableId } from "./adapters.ts";
 import type { Kind } from "./config.ts";
 import type { Cause } from "./diagnosis.ts";
 import { NEVER_FINISHED } from "./parsers/gotest.ts";
+import type { Observation } from "./evidence/contract.ts";
 import type { Attachment, ParsedFile, RawCase, StatusDetail, TestStatus } from "./parsers/types.ts";
 
 export type Obtained = "report" | "per-test-rerun" | "suite-level";
@@ -25,6 +26,8 @@ export interface TestRecord {
   parity?: Parity;
   originStatus?: TestStatus;
   attachments?: Attachment[];
+  /** From the report; written to the test's evidence.jsonl, then dropped from the record. */
+  observations?: Observation[];
 }
 
 export type SuiteState = "passed" | "failed" | "error" | "stalled" | "timeout" | "interrupted" | "skipped" | "pending" | "running";
@@ -91,6 +94,7 @@ export function toRecord(c: RawCase, adapter: Adapter, suite: string, cwd: strin
   if (file) r.filePath = file;
   if (c.retries) r.retries = c.retries;
   if (c.flaky) r.flaky = true;
+  if (c.observations?.length) r.observations = c.observations;
   if (c.attachments?.length) r.attachments = c.attachments.map((a) => ({ ...a, path: path.isAbsolute(a.path) ? a.path : path.join(cwd, a.path) }));
   return r;
 }

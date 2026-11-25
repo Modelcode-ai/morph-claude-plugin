@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { newmanListFromCollection, newmanRequestOf, newmanRun } from "./parsers/newman.ts";
 import type { ParsedFile, RawCase, ReportFormat } from "./parsers/types.ts";
 import { escapeRegExp, shellWords, shq } from "./util.ts";
 
@@ -16,6 +17,7 @@ export type AdapterName =
   | "rspec"
   | "phpunit"
   | "bats"
+  | "newman"
   | "generic";
 
 export interface ReportGlob {
@@ -60,6 +62,8 @@ export interface NativeList {
   /** "adapter": parse the output; "report": the listing writes the adapter's report (every test unrun). */
   format: "adapter" | "report";
   parse?: (out: string) => string[];
+  /** Lists from the files the command names, without running anything; null when it can't. */
+  read?: (cmd: string, cwd: string) => string[] | null;
 }
 
 export interface Plugin {
@@ -490,6 +494,19 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     perTestTimeoutEnv: (ms) => ({ BATS_TEST_TIMEOUT: String(Math.ceil(ms / 1000)) }),
     id: classHash,
   },
+  newman: {
+    name: "newman",
+    format: "newman-json",
+    reportArgs: (d, _cwd, cmd) => `${newmanReporters(cmd)} --reporter-json-export ${shq(path.join(d, "newman.json"))}`,
+    reportMarker: /--reporter-json-export\b/,
+    reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],
+    selectArgs: (ids) => [...new Set(ids.map(newmanRequestOf))].map((n) => `--folder ${shq(n)}`).join(" "),
+    // the suite's own --folder narrowing gives way to the selection, which lies inside it
+    select: (cmd, ids) => appendArgs(cmd.replace(/\s--folder(?:\s+|=)(?:'[^']*'|"[^"]*"|\S+)/g, ""), [...new Set(ids.map(newmanRequestOf))].map((n) => `--folder ${shq(n)}`).join(" ")),
+    list: { format: "adapter", read: newmanList },
+    perTestTimeout: (ms) => `--timeout-request ${ms}`,
+    id: (c) => (c.titles ?? (c.classname ? [c.classname, c.name] : [c.name])).map(clean).join(" > "),
+  },
   generic: {
     name: "generic",
     format: "junit",
@@ -497,6 +514,25 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
     id: classHash,
   },
 };
+
+/** Newman keeps only the last -r: repeat the suite's own reporters with json added. */
+function newmanReporters(cmd: string): string {
+  const own = /(?:^|\s)(?:-r|--reporters)(?:\s+|=)([\w,@/-]+)/.exec(cmd)?.[1];
+  const list = own ? own.split(",") : ["cli"];
+  return `-r ${[...list.filter((r) => r !== "json"), "json"].join(",")}`;
+}
+
+function newmanList(cmd: string, cwd: string): string[] | null {
+  // a loose split: the command may hold shell syntax around the newman run
+  const words = (cmd.match(/'[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|()]+/g) ?? []).map((w) => (/^['"]/.test(w) ? w.slice(1, -1) : w));
+  const run = newmanRun(words);
+  if (!run) return null;
+  try {
+    return newmanListFromCollection(JSON.parse(fs.readFileSync(path.resolve(cwd, run.collection), "utf8")), run.folders);
+  } catch {
+    return null;
+  }
+}
 
 function dotnetFilter(ids: string[]): string {
   return ids.map((id) => { const [c, m] = splitClassHash(id); return `FullyQualifiedName=${c}.${stripParams(m)}`; }).join("|");

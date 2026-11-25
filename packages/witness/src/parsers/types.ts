@@ -1,3 +1,5 @@
+import type { Observation } from "../evidence/contract.ts";
+
 export type TestStatus = "passed" | "failed" | "skipped" | "pending" | "other";
 export type StatusDetail = "error" | "missing" | "timeout";
 
@@ -23,9 +25,11 @@ export interface RawCase {
   retries?: number;
   flaky?: boolean;
   attachments?: Attachment[];
+  /** Evidence the report itself holds (a request and its response); witness writes it to the test's evidence.jsonl. */
+  observations?: Observation[];
 }
 
-export type ReportFormat = "junit" | "trx" | "playwright-json" | "jest-json" | "go-json";
+export type ReportFormat = "junit" | "trx" | "playwright-json" | "jest-json" | "go-json" | "newman-json";
 
 export interface ParsedFile {
   file: string;

@@ -59,7 +59,7 @@ export function listCommand(suite: Suite, adapter: Adapter, vars: Vars, reportDi
   const v = { ...vars, WITNESS_REPORT_DIR: reportDir };
   if (suite.list) return { cmd: fillSelect(substitute(suite.list.cmd, v)), format: suite.list.format, source: "template", report: suite.list.report && substitute(suite.list.report, v) };
   const nl = adapter.list;
-  if (!nl) return null;
+  if (!nl || nl.read) return null;
   let cmd: string | null = substitute(suite.cmd, v);
   if (nl.rewrite) cmd = nl.rewrite(cmd);
   if (!cmd) return null;
@@ -110,6 +110,11 @@ export async function listSuiteTests(suite: Suite, ctx: ListCtx): Promise<TestLi
   const cache = ctx.noCache ? undefined : readListCache(ctx.root, suite);
   const fresh = cache && cache.key === suiteKey(suite) ? cache : undefined;
   let error: string | undefined;
+  if (!suite.list && adapter.list?.read) {
+    const ids = adapter.list.read(fillSelect(substitute(suite.cmd, { ...ctx.vars, WITNESS_REPORT_DIR: ctx.scratch })), ctx.cwd);
+    if (ids?.length) return { ids, source: "native", detail: "list: native (read from the files the command runs)" };
+    error = ids ? "the files the command runs declare no tests" : "can't find the files the command runs";
+  }
   if (lc) {
     const v = { ...ctx.vars, WITNESS_REPORT_DIR: ctx.scratch };
     const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...adapter.env, ...(lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}), ...Object.fromEntries(Object.entries(suite.env).map(([k, x]) => [k, substitute(x, v)])) });
@@ -127,7 +132,7 @@ export async function listSuiteTests(suite: Suite, ctx: ListCtx): Promise<TestLi
     }
     error = r.timedOut ? "listing timed out" : `listing failed (exit ${r.code}${r.code === 0 ? ", no tests in the output" : ""})`;
   }
-  if (fresh) return { ids: fresh.ids, source: "last-report", detail: `list: last report ${fresh.run_id} (${ago(fresh.at)} ago, ${fresh.ids.length} tests${error ? `; ${lc!.source} ${error}` : ""})`, error, log: lc ? ctx.log : undefined };
+  if (fresh) return { ids: fresh.ids, source: "last-report", detail: `list: last report ${fresh.run_id} (${ago(fresh.at)} ago, ${fresh.ids.length} tests${error ? `; ${lc?.source ?? "native"} ${error}` : ""})`, error, log: lc ? ctx.log : undefined };
   const why = error ?? (lc ? "no tests listed" : `the ${adapter.name} adapter can't list tests and the suite has no complete run yet`);
   return { source: "none", detail: `list: none (${cache ? `${why}; the last report is from a different adapter or folder` : why})`, error: why, log: lc ? ctx.log : undefined };
 }
@@ -157,7 +162,7 @@ export function capabilities(suite: Suite, root: string, cwd: string, runSetting
   const cache = readListCache(root, suite);
   const fresh = cache && cache.key === suiteKey(suite) ? cache : undefined;
   const nativeList = listCommand(suite, a, {}, "/x", cwd);
-  const list = suite.list ? "template" : nativeList ? "native" : fresh ? `last-report ${fresh.run_id}` : "none";
+  const list = suite.list ? "template" : nativeList || a.list?.read?.(fillSelect(suite.cmd), cwd)?.length ? "native" : fresh ? `last-report ${fresh.run_id}` : "none";
   if (list === "none")
     out.push("no test list: plan check can't confirm test ids, and a missing or unreadable report gives one suite-level row instead of per-test reruns (set list = \"<cmd>\", or run the whole suite once so witness can reuse its report)");
   else if (list.startsWith("last-report")) out.push(`test list from the last complete report (${fresh!.run_id}, ${ago(fresh!.at)} ago): tests added since are unknown until the next full run`);
