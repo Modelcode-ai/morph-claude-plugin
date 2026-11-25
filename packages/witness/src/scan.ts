@@ -369,6 +369,14 @@ export function machineFacts(out: ScanResult, env: NodeJS.ProcessEnv = process.e
         f.evidence.push("dotnet --list-sdks");
       }
     }
+    if (p && tool === "java") {
+      // macOS ships /usr/bin/java as a stub that only says no runtime is installed
+      const r = spawnSync(p, ["-version"], { encoding: "utf8", timeout: 10_000, env });
+      if (r.status !== 0) {
+        f.found = false;
+        f.evidence.push(`java -version: ${(`${r.stderr ?? ""}${r.stdout ?? ""}`.trim().split(/\r?\n/)[0] || `exit code ${r.status}`).slice(0, 200)}`);
+      }
+    }
     if (p && tool === "docker") {
       const v = output(p, ["version", "--format", "{{.Server.Version}}"], env);
       f.installed = v ? [v] : [];

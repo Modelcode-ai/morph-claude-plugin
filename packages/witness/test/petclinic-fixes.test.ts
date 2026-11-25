@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, test } from "node:test";
 import type { TestRecord } from "../src/reconcile.ts";
+import { machineFacts, type ScanResult } from "../src/scan.ts";
 import { collectArtifacts, copyAttachments } from "../src/suite.ts";
 import { suite, tmpRepo, witness } from "./helpers.ts";
 
@@ -39,5 +40,16 @@ ready = { http = "\${self.url}/health", timeout = "3s" }
     const r3 = await witness(dir, ["run"]);
     assert.equal(r3.code, 0, r3.stderr);
     assert.match(r3.stderr, /setup {2}api · mkdir -p build/);
+  });
+
+  test("machine facts: a java that can't run (the macOS stub) is not found", { skip: process.platform === "win32" }, () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "witness-bin-"));
+    fs.writeFileSync(path.join(bin, "java"), "#!/bin/sh\necho 'The operation couldn’t be completed. Unable to locate a Java Runtime.' >&2\nexit 1\n", { mode: 0o755 });
+    const out = { adapters: ["junit-maven"], frameworks: [], containers: [], infrastructure: [], commands: [] } as unknown as ScanResult;
+    const java = machineFacts(out, { PATH: bin }).find((f) => f.tool === "java")!;
+    assert.equal(java.found, false);
+    assert.match(java.evidence.join(" "), /Unable to locate a Java Runtime/);
+    fs.writeFileSync(path.join(bin, "java"), "#!/bin/sh\necho 'openjdk version \"17.0.12\"' >&2\n", { mode: 0o755 });
+    assert.equal(machineFacts(out, { PATH: bin }).find((f) => f.tool === "java")!.found, true);
   });
 });
