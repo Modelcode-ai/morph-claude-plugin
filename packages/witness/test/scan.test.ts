@@ -204,7 +204,7 @@ test("scan: test signals no project claims are listed with evidence: a script CI
   assert.deepEqual([u["tests/perf"].tool, u["tests/perf"].evidence], ["jmeter", ["tests/perf/checkout.jmx"]]);
   assert.equal(u.features.tool, "gherkin");
   assert.deepEqual([u["tests/contract"].confidence, u["tests/contract"].evidence], ["medium", ["tests/contract/test_orders_contract.py"]]);
-  assert.ok(!r.unclaimed.some((x) => /npm (test|run lint)|seed|fixtures|postman|__tests__/.test(`${x.path} ${x.cmd}`)), "jest, the proposed newman suite, lint, seeds and fixtures are not unclaimed");
+  assert.ok(!r.unclaimed.some((x) => /npm (test|run (lint|test:unit|test:all))|seed|fixtures|postman|__tests__/.test(`${x.path} ${x.cmd}`)), "jest (also through react-scripts), a turbo wrapper, the proposed newman suite, lint, seeds and fixtures are not unclaimed");
 });
 
 test("scan: a Postman collection becomes a newman suite with its environment file and the base URL pointed at the app", () => {

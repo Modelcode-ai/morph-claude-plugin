@@ -67,7 +67,7 @@ const RUNNERS: [RegExp, string, AdapterName?][] = [
   [/(^|[\s/])cypress\s+run\b/, "cypress", "generic"],
   [/(^|[\s/])playwright\s+test\b/, "playwright", "playwright"],
   [/(^|[\s/])(py\.test|pytest)\b/, "pytest", "pytest"],
-  [/(^|[\s/])jest\b/, "jest", "jest"],
+  [/(^|[\s/])jest\b|\b(react-scripts|craco|react-app-rewired)\s+test\b/, "jest", "jest"],
   [/(^|[\s/])vitest\b/, "vitest", "vitest"],
   [/(^|[\s/])mocha\b/, "mocha", "mocha"],
   [/(^|[\s/])(\.\/)?mvnw?\b.*\b(test|verify|integration-test)\b/, "maven", "junit-maven"],
@@ -110,6 +110,8 @@ const ADAPTER_LANG: Partial<Record<AdapterName, RegExp>> = {
   phpunit: /\.php$/,
   bats: /\.bats$/,
 };
+/** Commands that only run other commands (a monorepo's test task): what they run is judged where it is defined. */
+const WRAPPER = /^(npx\s+)?(turbo|nx|lerna|npm-run-all|run-[ps]|concurrently|make|just|rake|npm|pnpm|yarn|bun|dotnet|mvnw?|\.\/mvnw|gradlew?|\.\/gradlew|tox|nox)\b/;
 const SCRIPT_CALL = /^(?:(?:ba|z|da)?sh|pwsh|powershell)\s+(?:-\w+\s+)*([\w./-]+\.(?:sh|bash|zsh|ps1))\b|^(\.{1,2}\/[\w./-]+?)(?:\s|$)|^([\w-][\w./-]*\.(?:sh|bash|zsh))(?:\s|$)/;
 
 const at = (file: string, line: number) => (line ? `${file}:${line}` : file);
@@ -139,8 +141,13 @@ export function findUnclaimed(root: string, files: string[], claims: Claim[], ci
     same.tool ??= u.tool;
   };
 
-  /** What a command runs: a known runner in it, or in the script it calls (read one level deep). */
-  const inspect = (cmd: string, cwd: string, depth = 0): { tool?: string; adapter?: AdapterName; script?: string; ev?: string; names: string[] } => {
+  type Seen = { tool?: string; adapter?: AdapterName; script?: string; ev?: string; names: string[] };
+  /** What a command runs: a known runner in one of its parts, else a script it calls; an unclaimed runner wins. */
+  const inspect = (cmd: string, cwd: string, depth = 0): Seen => {
+    const parts = cmd.split(/\s*(?:&&|\|\||;)\s*/).filter(Boolean).map((c) => inspectOne(c, cwd, depth));
+    return parts.find((r) => r.tool && !(r.adapter && adapters.has(r.adapter))) ?? parts.find((r) => r.tool) ?? parts.find((r) => r.script) ?? { names: [] };
+  };
+  const inspectOne = (cmd: string, cwd: string, depth: number): Seen => {
     const pkg = /^(?:npm|pnpm|yarn|bun)(?:\s+run)?\s+([\w:.-]+)/.exec(cmd);
     const body = pkg && scripts.find((x) => x.dir === cwd && x.name === pkg[1])?.body;
     if (body && depth < 2) return inspect(body, cwd, depth + 1);
@@ -168,6 +175,7 @@ export function findUnclaimed(root: string, files: string[], claims: Claim[], ci
     if (r.adapter && adapters.has(r.adapter) && (r.adapter !== "newman" || !r.names.length || coveredByNames(r.names))) return;
     if (!r.tool && r.script && coveredByNames(r.names)) return;
     if (!r.tool && !TEST_WORD.test(r.script ?? "") && !TEST_WORD.test(cmd)) return;
+    if (!r.tool && !r.script && WRAPPER.test(cmd)) return;
     const why = [r.tool ? `runs ${r.tool}${r.ev ? ` (${r.ev})` : ""}` : `its name says test`, `${origin}${afterStart ? ` after the step that starts the app (${afterStart})` : ""}`].join("; ");
     const confidence: Confidence = r.tool ? (r.adapter && !adapters.has(r.adapter) ? "medium" : "high") : afterStart ? "medium" : "low";
     add({ cmd, cwd, ...(r.script ? { path: r.script } : {}), ...(r.tool ? { tool: r.tool } : {}), why, confidence, evidence: [ev, ...(r.ev ? [r.ev] : [])] });
@@ -228,7 +236,7 @@ export function claimOf(s: { adapter: AdapterName; cwd: string; cmd: string }, f
 /** The suite that covers `u`, or "comment" when a comment in the config names it; undefined while undecided. */
 export function decision(u: UnclaimedFact, suites: { name: string; claim: Claim }[], named: (x: string) => boolean): string | undefined {
   const p = u.path;
-  const hit = suites.find(({ claim: c }) => (p && (c.paths.some((x) => under(x, p) || under(p, x)) || c.dirs.some((d) => d !== "." && under(p, d)))) || (u.cmd && c.paths.length && pathsIn(u.cmd, ".", c.paths).length));
+  const hit = suites.find(({ claim: c }) => (p && (c.paths.some((x) => under(x, p) || under(p, x)) || c.dirs.some((d) => d !== "." && under(p, d)))) || (u.cmd && c.paths.length && pathsIn(u.cmd, u.cwd ?? ".", c.paths).length));
   if (hit) return hit.name;
   // a one-word folder ("load", "api") counts only as `load:` or `load/`, not as a word in a sentence
   const names = (x: string) => (/[/.\s]/.test(x) ? named(x) : named(`${x}:`) || named(`${x}/`));
