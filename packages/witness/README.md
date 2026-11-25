@@ -115,11 +115,12 @@ whose process exited on its own refreshes `.witness/cache/tests/<suite>.json`. T
 the output always names it (`list: last report r-… (2h ago, 12 tests)`). An id from an old report
 that no longer exists ends as `other/missing`, never as a failure. `witness check` prints one line
 per suite with where `report`, `list`, `select` and the per-test timeout come from, and what each
-missing one costs. `npm run conformance` prints the tested support matrix (13 frameworks × 9 scenarios).
+missing one costs. `npm run conformance` prints the tested support matrix (14 frameworks × 9 scenarios).
 
 `witness init` reads each test project (per csproj, pytest root, package.json, Maven/Gradle
 build, go module, Cargo.toml, `.bats` files, Gemfile, phpunit.xml, Android `src/androidTest`,
-Flutter `integration_test`, `*UITests`, Maestro flows, Detox) and classifies its test files from
+Flutter `integration_test`, `*UITests`, Maestro flows, Detox, Postman collections run by Newman,
+with their environment file and the base URL variable pointed at the first service) and classifies its test files from
 imports, package references and calls (`src/functional.ts`). A CLI test runs the app's own command:
 the console scripts, package `bin`, `cmd/` binaries and cargo bins that the manifests name, a built
 binary path, `go run`, or `python -m <pkg>`; a test that calls the command's functions is a unit
@@ -130,6 +131,14 @@ reason. A mixed project gets a filtered command when a folder, tag or a few test
 separate the functional tests; otherwise it is listed as "needs a filter" with its suite commented
 out. Every project left out is printed with its reason and written into the file as a comment.
 `witness check` warns (it does not fail) when a configured suite's test files don't drive the app.
+
+What looks like tests but no project claims is listed as unrecognized (`unclaimed` in `--scan`,
+its own heading in `init`): CI steps that run after a step that starts the app or waits on its URL,
+scripts CI or package scripts call (read one level deep for a runner such as newman, k6, JMeter,
+hurl, Robot or Karate), test file types (`*.postman_collection.json`, `*.jmx`, `*.feature`,
+`*.robot`, `*.hurl`, `*.bru`, k6 scripts), and folders under test roots that no project covers.
+Each becomes a decision: a suite, or a `witness.toml` comment that names its path and says why it
+stays out. `witness check` warns, naming each, until one of them covers it.
 
 `witness init --scan` never prompts and writes nothing: it prints JSON facts for the `init` skill to
 decide from. Every fact has `confidence` (`high`, `medium`, `low`) and `evidence` (`file:line`, a
@@ -360,11 +369,15 @@ tool-name check, rejects frontmatter in them, and fails when a profile of `SKILL
 | rspec | `RspecJunitFormatter` (gem required) | `-e` | `--dry-run` | - |
 | phpunit | `--log-junit` | `--filter` | `--list-tests` | `--enforce-time-limit --default-time-limit` (php-invoker) |
 | bats | `--report-formatter junit --output` | `--filter '^(name)$'` | last report | `BATS_TEST_TIMEOUT` (environment) |
+| newman | `-r cli,json --reporter-json-export` (the suite's own reporters kept); one row per assertion, each with its request and response as evidence | `--folder <request>`, replacing a `--folder` in `cmd` | read from the collection (no run) | `--timeout-request` |
 | generic | any JUnit/TRX/JSON in `$WITNESS_REPORT_DIR` or `report = "<glob>"`; else the exit code | `select` template | `list` template | `per_test_timeout_arg` |
 
 If the command already wires a report (for example `--junitxml=...`), witness adds nothing and
 reads it through `report = "<glob>"`. Stable test ids are `<adapter>:<id>`: a pytest node id,
-`Class#method` for JUnit/TRX, `file > describe > title` for jest/vitest/playwright/mocha.
+`Class#method` for JUnit/TRX, `file > describe > title` for jest/vitest/playwright/mocha,
+`folder / request > assertion` for newman (as Newman's JUnit reporter names them). Newman's JSON
+report is read rather than its JUnit one, which marks `pm.test.skip` as passed and hides request
+timeouts in `system-err`.
 
 ## Reading a run
 
@@ -445,8 +458,8 @@ npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario
 
 `npm run conformance` is the conformance kit (`conformance/`): one small HTTP app and a real test
 project per framework (pytest, jest, vitest, mocha, Playwright, JUnit with Maven and Gradle, go,
-RSpec, PHPUnit, xunit v3 on Microsoft.Testing.Platform, MSTest on VSTest, and a CLI tested with
-bats). For each it runs witness
+RSpec, PHPUnit, xunit v3 on Microsoft.Testing.Platform, MSTest on VSTest, a Postman collection
+run by Newman, and a CLI tested with bats). For each it runs witness
 through a full run, `--select`, listing, a deleted and a truncated report, a per-test timeout and a
 `${WITNESS_SELECT}` compound command, and, for UI suites, that screenshots and video reach the report and that
 `check` and the report warn without them; it checks the CTRF and `status.json`, and prints a framework ×
