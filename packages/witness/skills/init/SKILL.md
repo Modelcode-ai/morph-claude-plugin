@@ -19,6 +19,7 @@ git-ignored `.witness/scratch/`. Then run `witness init --scan > .witness/scratc
 facts, each with a `confidence` and its `evidence` (file:line or manifest):
 
 - `testProjects`: functional, needs-filter or excluded, with the reason and the proposed suite;
+- `unclaimed`: files and commands that look like tests but no project claims; each is a decision;
 - `commands` (setup, build, start, test, migrate, seed) from CI, package scripts, Makefiles,
   Dockerfiles and compose files; `containers`, `urls` and `health` routes;
 - `infrastructure`: compose services with candidate commands, database URLs in env examples;
@@ -57,7 +58,7 @@ Settle each decision with the user, one at a time, at the stage where it matters
 
 The config is the record: each choice shows in `witness.toml`. Where a value alone would not say
 why (a project left out, an in-memory store instead of a database), add a one-line comment that
-names it; `--scan` counts a comment naming a project, dependency or variable as a decision made.
+names it; `--scan` counts a comment naming a project, path, dependency or variable as a decision made.
 Keep no other notes file.
 
 ## Stages
@@ -65,7 +66,8 @@ Keep no other notes file.
 When you reach stage 1, read `interview.md` in this skill's folder: for each stage, what to look
 at, when it is already decided, the question and its default, and how to record the answer.
 
-1. Scope: which test projects become suites; the excluded ones; the ones that need a filter.
+1. Scope: which test projects become suites; the excluded ones; the ones that need a filter; the
+   unclaimed ones.
 2. How the app runs: a local process, Docker or compose, or an existing URL.
 3. Infrastructure: start it with compose, or use an existing database or queue.
 4. Secrets, test users and test data.

@@ -17,7 +17,7 @@ decision, change the config to match.
 
 ## 1. Scope
 
-Look at: `testProjects`, and the CI test command (`commands` with role `test`).
+Look at: `testProjects`, `unclaimed`, and the CI test command (`commands` with role `test`).
 
 Settled: a `functional` project with high confidence becomes a suite; an `excluded` project stays
 out.
@@ -40,6 +40,11 @@ config). One `[[suite]]` per project:
 
 Keep API and browser tests in separate suites, one per test project. A functional project left
 out gets a comment: `# tests/AppHostTests: left out, needs Docker inside Docker (user's choice)`.
+
+Each `unclaimed` entry is a decision too. Read its evidence, then: propose it as a suite (`tool`
+names the runner; one with no adapter runs as `generic` with a `report` glob), leave it out with
+a comment naming its path and why (`# src/test/jmeter: JMeter load test, not functional`), or ask
+when its purpose is unclear. `witness check` warns until each is decided.
 
 ## 2. How the app runs
 
