@@ -200,10 +200,10 @@ export class Stack {
     } catch (e) {
       this.live.delete(alias);
       await this.stopOne(ls);
-      if (cachedSetup && e instanceof Failure) {
+      if (cachedSetup && e instanceof Failure && e.diagnosis.cause === "exited_before_ready") {
         // its inputs were unchanged, but its output (target/, node_modules) may be gone
         fs.rmSync(cachedSetup, { force: true });
-        e.diagnosis.try.unshift(`setup of ${svc.name} was skipped (inputs unchanged since its last success); if its output was removed, the next run runs it again`);
+        e.diagnosis.try.push(`setup of ${svc.name} was skipped (inputs unchanged since its last success); if its output was removed, the next run runs it again`);
       }
       throw e;
     }

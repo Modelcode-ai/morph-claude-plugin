@@ -39,7 +39,7 @@ ready = { http = "\${self.url}/health", timeout = "3s" }
     const r2 = await witness(dir, ["run", "--json"]);
     assert.match(r2.stderr, /setup {2}api · skipped \(inputs unchanged/);
     assert.equal(r2.json?.diagnosis.cause, "exited_before_ready");
-    assert.match(r2.json?.diagnosis.try[0], /setup of api was skipped .*the next run runs it again/);
+    assert.ok(r2.json?.diagnosis.try.some((t: string) => /setup of api was skipped .*the next run runs it again/.test(t)), r2.json?.diagnosis.try.join("\n"));
     const r3 = await witness(dir, ["run"]);
     assert.equal(r3.code, 0, r3.stderr);
     assert.match(r3.stderr, /setup {2}api · mkdir -p build/);
