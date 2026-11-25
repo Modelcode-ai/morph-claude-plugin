@@ -1,0 +1,21 @@
+#!/bin/sh
+# Runs the built jar in the foreground in eclipse-temurin:17-jre, published on 127.0.0.1:$PORT (container port 9966).
+: "${PORT:?set PORT}"
+root=$(cd "$(dirname "$0")/.." && pwd)
+jar=$(ls "$root"/target/spring-petclinic-rest-*.jar 2>/dev/null | grep -v '\.original$' | head -1)
+[ -n "$jar" ] || { echo "no jar in $root/target; run the setup (mvn package) first" >&2; exit 1; }
+# a copy, so a rebuild of target/ while the app runs can't swap classes under it
+copy=$(mktemp "${TMPDIR:-/tmp}/petclinic-eval-jar.XXXXXX"); cp "$jar" "$copy"
+envfile=$(mktemp "${TMPDIR:-/tmp}/petclinic-eval-env.XXXXXX")
+env | grep -E '^(SPRING_[A-Z0-9_]*|PETCLINIC_[A-Z0-9_]*|SERVER_[A-Z0-9_]*)=' > "$envfile"
+name="petclinic-eval-app-$PORT"
+docker rm -f "$name" >/dev/null 2>&1
+cleanup() { docker rm -f "$name" >/dev/null 2>&1; rm -f "$envfile" "$copy"; }
+trap 'cleanup; exit 143' TERM INT
+docker run --rm --init --name "$name" -p "127.0.0.1:$PORT:9966" --env-file "$envfile" \
+  -v "$copy:/app/app.jar:ro" eclipse-temurin:17-jre java -XX:TieredStopAtLevel=1 -jar /app/app.jar "$@" &
+child=$!
+wait $child
+code=$?
+cleanup
+exit $code

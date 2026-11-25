@@ -1,0 +1,18 @@
+#!/bin/sh
+# mvn from the maven:3.9-eclipse-temurin-17 image (no JDK on the host); the checkout is mounted at its own path so host paths in args stay valid.
+root=$(cd "$(dirname "$0")/.." && pwd)
+envfile=$(mktemp "${TMPDIR:-/tmp}/petclinic-eval-env.XXXXXX")
+env | grep -E '^(WITNESS_[A-Z0-9_]*|SPRING_[A-Z0-9_]*|PETCLINIC_[A-Z0-9_]*)=' > "$envfile"
+name="petclinic-eval-mvn-$$-$(date +%s)"
+extra=""
+case "$WITNESS_RUN_DIR" in ""|"$root"/*) ;; *) extra="-v $WITNESS_RUN_DIR:$WITNESS_RUN_DIR" ;; esac
+cleanup() { docker rm -f "$name" >/dev/null 2>&1; rm -f "$envfile"; }
+trap 'cleanup; exit 143' TERM INT
+docker run --rm --init --name "$name" --env-file "$envfile" \
+  -v "$root:$root" $extra -v "$HOME/.m2:/root/.m2" -w "$PWD" \
+  maven:3.9-eclipse-temurin-17 mvn "$@" &
+child=$!
+wait $child
+code=$?
+cleanup
+exit $code

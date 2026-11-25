@@ -1,0 +1,360 @@
+diff --git a/.witness/plan.yaml b/.witness/plan.yaml
+new file mode 100644
+index 0000000..3874370
+--- /dev/null
++++ b/.witness/plan.yaml
+@@ -0,0 +1,44 @@
++version: 1
++source: "user request (add an optional city query parameter to GET /api/owners: case-insensitive, whole city name, combinable with lastName, 404 when nothing matches like today)"
++items:
++  - id: B1
++    behavior: "GET /api/owners?city=<city> returns only the owners who live in that city, matching the city name in any case"
++    expect: "200 with exactly the owners whose city equals the given name ignoring case (city=madison returns the 4 seeded Madison owners; city=sun PRAIRIE returns Betty Davis)"
++    kind: new
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testGetOwnersByCityIgnoresCase"
++      - "generic:03OwnerSearchByCityFindOwnersByCityIgnoringCase#Only the seeded Madison owners are returned"
++  - id: B2
++    behavior: "The city filter matches the whole city name only, not a prefix or part of it"
++    expect: "404 for city=Mad and city=Sun, although owners live in Madison and Sun Prairie"
++    kind: new
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testGetOwnersByPartialCityNotFound"
++      - "generic:03OwnerSearchByCityFindOwnersByPartialCityName#A partial city name matches nobody: 404"
++  - id: B3
++    behavior: "city combines with lastName: only owners matching both are returned"
++    expect: "200; lastName=Davis&city=SUN PRAIRIE returns only Betty Davis, lastName=Davis&city=windsor only Harold Davis"
++    kind: new
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testGetOwnersByLastNameAndCity"
++      - "generic:03OwnerSearchByCityFindOwnersByLastNameAndCity#Only Betty Davis of Sun Prairie is returned, not Harold Davis of Windsor"
++  - id: B4
++    behavior: "When no owner matches lastName and city together, the endpoint answers 404 as it does today"
++    expect: "404 for lastName=Davis&city=Madison (Davises exist, Madison owners exist, none both)"
++    kind: new
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testGetOwnersByLastNameAndCityNotFound"
++      - "generic:03OwnerSearchByCityFindOwnersByLastNameAndCityWithNoMatch#No Davis lives in Madison: 404"
++  - id: B5
++    behavior: "GET /api/owners?lastName=<prefix> without city still returns owners by last-name prefix, and 404 when none match"
++    expect: "200 with Betty and Harold Davis for lastName=Davis; 404 for lastName=0"
++    kind: parity
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testGetOwnersListSuccess"
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testGetOwnersListNotFound"
++  - id: B6
++    behavior: "GET /api/owners without parameters still lists all owners"
++    expect: "200 with every owner"
++    kind: parity
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testGetAllOwnersSuccess"
+diff --git a/src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java b/src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java
+index 5a62a9e..cddfa31 100644
+--- a/src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java
++++ b/src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java
+@@ -73,13 +73,19 @@ public class OwnerRestControllerV1 implements OwnersApi {
+ 
+     @PreAuthorize("hasRole(@roles.OWNER_ADMIN)")
+     @Override
+-    public ResponseEntity<List<OwnerDto>> listOwners(String lastName) {
++    public ResponseEntity<List<OwnerDto>> listOwners(String lastName, String city) {
+         Collection<Owner> owners;
+         if (lastName != null) {
+             owners = this.clinicService.findOwnerByLastName(lastName);
+         } else {
+             owners = this.clinicService.findAllOwners();
+         }
++        if (city != null && !city.isBlank()) {
++            String wanted = city.trim();
++            owners = owners.stream()
++                .filter(owner -> owner.getCity() != null && owner.getCity().trim().equalsIgnoreCase(wanted))
++                .toList();
++        }
+         if (owners.isEmpty()) {
+             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+         }
+diff --git a/src/main/resources/openapi.yml b/src/main/resources/openapi.yml
+index db13847..4b5b555 100755
+--- a/src/main/resources/openapi.yml
++++ b/src/main/resources/openapi.yml
+@@ -109,6 +109,13 @@ paths:
+           schema:
+             type: string
+             example: Davis
++        - name: city
++          in: query
++          description: City (case-insensitive, whole city name). Combines with lastName.
++          required: false
++          schema:
++            type: string
++            example: Madison
+       responses:
+         200:
+           description: Owner details found and returned.
+diff --git a/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java b/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java
+index 673bb31..17a341c 100644
+--- a/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java
++++ b/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java
+@@ -255,6 +255,54 @@ class OwnerRestControllerV1Tests {
+             .andExpect(status().isNotFound());
+     }
+ 
++    @Test
++    @WithMockUser(roles = "OWNER_ADMIN")
++    void testGetOwnersByCityIgnoresCase() throws Exception {
++        given(this.clinicService.findAllOwners()).willReturn(ownerMapper.toOwners(owners));
++        this.mockMvc.perform(get("/api/owners?city=sun PRAIRIE")
++                .accept(MediaType.APPLICATION_JSON))
++            .andExpect(status().isOk())
++            .andExpect(content().contentType("application/json"))
++            .andExpect(jsonPath("$.length()").value(1))
++            .andExpect(jsonPath("$.[0].id").value(2))
++            .andExpect(jsonPath("$.[0].city").value("Sun Prairie"));
++    }
++
++    @Test
++    @WithMockUser(roles = "OWNER_ADMIN")
++    void testGetOwnersByPartialCityNotFound() throws Exception {
++        given(this.clinicService.findAllOwners()).willReturn(ownerMapper.toOwners(owners));
++        this.mockMvc.perform(get("/api/owners?city=Sun")
++                .accept(MediaType.APPLICATION_JSON))
++            .andExpect(status().isNotFound());
++    }
++
++    @Test
++    @WithMockUser(roles = "OWNER_ADMIN")
++    void testGetOwnersByLastNameAndCity() throws Exception {
++        owners.remove(0);
++        owners.remove(1);
++        given(this.clinicService.findOwnerByLastName("Davis")).willReturn(ownerMapper.toOwners(owners));
++        this.mockMvc.perform(get("/api/owners?lastName=Davis&city=windsor")
++                .accept(MediaType.APPLICATION_JSON))
++            .andExpect(status().isOk())
++            .andExpect(jsonPath("$.length()").value(1))
++            .andExpect(jsonPath("$.[0].id").value(4))
++            .andExpect(jsonPath("$.[0].firstName").value("Harold"))
++            .andExpect(jsonPath("$.[0].city").value("Windsor"));
++    }
++
++    @Test
++    @WithMockUser(roles = "OWNER_ADMIN")
++    void testGetOwnersByLastNameAndCityNotFound() throws Exception {
++        owners.remove(0);
++        owners.remove(1);
++        given(this.clinicService.findOwnerByLastName("Davis")).willReturn(ownerMapper.toOwners(owners));
++        this.mockMvc.perform(get("/api/owners?lastName=Davis&city=Madison")
++                .accept(MediaType.APPLICATION_JSON))
++            .andExpect(status().isNotFound());
++    }
++
+     @Test
+     @WithMockUser(roles = "OWNER_ADMIN")
+     void testGetAllOwnersSuccess() throws Exception {
+diff --git a/src/test/postman/petclinic-nonregressiontests.postman_collection.json b/src/test/postman/petclinic-nonregressiontests.postman_collection.json
+index c70ef53..96b1991 100644
+--- a/src/test/postman/petclinic-nonregressiontests.postman_collection.json
++++ b/src/test/postman/petclinic-nonregressiontests.postman_collection.json
+@@ -1863,6 +1863,203 @@
+           }
+         }
+       ]
++    },
++    {
++      "name": "03 - Owner Search by City",
++      "item": [
++        {
++          "name": "Find Owners by City ignoring case",
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "exec": [
++                  "pm.test(\"Owners found\", function () {",
++                  "    pm.response.to.have.status(200);",
++                  "});",
++                  "pm.test(\"Only the seeded Madison owners are returned\", function () {",
++                  "    const owners = pm.response.json();",
++                  "    pm.expect(owners.map(o => o.lastName).sort()).to.eql([\"Escobito\", \"Franklin\", \"McTavish\", \"Schroeder\"]);",
++                  "    owners.forEach(o => pm.expect(o.city).to.eql(\"Madison\"));",
++                  "});"
++                ],
++                "type": "text/javascript",
++                "packages": {}
++              }
++            }
++          ],
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Accept",
++                "value": "application/json"
++              }
++            ],
++            "url": {
++              "raw": "{{baseUrl}}/api/owners?city=madison",
++              "host": [
++                "{{baseUrl}}"
++              ],
++              "path": [
++                "api",
++                "owners"
++              ],
++              "query": [
++                {
++                  "key": "city",
++                  "value": "madison"
++                }
++              ]
++            }
++          },
++          "response": []
++        },
++        {
++          "name": "Find Owners by Last Name and City",
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "exec": [
++                  "pm.test(\"Owners found\", function () {",
++                  "    pm.response.to.have.status(200);",
++                  "});",
++                  "pm.test(\"Only Betty Davis of Sun Prairie is returned, not Harold Davis of Windsor\", function () {",
++                  "    const owners = pm.response.json();",
++                  "    pm.expect(owners).to.have.lengthOf(1);",
++                  "    pm.expect(owners[0].firstName).to.eql(\"Betty\");",
++                  "    pm.expect(owners[0].lastName).to.eql(\"Davis\");",
++                  "    pm.expect(owners[0].city).to.eql(\"Sun Prairie\");",
++                  "});"
++                ],
++                "type": "text/javascript",
++                "packages": {}
++              }
++            }
++          ],
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Accept",
++                "value": "application/json"
++              }
++            ],
++            "url": {
++              "raw": "{{baseUrl}}/api/owners?lastName=Davis&city=SUN PRAIRIE",
++              "host": [
++                "{{baseUrl}}"
++              ],
++              "path": [
++                "api",
++                "owners"
++              ],
++              "query": [
++                {
++                  "key": "lastName",
++                  "value": "Davis"
++                },
++                {
++                  "key": "city",
++                  "value": "SUN PRAIRIE"
++                }
++              ]
++            }
++          },
++          "response": []
++        },
++        {
++          "name": "Find Owners by partial City name",
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "exec": [
++                  "pm.test(\"A partial city name matches nobody: 404\", function () {",
++                  "    pm.response.to.have.status(404);",
++                  "});"
++                ],
++                "type": "text/javascript",
++                "packages": {}
++              }
++            }
++          ],
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Accept",
++                "value": "application/json"
++              }
++            ],
++            "url": {
++              "raw": "{{baseUrl}}/api/owners?city=Mad",
++              "host": [
++                "{{baseUrl}}"
++              ],
++              "path": [
++                "api",
++                "owners"
++              ],
++              "query": [
++                {
++                  "key": "city",
++                  "value": "Mad"
++                }
++              ]
++            }
++          },
++          "response": []
++        },
++        {
++          "name": "Find Owners by Last Name and City with no match",
++          "event": [
++            {
++              "listen": "test",
++              "script": {
++                "exec": [
++                  "pm.test(\"No Davis lives in Madison: 404\", function () {",
++                  "    pm.response.to.have.status(404);",
++                  "});"
++                ],
++                "type": "text/javascript",
++                "packages": {}
++              }
++            }
++          ],
++          "request": {
++            "method": "GET",
++            "header": [
++              {
++                "key": "Accept",
++                "value": "application/json"
++              }
++            ],
++            "url": {
++              "raw": "{{baseUrl}}/api/owners?lastName=Davis&city=Madison",
++              "host": [
++                "{{baseUrl}}"
++              ],
++              "path": [
++                "api",
++                "owners"
++              ],
++              "query": [
++                {
++                  "key": "lastName",
++                  "value": "Davis"
++                },
++                {
++                  "key": "city",
++                  "value": "Madison"
++                }
++              ]
++            }
++          },
++          "response": []
++        }
++      ]
+     }
+   ],
+   "event": [

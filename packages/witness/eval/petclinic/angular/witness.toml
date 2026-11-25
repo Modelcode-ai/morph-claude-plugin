@@ -1,0 +1,46 @@
+# Spring PetClinic Angular under witness. The upstream e2e specs mock the REST API in the browser (page.route), so no backend runs here.
+version = 1
+
+[env]
+file = ".witness/.env"
+required = []
+
+[[service]]
+name = "web"
+cwd = "."
+setup = "npm ci --no-audit --no-fund"
+start = "npx ng serve --host 127.0.0.1 --port ${PORT}"
+ready = { http = "${self.url}/", timeout = "180s" }
+
+# The REST backend: its own .witness/ config builds and runs it in Docker.
+[[repo]]
+name = "rest"
+path = "../spring-petclinic-rest-witness-eval"
+services = ["app"]
+
+# vitest (.): unit tests, left out
+[[suite]]
+name = "e2e"
+kind = "ui"
+adapter = "playwright"
+cwd = "."
+cmd = "npx playwright test -c .witness/playwright.config.ts"
+service = ["web"]
+timeout = "20m"
+per_test_timeout = "60s"
+
+[[suite]]
+name = "e2e-live"
+kind = "ui"
+adapter = "playwright"
+cwd = "."
+cmd = "npx playwright test -c .witness/playwright.live.config.ts"
+service = ["web", "rest.app"]
+env = { WITNESS_API_URL = "${rest.app.url}" }
+timeout = "20m"
+per_test_timeout = "60s"
+
+[run]
+stall_timeout = "5m"
+heartbeat = "60s"
+keep_runs = 30
