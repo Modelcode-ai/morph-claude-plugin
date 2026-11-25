@@ -24,7 +24,7 @@ Needs Node 22.18+ (the sources use type stripping; the bundle is tested on the s
 ```bash
 bin/witness init                      # .witness/witness.example.toml (functional suites guessed from the repo), .gitignore, scratch/
 bin/witness init --scan               # the repo's facts as JSON, each with confidence and evidence; writes nothing
-bin/witness check                     # config -> deps -> boot -> list tests (or a smoke run)
+bin/witness check                     # config -> deps -> boot -> list tests (or a smoke run); one test of a ui/mobile/desktop suite for screenshots
 bin/witness check --stage boot --against main   # does main boot? (temporary worktree, this .witness/)
 bin/witness run                       # everything; exit code is the outcome
 bin/witness run --suite api --select pytest:tests/e2e/test_a.py::test_b --retries 1
@@ -103,7 +103,7 @@ whose process exited on its own refreshes `.witness/cache/tests/<suite>.json`. T
 the output always names it (`list: last report r-… (2h ago, 12 tests)`). An id from an old report
 that no longer exists ends as `other/missing`, never as a failure. `witness check` prints one line
 per suite with where `report`, `list`, `select` and the per-test timeout come from, and what each
-missing one costs. `npm run conformance` prints the tested support matrix (13 frameworks × 8 scenarios).
+missing one costs. `npm run conformance` prints the tested support matrix (13 frameworks × 9 scenarios).
 
 `witness init` reads each test project (per csproj, pytest root, package.json, Maven/Gradle
 build, go module, Cargo.toml, `.bats` files, Gemfile, phpunit.xml, Android `src/androidTest`,
@@ -373,7 +373,7 @@ stop once satisfied:
    - nothing broke against the base;
    - new tests fail without the change (not checked yet);
    - changed behavior is tested on the running app;
-   - requests and screens are recorded.
+   - requests and screens are recorded (the planned tests' evidence, and a screenshot or video for every passing test of a `ui`, `mobile` or `desktop` suite).
 2. **Recommended next steps,** worked out from the run by fixed rules: failures, regressions, a missing plan or comparison, a changed behavior tested only in-process, skipped tests. Each step has a prompt to hand to an agent.
 3. **Three chapters,** each a one-line takeaway and one visual, with details folded underneath:
    - the change and its evidence (each plan item, here and on the base);
@@ -387,7 +387,7 @@ Tests record what they sent and saw while they run. Each test writes to `$WITNES
 
 The kinds `http`, `ui`, `cli`, `message`, `rpc`, `state`, `check` and `note` get tailored views. Any other kind is kept and shown as its fields. Witness ties each folder to its test, validates every line, and shows the timeline under the plan item the test proves. For a `check` with an expected value, it shows the excerpt of the response where that value appears.
 
-The Playwright preset turns traces on. Anything else comes from a small hook in the repo's own test helpers, which the write skill (`skills/write/evidence.md`) tells the agent how to add.
+The Playwright preset turns traces on. Screenshots and video come from the repo's own test config: the init skill (`skills/init/capture.md`) switches on the framework's capture for passing tests when `WITNESS_EVIDENCE` is set, once per suite. Witness has no per-framework capture code; it warns when passing tests of a `ui`, `mobile` or `desktop` suite left no screenshot or video: `witness check` runs one listed test of each such suite and says whether it left one, and the report counts them, lists the tests without, and shows every test's screenshots and video in chapter 3. Anything else comes from a small hook in the repo's own test helpers, which the write skill (`skills/write/evidence.md`) tells the agent how to add.
 
 `report.md` has the same content for agents. `report.html` is one self-contained file; it loads only the Geist font. The run keeps the plan as it was when the run started (`plan.yaml`), the change since the base and the lint result of the plan's tests (`context.json`). `SHA256SUMS` lists every file of the run in `sha256sum -c` format; the report shows the hash of that list. `witness report --format html` rewrites a run's report.
 
@@ -436,7 +436,8 @@ project per framework (pytest, jest, vitest, mocha, Playwright, JUnit with Maven
 RSpec, PHPUnit, xunit v3 on Microsoft.Testing.Platform, MSTest on VSTest, and a CLI tested with
 bats). For each it runs witness
 through a full run, `--select`, listing, a deleted and a truncated report, a per-test timeout and a
-`${WITNESS_SELECT}` compound command, checks the CTRF and `status.json`, and prints a framework ×
+`${WITNESS_SELECT}` compound command, and, for UI suites, that screenshots and video reach the report and that
+`check` and the report warn without them; it checks the CTRF and `status.json`, and prints a framework ×
 scenario matrix (results in `conformance/.results/`). It uses the local toolchain when there is one,
 else a Docker image (`--docker <name>` forces it); `KIT_DOTNET=/path/to/dotnet` picks a .NET SDK.
 CI runs it per framework on native toolchains.

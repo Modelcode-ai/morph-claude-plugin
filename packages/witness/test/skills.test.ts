@@ -10,7 +10,7 @@ import { PKG, witness } from "./helpers.ts";
 
 const SKILLS = path.join(PKG, "skills");
 const NAMES = ["init", "plan", "test-change", "triage", "verify", "write"];
-const REFS = ["init/interview.md", "init/repos.md", "write/evidence.md"];
+const REFS = ["init/capture.md", "init/interview.md", "init/repos.md", "write/evidence.md"];
 const FILES = [...NAMES.map((n) => `${n}/SKILL.md`), ...REFS].sort();
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-skills-")));
 const MARKERS = /<!--\s*(if|else|endif)\b/;
@@ -78,6 +78,9 @@ test("skills render: every profile of the real skills renders with no markers le
   assert.match(standalone["init/SKILL.md"], /use your defaults/);
   assert.match(morph["init/SKILL.md"], /No one answers here/);
   for (const p of [standalone, morph]) assert.match(p["init/SKILL.md"], /read `interview\.md`/);
+  for (const p of [standalone, morph]) assert.match(p["init/SKILL.md"], /read\s+`capture\.md`/);
+  assert.match(standalone["init/capture.md"], /\[reference\] setup/);
+  assert.doesNotMatch(morph["init/capture.md"], /\[reference\]|Shall I go ahead/);
 });
 
 test("skills check: reference files get their own budget, the same checks and every profile's markers", () => {

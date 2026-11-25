@@ -9,6 +9,7 @@ import type { Outcome } from "../reconcile.ts";
 import type { Status } from "../rundir.ts";
 import { readJson } from "../util.ts";
 import { EVIDENCE_FILE, type EvidenceProblem, type Observation, readEvidence } from "../evidence/contract.ts";
+import { CAPTURE_FIX, gapLine, type VisualGap, visualGaps } from "../evidence/visuals.ts";
 import { type ChangedFile, type Commit, readPlanSnapshot, type RunContext } from "./context.ts";
 
 export interface TestEvidence {
@@ -106,6 +107,8 @@ export interface ReportModel {
   artifacts: { file: string; test_id: string | null; artifact_type: string }[];
   /** Per test id: what the test recorded on this branch and, with --against, on the base. */
   evidence: Record<string, { here?: TestEvidence; base?: TestEvidence }>;
+  /** Per ui, mobile and desktop suite: passing tests that left no screenshot or video. */
+  visuals: VisualGap[];
 }
 
 interface Ctrf {
@@ -293,6 +296,7 @@ export function buildModel(dir: string): ReportModel {
     lint,
     artifacts,
     evidence: collectEvidence(dir, artifacts),
+    visuals: visualGaps(suites, tests, artifacts),
   };
   m.signals = signals(m);
   m.steps = steps(m);
@@ -337,6 +341,11 @@ export function signals(m: ReportModel): StrengthSignal[] {
   const changedRunning = changed.filter((i) => i.tests.some((t) => t.found && t.running));
   const planTests = items.flatMap((i) => i.tests.map((t) => t.found?.id)).filter(Boolean) as string[];
   const withEvidence = planTests.filter((id) => m.evidence[id]?.here && (m.evidence[id].here!.observations.length || m.evidence[id].here!.files.length));
+  const planState: Signal = !planTests.length ? (m.artifacts.length ? "p" : "n") : withEvidence.length === planTests.length ? "y" : withEvidence.length ? "p" : "n";
+  const uiPassed = m.visuals.reduce((n, g) => n + g.passed, 0);
+  const uiBare = m.visuals.reduce((n, g) => n + g.bare.length, 0);
+  const parts: Signal[] = [planState, ...(uiPassed ? [uiBare === 0 ? "y" : uiBare === uiPassed ? "n" : "p"] as Signal[] : [])];
+  const evidenceState: Signal = parts.every((x) => x === "y") ? "y" : parts.every((x) => x === "n") ? "n" : "p";
   return [
     {
       key: "plan",
@@ -365,8 +374,8 @@ export function signals(m: ReportModel): StrengthSignal[] {
     {
       key: "evidence",
       label: "Requests and screens recorded",
-      state: !planTests.length ? (m.artifacts.length ? "p" : "n") : withEvidence.length === planTests.length ? "y" : withEvidence.length ? "p" : "n",
-      detail: `${withEvidence.length} of ${planTests.length} planned tests have recorded evidence`,
+      state: evidenceState,
+      detail: `${withEvidence.length} of ${planTests.length} planned tests have recorded evidence${uiPassed ? `; ${uiPassed - uiBare} of ${uiPassed} passing UI tests have a screenshot or video` : ""}`,
     },
   ];
 }
@@ -409,6 +418,12 @@ export function steps(m: ReportModel): NextStep[] {
   if (planTests.length && bare.length) {
     const items = [...new Set(bare.map((b) => b.item))];
     out.push({ tone: "do", title: `Record evidence for ${items.join(", ")}`, detail: `${plural(bare.length, "planned test")} left no record of what ${bare.length === 1 ? "it" : "they"} sent and saw.`, prompt: `Use witness: make the tests of plan items ${items.join(", ")} record evidence while they run, following the evidence reference of the write skill (each test appends what it sends and sees to $WITNESS_ARTIFACTS/<test id>/evidence.jsonl, and browser tests keep screenshots). Then rerun them with witness run --select.` });
+  }
+  const gaps = m.visuals.filter((g) => g.bare.length);
+  if (gaps.length) {
+    const n = gaps.reduce((k, g) => k + g.bare.length, 0);
+    const lines = gaps.map((g) => gapLine(g)!);
+    out.push({ tone: "do", title: `Record screenshots and video for ${plural(n, "test")}`, detail: `${lines.join("; ")}.`, prompt: `Use witness: in run ${run}, ${lines.join("; ")}. Set up capture once for the whole suite: ${CAPTURE_FIX}. A test that never opens a screen (an API check in a UI suite) has nothing to record; leave it. Then run witness check and the suite again.` });
   }
   const broken = Object.entries(m.evidence).flatMap(([id, e]) => (e.here?.problems.length ? [{ id, n: e.here.problems.length, first: e.here.problems[0] }] : []));
   if (broken.length) out.push({ tone: "low", title: `Fix the evidence of ${plural(broken.length, "test")}`, detail: `${shortTest(broken[0].id)}: line ${broken[0].first.line}, ${broken[0].first.message}`, prompt: `Use witness: the evidence.jsonl files of these tests have problems: ${broken.slice(0, 10).map((b) => `${b.id} (line ${b.first.line}: ${b.first.message})`).join("; ")}. Fix the code that writes them so every line follows the evidence reference of the write skill.` });

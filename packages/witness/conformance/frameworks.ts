@@ -11,8 +11,8 @@ export interface Tool {
   run: (cmd: string) => string;
 }
 
-export type Scenario = "full" | "select" | "list" | "missing" | "broken" | "timeout" | "compound" | "evidence";
-export const SCENARIOS: Scenario[] = ["full", "select", "list", "missing", "broken", "timeout", "compound", "evidence"];
+export type Scenario = "full" | "select" | "list" | "missing" | "broken" | "timeout" | "compound" | "evidence" | "capture";
+export const SCENARIOS: Scenario[] = ["full", "select", "list", "missing", "broken", "timeout", "compound", "evidence", "capture"];
 
 export interface Framework {
   name: string;
@@ -39,6 +39,8 @@ export interface Framework {
   stdoutReport?: boolean;
   /** What the passing test's evidence must hold: an observation kind its own adapter writes, or a file type the preset collects. */
   evidence: { kind: string } | { file: string };
+  /** A ui, mobile or desktop project whose config records screenshots and video when WITNESS_EVIDENCE is set. */
+  capture?: boolean;
 }
 
 const docker = (args: string) => (t: Tool): Record<string, string> => (t.docker ? { KIT_DOCKER_ARGS: args } : {});
@@ -114,6 +116,7 @@ export const FRAMEWORKS: Framework[] = [
     evidence: { file: "trace" },
     adapter: "playwright",
     kind: "ui",
+    capture: true,
     project: "playwright",
     ids: { pass: "page.spec.ts > items page > shows the items", fail: "page.spec.ts > items page > heading", skip: "page.spec.ts > items page > skipped", hang: "page.spec.ts > items page > hangs" },
     prepare: () => `npm install --no-audit --no-fund --loglevel=error && ${node("playwright")} install${process.env.CI ? " --with-deps" : ""} chromium`,

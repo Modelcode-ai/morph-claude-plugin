@@ -4,19 +4,20 @@ import { buildModel } from "./report/model.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ADAPTERS, addArgs, fillSelect } from "./adapters.ts";
-import { type Config, loadEnv, substitute } from "./config.ts";
+import { type Config, loadEnv, type Suite, substitute } from "./config.ts";
 import { type Diagnosis, diagnose, formatDiagnosis } from "./diagnosis.ts";
 import { functionalWarnings } from "./functional.ts";
 import { type Capabilities, capabilities, capabilityLine, listSuiteTests } from "./listing.ts";
 import { color, outcomeColor, Progress } from "./output.ts";
 import { childEnv, groupAlive, killGroup, runCapture } from "./proc.ts";
-import { EXIT } from "./reconcile.ts";
+import { EXIT, type TestRecord } from "./reconcile.ts";
 import { acquireLock, LockError, newRunId, reapStale, RunDir, resolveRun, type Status } from "./rundir.ts";
 import { type ReferenceSide, referenceSetup, releaseReference, resolveReference } from "./reference.ts";
 import { describeRepoSide } from "./repos.ts";
 import { neededServices, pickSuites, verdictSummary } from "./run.ts";
 import { Failure, readUp, Stack, upFile, type UpState } from "./stack.ts";
-import { runSuite } from "./suite.ts";
+import { canSelect, collectArtifacts, runSuite, type SuiteCtx } from "./suite.ts";
+import { CAPTURE_FIX, VISUAL_KINDS, visualGaps } from "./evidence/visuals.ts";
 import { gitInfo, pidAlive, readJson, sleep, writeJson } from "./util.ts";
 
 type Stage = "config" | "deps" | "boot" | "suite";
@@ -160,6 +161,16 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
       if (l.ids && l.source !== "last-report") {
         report.push({ stage: "suite", ok: true, detail: `${s.name}: ${l.ids.length} test(s) listed (${l.detail})` });
         p.line(`check  suite ${s.name} · ${l.ids.length} test(s) listed (${l.detail}), e.g. ${s.adapter}:${l.ids[0]}`);
+        if (!VISUAL_KINDS.includes(s.kind) || !l.ids.length) continue;
+        if (!canSelect(s, ad, stack.vars())) {
+          p.line(`check  suite ${s.name} · capture not checked: the suite can't run a single test`);
+          continue;
+        }
+        p.line(`check  suite ${s.name} · running ${s.adapter}:${l.ids[0]} to see whether it leaves a screenshot or video`);
+        const r = await runSuite(ctx, s, [l.ids[0]], 0);
+        const w = captureWarning(ctx, s, r.tests);
+        if (w) warnings.push(w);
+        if (r.serviceDied) break;
         continue;
       }
       p.line(`check  suite ${s.name} · ${l.detail}; doing a smoke run`);
@@ -169,6 +180,10 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
       if (!ok) {
         code = Math.max(code, r.serviceDied ? EXIT.mistrial : EXIT.error);
         if (r.diagnosis) printDiag(p, r.diagnosis);
+      }
+      if (VISUAL_KINDS.includes(s.kind)) {
+        const w = captureWarning(ctx, s, r.tests);
+        if (w) warnings.push(w);
       }
       if (r.serviceDied) break;
     }
@@ -196,6 +211,23 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
   const on = o.against ? ` · against ${o.against}` : "";
   p.plain(code === 0 ? color.green(`CHECK ok${on}`) : color.yellow(`CHECK failed${on} · logs: ${run.file("logs")}`));
   return done(code);
+}
+
+/** Prints whether the passing tests a check ran left a screenshot or video; the warning when none did. */
+function captureWarning(ctx: SuiteCtx, s: Suite, tests: TestRecord[]): { suite: string; files: string[]; message: string } | undefined {
+  const g = visualGaps([s], tests, collectArtifacts(ctx.run.dir, ctx.outDir, tests))[0];
+  if (!g) {
+    ctx.progress.line(`check  suite ${s.name} · capture not checked: no test passed (${tests.map((t) => `${t.id} ${t.status}`).slice(0, 3).join(", ") || "no result"})`);
+    return undefined;
+  }
+  if (!g.bare.length) {
+    ctx.progress.line(`check  suite ${s.name} · capture ok: ${g.passed === 1 ? tests.find((t) => t.status === "passed")!.id : `${g.passed} passing tests`} left a screenshot or video`);
+    return undefined;
+  }
+  const who = g.passed === 1 ? `its test ${g.bare[0]} passed but` : `${g.bare.length} of ${g.passed} passing tests`;
+  const message = `suite ${s.name} (${s.kind}): ${who} left no screenshot or video; ${CAPTURE_FIX}`;
+  ctx.progress.line(color.yellow(`check  warn · ${message}`));
+  return { suite: s.name, files: [], message };
 }
 
 const EXIT_USAGE = 64;

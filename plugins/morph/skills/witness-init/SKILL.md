@@ -68,9 +68,15 @@ readiness check just to make `witness check` pass.
 
 ## Another repo's app
 
-When a suite needs an app from another repo running (a frontend's tests against its backend),
-read `repos.md` in this skill's folder at stage 2: it lists the repo in `[[repo]]` and reuses that
-repo's own services.
+When a suite needs another repo's app running (a frontend's tests against its backend), read
+`repos.md` in this skill's folder at stage 2.
+
+## Screenshots and video
+
+When a suite is `ui`, `mobile` or `desktop`, add one step between stages 5 and 6: read
+`capture.md` in this skill's folder. Do it also when `witness check` warns that passing tests left
+no screenshot or video, or when the user asks. Report the files you changed and what `witness
+check` then says.
 
 ## Report
 

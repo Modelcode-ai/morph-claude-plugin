@@ -370,6 +370,28 @@ ${suite("pass")}${RUN}`);
     assert.match(r2.stderr, /cause: ready_timeout/);
   });
 
+  test("check: a ui suite's test that leaves no screenshot or video is a warning, not a failure", async () => {
+    const ui = (mode: string) => `
+[[suite]]
+kind = "ui"
+name = "web"
+service = "api"
+cmd = "node $APPS/suite.mjs ${mode}"
+select = "node $APPS/suite.mjs ${mode} --only {ids}"
+list = "echo Api#hello"
+`;
+    const bare = tmpRepo(`version = 1\n${service("ok")}${ui("pass")}${RUN}`);
+    const r = await witness(bare, ["check", "--json"]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stderr, /check {2}warn · suite web \(ui\): its test generic:Api#hello passed but left no screenshot or video; switch on the test framework's own screenshot and video capture for passing tests when WITNESS_EVIDENCE is set/);
+    assert.deepEqual(r.json?.warnings.map((w: any) => w.suite), ["web"]);
+    const shot = tmpRepo(`version = 1\n${service("ok")}${ui("artifacts")}${RUN}`);
+    const r2 = await witness(shot, ["check", "--json"]);
+    assert.equal(r2.code, 0, r2.stderr);
+    assert.match(r2.stderr, /capture ok: generic:Api#hello left a screenshot or video/);
+    assert.deepEqual(r2.json?.warnings, []);
+  });
+
   test("status and report read the latest run", async () => {
     const dir = tmpRepo(`version = 1\n${service("ok")}${suite("fail")}${RUN}`);
     await witness(dir, ["run"]);
