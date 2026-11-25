@@ -35,7 +35,18 @@ bin/witness report --format md|json
 ```
 
 `bin/witness` runs `src/cli.ts` when `node_modules` is present, otherwise `dist/witness.mjs`
-(set `WITNESS_USE_DIST=1` to force the bundle).
+(set `WITNESS_USE_DIST=1` to force the bundle). `bin/witness.mjs` does the same without bash; on
+Windows run `bin\witness.cmd`, or `node bin/witness.mjs`.
+
+### Windows
+
+Commands in `witness.toml` run under Git Bash when it's installed (bash.exe on PATH, next to
+git.exe, or in Git's default folder; never WSL's bash), else under `cmd.exe /d /s /c`. Set
+`[run] shell = "bash"` or `"cmd"` to force one; macOS and Linux always use bash. Witness stops a
+process tree with `taskkill /T`, then `taskkill /T /F` (console programs ignore the polite one, so
+it is forced at once). A daemon that leaves its parent's tree is not found that way: give its
+service a `pidfile`. `runs/latest` is a junction there, or a file holding the run id when the
+disk can't hold one; `witness status` and `witness report` read either.
 
 Exit codes: 0 passed, 1 failed, 2 error, 3 mistrial, 4 stalled/timeout, 5 interrupted, 64 usage.
 
@@ -80,7 +91,8 @@ Suites also get `WITNESS_<SERVICE>_URL`, `WITNESS_REPORT_DIR` and `WITNESS_ARTIF
 
 Additions beyond the shared contract: `service.origin_for` (which target an `role = "origin"`
 service stands in for; defaults to the name minus `-origin`), `run.kill_grace` (SIGTERM to SIGKILL
-delay, default 5s), and the per-suite overrides below.
+delay, default 5s), `run.shell` (Windows only: `auto`, `bash` or `cmd`; see Windows above), and the
+per-suite overrides below.
 
 Adapters are presets. The dotnet preset runs every command with the MSBuild server, node reuse and
 the compiler servers off (`DOTNET_CLI_USE_MSBUILD_SERVER=0`, `MSBUILDDISABLENODEREUSE=1`,

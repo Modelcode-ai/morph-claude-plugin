@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "bin": {
-    "witness": "bin/witness"
+    "witness": "bin/witness.mjs"
   },
   "scripts": {
-    "test": "node --no-warnings --test 'test/**/*.test.ts'",
+    "test": "node --no-warnings --test \"test/**/*.test.ts\"",
     "build": "bun build src/cli.ts --target=node --format=esm --outfile dist/witness.mjs",
     "typecheck": "tsc --noEmit -p .",
     "build:plugin": "node --no-warnings scripts/build-plugin.ts",
