@@ -5,6 +5,8 @@ import * as path from "node:path";
 import { describe, test } from "node:test";
 import type { TestRecord } from "../src/reconcile.ts";
 import { guess, springContextPath } from "../src/init.ts";
+import { listSuiteTests, writeListCache } from "../src/listing.ts";
+import type { Suite } from "../src/config.ts";
 import { machineFacts, type ScanResult } from "../src/scan.ts";
 import { collectArtifacts, copyAttachments } from "../src/suite.ts";
 import { suite, tmpRepo, witness } from "./helpers.ts";
@@ -69,5 +71,14 @@ ready = { http = "\${self.url}/health", timeout = "3s" }
     fs.rmSync(path.join(dir, "src/main/resources/application.properties"));
     write("src/main/resources/application.yml", "server:\n  port: 8080\n  servlet:\n    context-path: /api\n");
     assert.equal(springContextPath(dir), "/api");
+  });
+
+  test("the base side never lists its tests from this checkout's last report (a suite whose tests are all new)", async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-list-")));
+    const s = { name: "e2e-live", kind: "ui", adapter: "junit-maven", cwd: ".", cmd: "mvn test", env: {}, service: [] } as unknown as Suite;
+    writeListCache(root, s, "r-1", "abc", ["a.B#new1", "a.B#new2"]);
+    const ctx = { root, cwd: root, vars: {}, env: { PATH: process.env.PATH ?? "" }, log: path.join(root, "list.log"), scratch: path.join(root, "scratch") };
+    assert.equal((await listSuiteTests(s, ctx)).source, "last-report");
+    assert.equal((await listSuiteTests(s, { ...ctx, noCache: true })).source, "none");
   });
 });

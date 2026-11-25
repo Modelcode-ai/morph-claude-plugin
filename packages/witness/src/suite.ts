@@ -400,7 +400,7 @@ function collect(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cwd: string, rep
 
 async function listTests(ctx: SuiteCtx, suite: Suite, cwd: string, log: string): Promise<TestList> {
   ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · listing tests to see what the run left out`);
-  const l = await listSuiteTests(suite, { root: ctx.cfg.root, cwd, vars: ctx.stack.vars(undefined, suite), env: childEnv(ctx.stack.envOf(suite.repo), ctx.stack.serviceUrlEnv(suite.repo)), log: log.replace(/\.log$/, ".list.log"), scratch: path.join(ctx.outDir, "reports", suite.name, "list"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name) });
+  const l = await listSuiteTests(suite, { root: ctx.cfg.root, cwd, vars: ctx.stack.vars(undefined, suite), env: childEnv(ctx.stack.envOf(suite.repo), ctx.stack.serviceUrlEnv(suite.repo)), log: log.replace(/\.log$/, ".list.log"), scratch: path.join(ctx.outDir, "reports", suite.name, "list"), abort: ctx.abort, track: ctx.run.tracker("list", suite.name), noCache: path.resolve(ctx.root) !== path.resolve(ctx.cfg.root) });
   ctx.progress.line(`${ctx.prefix ?? ""}suite  ${suite.name} · ${l.ids ? `${l.ids.length} test(s), ` : ""}${l.detail}`);
   return l;
 }

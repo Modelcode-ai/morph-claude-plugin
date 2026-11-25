@@ -97,6 +97,8 @@ export interface ListCtx {
   scratch: string;
   abort?: { aborted: boolean };
   track?: (pgid: number, running: boolean) => void;
+  /** The suite runs from another checkout (the base side): this checkout's last report says nothing about its tests. */
+  noCache?: boolean;
 }
 
 /** List a suite's tests: its template, the adapter's own listing, else the tests of the last complete report. */
@@ -105,7 +107,7 @@ export async function listSuiteTests(suite: Suite, ctx: ListCtx): Promise<TestLi
   fs.rmSync(ctx.scratch, { recursive: true, force: true });
   fs.mkdirSync(ctx.scratch, { recursive: true });
   const lc = listCommand(suite, adapter, ctx.vars, ctx.scratch, ctx.cwd);
-  const cache = readListCache(ctx.root, suite);
+  const cache = ctx.noCache ? undefined : readListCache(ctx.root, suite);
   const fresh = cache && cache.key === suiteKey(suite) ? cache : undefined;
   let error: string | undefined;
   if (lc) {
