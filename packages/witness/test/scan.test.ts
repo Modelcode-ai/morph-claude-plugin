@@ -3,7 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { machineFacts, type ScanResult, scan } from "../src/scan.ts";
+import { renderExample } from "../src/init.ts";
+import { machineFacts, type ScanResult, scan, shellFact } from "../src/scan.ts";
 import { PKG, witness } from "./helpers.ts";
 
 const FIX = path.join(PKG, "testdata", "scan");
@@ -256,4 +257,26 @@ test("init: lists the unclaimed test signals under their own heading, and in --j
   assert.doesNotMatch(fs.readFileSync(path.join(dir, ".witness", "witness.example.toml"), "utf8"), /tests\/perf/, "the example must not name them: copying it would count as deciding");
   const j = await witness(dir, ["init", "--json"]);
   assert.equal((j.json?.unclaimed as unknown[]).length, 6);
+});
+
+test("shell: the Windows CI's shell (step, job or workflow default; pwsh when unset), through the matrix too; .ps1 scripts", () => {
+  const repo = (files: Record<string, string>) => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-shell-")));
+    for (const [f, c] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+      fs.writeFileSync(path.join(dir, f), c);
+    }
+    return dir;
+  };
+  const linux = "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n";
+  assert.equal(shellFact(repo({ ".github/workflows/ci.yml": linux })).windows, undefined);
+  const matrix = "jobs:\n  test:\n    strategy:\n      matrix:\n        os: [ubuntu-latest, windows-latest]\n    runs-on: ${{ matrix.os }}\n    steps:\n      - run: npm ci\n      - run: npm test\n";
+  const m = shellFact(repo({ ".github/workflows/ci.yml": matrix }));
+  assert.deepEqual([m.windows, m.confidence, m.evidence], ["pwsh", "high", [".github/workflows/ci.yml:2"]]);
+  const bash = "defaults:\n  run:\n    shell: bash\njobs:\n  win:\n    runs-on: windows-2022\n    steps:\n      - run: ./build.sh\n      - run: dir\n        shell: cmd\n      - run: ./test.sh\n";
+  assert.equal(shellFact(repo({ ".github/workflows/w.yaml": bash })).windows, "bash");
+  const ps1 = shellFact(repo({ "scripts/build.ps1": "dotnet build" }));
+  assert.deepEqual([ps1.windows, ps1.scripts, ps1.confidence], [undefined, ["scripts/build.ps1"], "medium"]);
+  assert.match(renderExample({ suites: [], services: [], excluded: [], needsFilter: [] }, shellFact(repo({ ".github/workflows/w.yaml": bash }))), /^shell = "bash" +# the Windows CI runs its steps under bash \(\.github\/workflows\/w\.yaml:5\)$/m);
+  assert.match(renderExample({ suites: [], services: [], excluded: [], needsFilter: [] }), /^# shell = "auto" +# bash on macOS\/Linux; on Windows pwsh, then Windows PowerShell/m);
 });

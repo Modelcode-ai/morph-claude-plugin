@@ -10,7 +10,7 @@ import { PKG, witness } from "./helpers.ts";
 
 const SKILLS = path.join(PKG, "skills");
 const NAMES = ["init", "plan", "test-change", "triage", "verify", "write"];
-const REFS = ["init/capture.md", "init/interview.md", "init/repos.md", "write/evidence.md"];
+const REFS = ["init/capture.md", "init/interview.md", "init/repos.md", "init/windows.md", "write/evidence.md"];
 const FILES = [...NAMES.map((n) => `${n}/SKILL.md`), ...REFS].sort();
 const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-skills-")));
 const MARKERS = /<!--\s*(if|else|endif)\b/;

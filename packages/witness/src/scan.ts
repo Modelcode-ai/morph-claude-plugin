@@ -7,7 +7,7 @@ import type { AdapterName } from "./adapters.ts";
 import { type Config, ConfigError, type Kind, loadConfig, parseEnvFile } from "./config.ts";
 import { type Confidence, type Guess, type GuessedService, guess } from "./init.ts";
 import { isTestPath } from "./lint.ts";
-import { envGet } from "./proc.ts";
+import { envGet, resolveShell, type Shell, type ShellPref } from "./proc.ts";
 import { type CiStep, type Claim, claimOf, commentNamer, decision, findUnclaimed, type PackageScript, type UnclaimedFact } from "./unclaimed.ts";
 import { globFiles } from "./util.ts";
 
@@ -120,6 +120,16 @@ export interface MachineFact {
   evidence: string[];
 }
 
+/** Which shell the repo's commands are written for, from its Windows CI and its scripts. */
+export interface ShellFact extends Fact {
+  /** What the Windows CI runs its steps under; unset when the repo has no Windows CI. */
+  windows?: Exclude<ShellPref, "auto">;
+  /** The shell witness picks on this machine for `shell = "auto"`. */
+  here: Shell["kind"];
+  /** PowerShell scripts in the repo. */
+  scripts: string[];
+}
+
 export interface ScanResult {
   version: 1;
   root: string;
@@ -139,6 +149,7 @@ export interface ScanResult {
   data: DataFact[];
   frameworks: FrameworkFact[];
   machine: MachineFact[];
+  shell: ShellFact;
   config: ConfigFact | null;
 }
 
@@ -292,6 +303,7 @@ function start(root: string, g: Guess): { w: Walk; out: ScanResult } {
     data: [],
     frameworks: [],
     machine: [],
+    shell: { here: "bash", scripts: [], confidence: "low", evidence: [] },
     config: null,
   };
   for (const s of g.suites) out.testProjects.push({ path: s.project ?? s.cwd, adapter: s.adapter, status: "functional", kind: s.kind, reason: s.why.replace(/^[^:]*: /, ""), suite: { name: s.name, cwd: s.cwd, cmd: s.cmd, hostsApp: s.hostsApp, filtered: !!s.filtered }, confidence: s.confidence ?? "medium", evidence: s.evidence ?? [] });
@@ -338,8 +350,47 @@ export function scan(root: string): ScanResult {
   dedupe(out);
   out.unclaimed = findUnclaimed(root, w.files, projectClaims(out.testProjects, w.files), w.ci, w.scripts);
   out.machine = machineFacts(out);
+  out.shell = shellFact(root, w.files);
   out.config = existingConfig(root, out);
   return out;
+}
+
+const CI_SHELLS = new Set(["bash", "pwsh", "powershell", "cmd"]);
+
+/** Windows CI jobs (`runs-on: windows-*`, directly or through the matrix) and the shell their steps use (`shell:`, `defaults.run.shell`; GitHub's default there is pwsh). */
+export function shellFact(root: string, files: string[] = globFiles(root, ["**/*"], { maxDepth: 8, skipDirs: SKIP })): ShellFact {
+  const count = new Map<string, number>();
+  const evidence: string[] = [];
+  for (const f of files.filter((x) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(x))) {
+    const text = read(path.join(root, f));
+    let doc: any;
+    try {
+      doc = parseYaml(text);
+    } catch {
+      continue;
+    }
+    for (const [name, job] of Object.entries<any>(doc?.jobs ?? {})) {
+      const runsOn = JSON.stringify(job?.["runs-on"] ?? "");
+      const matrix = /matrix\./.test(runsOn) ? JSON.stringify(job?.strategy?.matrix ?? {}) : "";
+      if (!/windows/i.test(runsOn) && !/windows/i.test(matrix)) continue;
+      const dflt = job?.defaults?.run?.shell ?? doc?.defaults?.run?.shell ?? "pwsh";
+      for (const step of job?.steps ?? []) {
+        if (typeof step?.run !== "string") continue;
+        const sh = String(step.shell ?? dflt);
+        if (CI_SHELLS.has(sh)) count.set(sh, (count.get(sh) ?? 0) + 1);
+      }
+      evidence.push(at(f, lineOf(text, new RegExp(`^\\s+${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\\s*$`))));
+    }
+  }
+  const windows = [...count].sort((a, b) => b[1] - a[1])[0]?.[0] as ShellFact["windows"];
+  const scripts = files.filter((x) => /\.ps1$/i.test(x));
+  let here: Shell["kind"] = "bash";
+  try {
+    here = resolveShell("auto").kind;
+  } catch {
+    /* auto always resolves */
+  }
+  return { ...(windows ? { windows } : {}), here, scripts, confidence: windows ? "high" : scripts.length ? "medium" : "low", evidence: [...evidence, ...scripts.slice(0, 5)] };
 }
 
 const TOOLS: [string, (o: ScanResult) => boolean][] = [
