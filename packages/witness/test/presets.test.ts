@@ -13,7 +13,7 @@ import { parseReportText } from "../src/parsers/index.ts";
 import { httpProbe } from "../src/proc.ts";
 import { fromReruns, reconcile } from "../src/reconcile.ts";
 import { canSelect, missingPlugin, suiteCommand } from "../src/suite.ts";
-import { APPS, ctrf, latest, readJson, tmpRepo, witness } from "./helpers.ts";
+import { APPS, ctrf, latest, readJson, sh, TEST_SHELL, tmpRepo, witness } from "./helpers.ts";
 
 const suite = (adapter: Suite["adapter"], cmd: string, extra: Partial<Suite> = {}): Suite => ({ name: "s", kind: "api", adapter, cmd, cwd: ".", timeoutMs: 60_000, env: {}, ...extra });
 const cfg = (toml: string) => parseConfig(parse(toml) as Record<string, unknown>, "/repo/.witness/witness.toml");
@@ -68,8 +68,9 @@ describe("listing: template, native, last report", () => {
 
   test("a lines template, then the last report as the fallback (also after the command changes), none after the folder changes", async () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-list-")));
-    const ctx = { root, cwd: root, vars: {}, env: { PATH: process.env.PATH ?? "" }, log: path.join(root, "list.log"), scratch: path.join(root, "scratch") };
-    const tpl = await listSuiteTests(suite("junit-maven", "mvn test", { list: { cmd: "printf 'junit-maven:a.B#c\\n# note\\na.B#d\\n'", format: "lines" } }), ctx);
+    const ctx = { root, cwd: root, vars: {}, env: { ...process.env } as Record<string, string>, log: path.join(root, "list.log"), scratch: path.join(root, "scratch") };
+    const lines = sh("printf 'junit-maven:a.B#c\\n# note\\na.B#d\\n'", "echo 'junit-maven:a.B#c' '# note' 'a.B#d'");
+    const tpl = await listSuiteTests(suite("junit-maven", "mvn test", { list: { cmd: lines, format: "lines" }, shell: TEST_SHELL }), ctx);
     assert.deepEqual([tpl.ids, tpl.source], [["a.B#c", "a.B#d"], "template"]);
     const s = suite("junit-maven", "mvn test");
     assert.equal((await listSuiteTests(s, ctx)).source, "none");
@@ -85,9 +86,9 @@ describe("listing: template, native, last report", () => {
 
   test("dotnet listings of bare method names get class names from the last report", async () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-list-")));
-    const s = suite("dotnet", "printf 'The following Tests are available:\\n    ListsItems\\n    Other\\n' #");
+    const s = suite("dotnet", sh("printf 'The following Tests are available:\\n    ListsItems\\n    Other\\n' #", "echo 'The following Tests are available:' '    ListsItems' '    Other' #"), { shell: TEST_SHELL });
     writeListCache(root, s, "r-2", "abc", ["Kit.ItemsTests#ListsItems"]);
-    const l = await listSuiteTests(s, { root, cwd: root, vars: {}, env: { PATH: process.env.PATH ?? "" }, log: path.join(root, "l.log"), scratch: path.join(root, "x") });
+    const l = await listSuiteTests(s, { root, cwd: root, vars: {}, env: { ...process.env } as Record<string, string>, log: path.join(root, "l.log"), scratch: path.join(root, "x") });
     assert.deepEqual(l.ids, ["Kit.ItemsTests#ListsItems", "Other"]);
     assert.match(l.detail, /class names from the last report r-2/);
   });

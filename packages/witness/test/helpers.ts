@@ -14,6 +14,9 @@ export const CLI = path.join(PKG, "src", "cli.ts");
 /** The tests' commands run under PowerShell: on Windows (auto), or anywhere with WITNESS_TEST_SHELL=pwsh. */
 export const PS = process.platform === "win32" || process.env.WITNESS_TEST_SHELL === "pwsh";
 
+/** The `shell` for a suite run in this process: PowerShell when the tests' commands are written for it. */
+export const TEST_SHELL = PS ? ("pwsh" as const) : undefined;
+
 /** A test command in the syntax of the shell it runs under. */
 export const sh = (posix: string, ps: string) => (PS ? ps : posix);
 

@@ -345,7 +345,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
       { base: "cwd", glob: "**/target/surefire-reports/TEST-*.xml" },
       { base: "cwd", glob: "**/target/failsafe-reports/TEST-*.xml" },
     ],
-    selectArgs: (ids) => `${shq(`-Dtest=${ids.map((id) => { const [c, m] = splitClassHash(id); return `${c}#${stripParams(m)}`; }).join(",")}`)} -Dsurefire.failIfNoSpecifiedTests=false -DfailIfNoTests=false`,
+    selectArgs: (ids) => `${shq(`-Dtest=${ids.map((id) => { const [c, m] = splitClassHash(id); return `${c}#${stripParams(m)}`; }).join(",")}`)} ${shq("-Dsurefire.failIfNoSpecifiedTests=false")} -DfailIfNoTests=false`,
     perTestTimeout: (ms) => shq(`-Djunit.jupiter.execution.timeout.default=${Math.ceil(ms / 1000)} s`),
     id: classHash,
   },
@@ -424,7 +424,7 @@ export const ADAPTERS: Record<AdapterName, Adapter> = {
   playwright: {
     name: "playwright",
     format: "playwright-json",
-    reportArgs: (_d, _cwd, cmd) => `--reporter=list,json${/--trace\b/.test(cmd) ? "" : " --trace=on"}`,
+    reportArgs: (_d, _cwd, cmd) => `${shq("--reporter=list,json")}${/--trace\b/.test(cmd) ? "" : " --trace=on"}`,
     reportEnv: (d) => ({ PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(d, "playwright.json"), PLAYWRIGHT_JSON_OUTPUT_FILE: path.join(d, "playwright.json") }),
     reportMarker: /--reporter/,
     reportGlobs: [{ base: "report-dir", glob: "**/*.json" }],
