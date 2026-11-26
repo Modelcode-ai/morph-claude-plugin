@@ -56,7 +56,9 @@ and test selections witness adds are quoted the same for both. Two differences f
 doesn't fall back on 7.4+ (write `try { a } catch { b }`), and 5.1 has no `&&` (chain with
 `; if ($LASTEXITCODE) { exit $LASTEXITCODE };`). Environment variables are `$env:NAME`; witness's
 own `${...}` placeholders are replaced before any shell sees the command. A command of plain words
-(no quotes, `$` or operators) whose program is an `.exe` starts without a shell.
+(no quotes, `$` or operators) whose program is an `.exe` starts without a shell. PowerShell started
+without a console runs nothing, so a small detached node process starts it and passes on its exit
+code; that node process is the root of the command's tree.
 
 Witness stops a process tree with `taskkill /T`, then `taskkill /T /F` (console programs ignore the
 polite one, so it is forced at once). A daemon that leaves its parent's tree is not found that way:
