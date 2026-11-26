@@ -196,19 +196,35 @@ export function shellWords(cmd: string): string[] | null {
   return out;
 }
 
-let quoteStyle: "posix" | "cmd" = "posix";
+export type QuoteStyle = "posix" | "cmd" | "pwsh";
+
+let quoteStyle: QuoteStyle = "posix";
 
 /** How shq quotes from now on; follows the shell commands run under (proc.ts useShell). */
-export function setQuoteStyle(style: "posix" | "cmd") {
+export function setQuoteStyle(style: QuoteStyle) {
   quoteStyle = style;
 }
 
-/** Quote a word for the shell commands run under: bash, or cmd.exe on Windows without Git Bash. */
-export const shq = (s: string) => (quoteStyle === "cmd" ? cmdq(s) : posixq(s));
+/** Run `fn` (synchronous) with shq quoting for `style`, e.g. while building a suite's command for its own shell. */
+export function withQuoteStyle<T>(style: QuoteStyle, fn: () => T): T {
+  const prev = quoteStyle;
+  quoteStyle = style;
+  try {
+    return fn();
+  } finally {
+    quoteStyle = prev;
+  }
+}
+
+/** Quote a word for the shell commands run under: bash, PowerShell, or cmd.exe. */
+export const shq = (s: string) => (quoteStyle === "cmd" ? cmdq(s) : quoteStyle === "pwsh" ? pwshq(s) : posixq(s));
 
 export const posixq = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`);
 
 /** Quote a word for cmd.exe and the MSVC argument parser most Windows programs use. */
 export const cmdq = (s: string) => (/^[\w@+=:,./\\-]+$/.test(s) ? s : `"${s.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, "$1$1")}"`);
+
+/** Quote a word for PowerShell's legacy argument passing (proc.ts sets it on 5.1 and 7 alike); a bare `-a.b` would split at the dot. */
+export const pwshq = (s: string) => (/^[\w+=:./\\-]+$/.test(s) && !/^-(?!-).*\./.test(s) ? s : `'${s.replace(/(\\*)"/g, '$1$1\\"').replace(/['\u2018\u2019\u201a\u201b]/g, "$&$&")}'`);
 
 export const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

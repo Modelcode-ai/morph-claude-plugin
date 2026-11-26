@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { ADAPTERS, type Adapter, addArgs, fillSelect, hasSelectVar } from "./adapters.ts";
 import { type ListFormat, type Suite, substitute, type Vars } from "./config.ts";
 import { parseReportFile } from "./parsers/index.ts";
-import { childEnv, runCapture } from "./proc.ts";
+import { childEnv, quotedFor, runCapture } from "./proc.ts";
 import { toRecord } from "./reconcile.ts";
 import { fmtDuration, globFiles, readJson, sha, writeJson } from "./util.ts";
 
@@ -56,6 +56,10 @@ export function writeListCache(root: string, suite: Suite, runId: string, commit
 
 /** The command that lists the suite's tests: the suite's `list` template, else the adapter's own; null when neither exists. */
 export function listCommand(suite: Suite, adapter: Adapter, vars: Vars, reportDir: string, cwd: string): ListCommand | null {
+  return quotedFor(suite.shell, () => buildListCommand(suite, adapter, vars, reportDir, cwd));
+}
+
+function buildListCommand(suite: Suite, adapter: Adapter, vars: Vars, reportDir: string, cwd: string): ListCommand | null {
   const v = { ...vars, WITNESS_REPORT_DIR: reportDir };
   if (suite.list) return { cmd: fillSelect(substitute(suite.list.cmd, v)), format: suite.list.format, source: "template", report: suite.list.report && substitute(suite.list.report, v) };
   const nl = adapter.list;
@@ -118,7 +122,7 @@ export async function listSuiteTests(suite: Suite, ctx: ListCtx): Promise<TestLi
   if (lc) {
     const v = { ...ctx.vars, WITNESS_REPORT_DIR: ctx.scratch };
     const env = childEnv(ctx.env, { WITNESS_REPORT_DIR: ctx.scratch, ...adapter.env, ...(lc.format === "report" && lc.source === "native" && adapter.reportEnv ? adapter.reportEnv(ctx.scratch) : {}), ...Object.fromEntries(Object.entries(suite.env).map(([k, x]) => [k, substitute(x, v)])) });
-    const r = await runCapture(lc.cmd, { cwd: ctx.cwd, env, timeoutMs: 5 * 60_000, log: ctx.log, abort: ctx.abort, track: ctx.track });
+    const r = await runCapture(lc.cmd, { cwd: ctx.cwd, env, timeoutMs: 5 * 60_000, log: ctx.log, abort: ctx.abort, track: ctx.track, shell: suite.shell });
     let ids = r.code === 0 || lc.format === "report" ? parseListing(lc, adapter, r.out, ctx.scratch, ctx.cwd) : [];
     if (ids.length) {
       let detail = `list: ${lc.source}`;

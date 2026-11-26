@@ -110,7 +110,7 @@ export class Stack {
 
   async checkDep(d: Dependency): Promise<{ ok: boolean; detail: string }> {
     if (d.checkHttp) return httpProbe(substitute(d.checkHttp, this.vars(undefined, d)), undefined, 5000);
-    const r = await runCapture(substitute(d.check!, this.vars(undefined, d)), { cwd: this.rootOf(d), env: childEnv(this.envOf(d.repo)), timeoutMs: 15_000 });
+    const r = await runCapture(substitute(d.check!, this.vars(undefined, d)), { cwd: this.rootOf(d), env: childEnv(this.envOf(d.repo)), timeoutMs: 15_000, shell: d.shell });
     const last = r.out.trim().split("\n").pop() ?? "";
     return { ok: r.code === 0, detail: r.timedOut ? "check timed out" : last || `exit code ${r.code}` };
   }
@@ -126,7 +126,7 @@ export class Stack {
       const log = path.join(this.o.logDir, `dep-${d.name}.log`);
       if (d.start && !this.o.reuse?.deps_started.includes(d.name)) {
         this.o.progress.line(`deps   ${d.name} · not reachable (${r.detail}); starting it`);
-        const s = await runCapture(substitute(d.start, this.vars(undefined, d)), { cwd: this.rootOf(d), env: childEnv(this.envOf(d.repo)), timeoutMs: d.timeoutMs, log, abort: this.o.abort, track: this.o.run?.tracker("dependency", d.name) });
+        const s = await runCapture(substitute(d.start, this.vars(undefined, d)), { cwd: this.rootOf(d), env: childEnv(this.envOf(d.repo)), timeoutMs: d.timeoutMs, log, abort: this.o.abort, track: this.o.run?.tracker("dependency", d.name), shell: d.shell });
         if (this.o.abort.aborted) return;
         if (s.code !== 0) this.fail("deps", "dependency_unreachable", { command: d.start, log, evidence: s.out.trim().split("\n").pop() });
         this.depsStarted.push(d);
@@ -188,11 +188,11 @@ export class Stack {
     const held = readyUrl ? await heldReadyPort(readyUrl, alloc.port!) : undefined;
     if (held) this.fail("boot", "port_in_use", { service: svc.name, port: held, url: readyUrl, evidence: `port ${held} (in ready.http ${readyUrl}) already accepts connections before ${svc.name} started: another process holds it, so the readiness check would talk to that process` });
     const cmd = substitute(svc.start!, vars);
-    const proc = spawnGroup(cmd, { name: svc.name, cwd, env, log });
+    const proc = spawnGroup(cmd, { name: svc.name, cwd, env, log, shell: svc.shell });
     ls.proc = proc;
     ls.pgid = proc.pgid;
     this.live.set(alias, ls);
-    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop ? substitute(svc.stop, vars) : undefined, cwd });
+    this.o.run?.track({ kind: "service", name: svc.name, pid: proc.pid, pgid: proc.pgid, pidfile: svc.pidfile ? path.resolve(cwd, substitute(svc.pidfile, vars)) : undefined, stop: svc.stop ? substitute(svc.stop, vars) : undefined, cwd, shell: svc.shell });
     this.o.run?.event("service_started", { service: svc.name, pid: proc.pid, port: alloc.port, cmd }, `starting ${svc.name}`);
     this.o.progress.line(`boot   ${svc.name} · starting (PORT=${alloc.port}${readyUrl ? `, ready check ${readyUrl}` : ""})`);
     try {
@@ -228,7 +228,7 @@ export class Stack {
     const t0 = Date.now();
     this.o.progress.line(`setup  ${svc.name} · ${cmd}`);
     this.o.run?.event("setup_started", { service: svc.name, cmd }, `setup ${svc.name}`);
-    const proc = spawnGroup(cmd, { name: `setup-${svc.name}`, cwd, env, log });
+    const proc = spawnGroup(cmd, { name: `setup-${svc.name}`, cwd, env, log, shell: svc.shell });
     this.o.run?.track({ kind: "setup", name: svc.name, pid: proc.pid, pgid: proc.pgid });
     const timer = setTimeout(() => void killGroup(proc.pgid, this.o.cfg.run.graceMs), SETUP_TIMEOUT);
     const abortPoll = setInterval(() => this.o.abort.aborted && void killGroup(proc.pgid, this.o.cfg.run.graceMs), 200);
@@ -254,7 +254,7 @@ export class Stack {
     const exitedFail = () => this.fail("boot", "exited_before_ready", { service: svc.name, command: cmd, log: ls.log, cwd: this.shownCwd(svc), port: ls.port, evidence: undefined });
     for (;;) {
       if (this.o.abort.aborted) return;
-      if (pidfile && !ls.pid) ls.pid = pidFromFile(pidfile) || undefined;
+      if (pidfile && !ls.pid) ls.pid = pidFromFile(pidfile, svc.shell) || undefined;
       if (!external) {
         if (pidfile) {
           if (ls.pid && !pidAlive(ls.pid)) exitedFail();
@@ -299,7 +299,7 @@ export class Stack {
       return r6;
     }
     const env = childEnv(this.envOf(ls.svc.repo), { PORT: String(ls.port ?? ""), ...this.serviceUrlEnv(ls.svc.repo), ...mapValues(ls.svc.env, (v) => substitute(v, vars)) });
-    const res = await runCapture(substitute(r.cmd!, vars), { cwd: path.resolve(this.rootOf(ls.svc), ls.svc.cwd), env, timeoutMs: 10_000 });
+    const res = await runCapture(substitute(r.cmd!, vars), { cwd: path.resolve(this.rootOf(ls.svc), ls.svc.cwd), env, timeoutMs: 10_000, shell: ls.svc.shell });
     return { ok: res.code === 0, detail: res.timedOut ? "ready cmd timed out" : res.out.trim().split("\n").pop() || `exit code ${res.code}` };
   }
 
@@ -333,7 +333,7 @@ export class Stack {
     const grace = this.o.cfg.run.graceMs;
     if (ls.svc.stop) {
       const cwd = path.resolve(this.rootOf(ls.svc), ls.svc.cwd);
-      const r = await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.envOf(ls.svc.repo), { PORT: String(ls.port ?? "") }), timeoutMs: 60_000, log: ls.log });
+      const r = await runCapture(substitute(ls.svc.stop, this.vars(ls)), { cwd, env: childEnv(this.envOf(ls.svc.repo), { PORT: String(ls.port ?? "") }), timeoutMs: 60_000, log: ls.log, shell: ls.svc.shell });
       if (r.code !== 0) this.o.progress.line(`stop   ${ls.svc.name} · stop command failed (exit ${r.code ?? "timeout"}); killing its processes; see ${ls.log}`);
     }
     if (ls.pid && pidAlive(ls.pid)) {
@@ -366,7 +366,7 @@ export class Stack {
       if (!d.stop) continue;
       this.o.progress.line(`deps   ${d.name} · stopping`);
       const log = path.join(this.o.logDir, `dep-${d.name}.log`);
-      const r = await runCapture(substitute(d.stop, this.vars(undefined, d)), { cwd: this.rootOf(d), env: childEnv(this.envOf(d.repo)), timeoutMs: 120_000, log });
+      const r = await runCapture(substitute(d.stop, this.vars(undefined, d)), { cwd: this.rootOf(d), env: childEnv(this.envOf(d.repo)), timeoutMs: 120_000, log, shell: d.shell });
       if (r.code !== 0) this.o.progress.line(`deps   ${d.name} · stop command failed (exit ${r.code ?? "timeout"}); it may still be running; see ${log}`);
     }
     this.depsStarted = [];

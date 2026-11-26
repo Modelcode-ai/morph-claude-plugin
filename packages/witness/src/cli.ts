@@ -10,7 +10,7 @@ import { scanCommand } from "./scan.ts";
 import { lintCommand } from "./lint.ts";
 import { skillsCommand } from "./skills.ts";
 import { type Plan, parsePlan, planCheckCommand } from "./plan.ts";
-import { ShellError, useShell } from "./proc.ts";
+import { ShellError, shellFor, useShell } from "./proc.ts";
 import { EXIT } from "./reconcile.ts";
 import { defaultAgainst, parseAgainst } from "./repos.ts";
 import { ensureScratch, runCommand, UsageError } from "./run.ts";
@@ -37,13 +37,19 @@ Common: --json (machine output on stdout) · --config <path> (default .witness/w
         --run-dir-root <path> (default .witness/runs)
 Exit codes: 0 passed · 1 failed · 2 error · 3 mistrial · 4 stalled/timeout · 5 interrupted · 64 usage`;
 
-/** Load the config and pick the shell its commands run under. */
+/** Load the config and resolve every shell its commands run under, so a missing one is a config error now. */
 function loadConfig(file: string): Config {
   const cfg = parseConfigFile(file);
+  const own = [...cfg.dependencies.map((d) => ["dependency", d] as const), ...cfg.services.map((s) => ["service", s] as const), ...cfg.suites.map((s) => ["suite", s] as const)];
+  let key = "run.shell";
   try {
     useShell(cfg.run.shell);
+    for (const [k, x] of own) {
+      key = `${k}.${x.name}.shell`;
+      shellFor(x.shell);
+    }
   } catch (e) {
-    if (e instanceof ShellError) throw new ConfigError("run.shell", e.message);
+    if (e instanceof ShellError) throw new ConfigError(key, e.message);
     throw e;
   }
   return cfg;

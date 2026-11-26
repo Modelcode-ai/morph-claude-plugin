@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { ADAPTERS, type AdapterName } from "./adapters.ts";
-import { envGet } from "./proc.ts";
+import { envGet, SHELL_PREFS, type ShellPref } from "./proc.ts";
 import { parseDuration, slashPath } from "./util.ts";
 
 export interface Ready {
@@ -27,6 +27,7 @@ export interface Dependency extends InRepo {
   start?: string;
   stop?: string;
   timeoutMs: number;
+  shell?: ShellPref;
 }
 
 export interface Service extends InRepo {
@@ -45,6 +46,8 @@ export interface Service extends InRepo {
   external?: string;
   role: "target" | "origin";
   originFor?: string;
+  /** The shell its commands run under; unset, `[run] shell`. */
+  shell?: ShellPref;
 }
 
 export const KINDS = ["api", "ui", "cli", "desktop", "mobile"] as const;
@@ -69,6 +72,7 @@ export interface Suite extends InRepo {
   select?: string;
   list?: ListTemplate;
   env: Record<string, string>;
+  shell?: ShellPref;
 }
 
 export type ListFormat = "lines" | "report" | "adapter";
@@ -125,7 +129,7 @@ export interface Config {
   suites: Suite[];
   reference?: Reference;
   repos: Repo[];
-  run: { stallMs: number; heartbeatMs: number; keepRuns: number; graceMs: number; shell?: "auto" | "bash" | "cmd" };
+  run: { stallMs: number; heartbeatMs: number; keepRuns: number; graceMs: number; shell: ShellPref };
 }
 
 export class ConfigError extends Error {
@@ -144,10 +148,10 @@ const KEYS = {
   repo: ["name", "path", "services", "suites", "env"],
   override: ["cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external"],
   env: ["file", "required"],
-  dependency: ["name", "check", "check_http", "start", "stop", "timeout"],
-  service: ["name", "repo", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for"],
+  dependency: ["name", "check", "check_http", "start", "stop", "timeout", "shell"],
+  service: ["name", "repo", "cwd", "setup", "start", "stop", "pidfile", "ports", "ready", "env", "depends_on", "external", "role", "origin_for", "shell"],
   ready: ["http", "cmd", "status", "timeout"],
-  suite: ["name", "kind", "service", "adapter", "repo", "cwd", "cmd", "timeout", "per_test_timeout", "per_test_timeout_arg", "report", "select", "list", "env"],
+  suite: ["name", "kind", "service", "adapter", "repo", "cwd", "cmd", "timeout", "per_test_timeout", "per_test_timeout_arg", "report", "select", "list", "env", "shell"],
   list: ["cmd", "format", "report"],
   run: ["stall_timeout", "heartbeat", "keep_runs", "kill_grace", "shell"],
 };
@@ -194,6 +198,12 @@ function str(o: Obj, k: string, where: string, required = false): string | undef
   }
   if (typeof v !== "string") throw new ConfigError(`${where}.${k}`, `expected a string, got ${typeof v}`);
   return v;
+}
+
+function shellOf(o: Obj, where: string): ShellPref | undefined {
+  const v = str(o, "shell", where);
+  if (v !== undefined && !SHELL_PREFS.includes(v as ShellPref)) throw new ConfigError(`${where}.shell`, `expected ${SHELL_PREFS.map((x) => `"${x}"`).join(", ")}, got "${v}"`);
+  return v as ShellPref | undefined;
 }
 
 function dur(o: Obj, k: string, where: string, dflt?: number): number | undefined {
@@ -347,6 +357,7 @@ export function parseConfig(doc: Obj, file: string, chain: Link[] = []): Config 
       start: str(d, "start", where),
       stop: str(d, "stop", where),
       timeoutMs: dur(d, "timeout", where, 60_000)!,
+      shell: shellOf(d, where),
     };
     if (!dep.check && !dep.checkHttp) throw new ConfigError(`dependency[${i}]`, `"${name}" needs check or check_http`);
     return dep;
@@ -376,6 +387,7 @@ export function parseConfig(doc: Obj, file: string, chain: Link[] = []): Config 
       external: str(s, "external", where),
       role,
       originFor: str(s, "origin_for", where),
+      shell: shellOf(s, where),
     };
     if (!svc.start && !svc.external) throw new ConfigError(where, "needs start (a command) or external (a URL)");
     if (svc.external && !/^https?:\/\//.test(svc.external)) throw new ConfigError(`${where}.external`, "expected an http(s) URL");
@@ -410,6 +422,7 @@ export function parseConfig(doc: Obj, file: string, chain: Link[] = []): Config 
       report: str(s, "report", where),
       select: str(s, "select", where),
       env: strMap(s, "env", where),
+      shell: shellOf(s, where),
     };
   });
 
@@ -418,8 +431,7 @@ export function parseConfig(doc: Obj, file: string, chain: Link[] = []): Config 
   checkKeys(runT, KEYS.run, "run");
   const keepRuns = runT.keep_runs ?? 10;
   if (typeof keepRuns !== "number" || keepRuns < 1) throw new ConfigError("run.keep_runs", "expected a positive number");
-  const shell = str(runT, "shell", "run") ?? "auto";
-  if (shell !== "auto" && shell !== "bash" && shell !== "cmd") throw new ConfigError("run.shell", `expected "auto", "bash" or "cmd", got "${shell}"`);
+  const shell = shellOf(runT, "run") ?? "auto";
 
   const listed = parseRepos(doc, root, chain.length ? chain : [{ name: path.basename(root), root: real(root) }]);
   for (const x of [...services, ...suites]) {
@@ -529,7 +541,7 @@ function importRepo(r: Repo, sub: Config, wantServices: string[] | undefined, wa
     if (!s) throw new ConfigError(`${where}.suites`, `no suite "${n}" in ${sub.file}; its suites: ${sub.suites.map((x) => x.name).join(", ") || "(none)"}`);
     const services = s.services ?? targets.map((x) => x.name);
     names.push(...services);
-    return { ...s, name: q(s.name), local: s.local ?? s.name, repo: s.repo ?? r.name, root: s.root ?? r.root, services: services.map(q), cmd: rw(s.cmd)!, select: rw(s.select), list: s.list && { ...s.list, cmd: rw(s.list.cmd)! }, env: rwMap(s.env) };
+    return { ...s, name: q(s.name), local: s.local ?? s.name, repo: s.repo ?? r.name, root: s.root ?? r.root, services: services.map(q), cmd: rw(s.cmd)!, select: rw(s.select), list: s.list && { ...s.list, cmd: rw(s.list.cmd)! }, env: rwMap(s.env), shell: s.shell ?? sub.run.shell };
   });
   const services = topoOrder(sub.services, [...new Set(names)]).map((s): Service => ({
     ...s,
@@ -545,8 +557,9 @@ function importRepo(r: Repo, sub: Config, wantServices: string[] | undefined, wa
     env: { ...rwMap(s.env), ...(s.repo ? {} : r.env) },
     dependsOn: s.dependsOn.map(q),
     originFor: undefined,
+    shell: s.shell ?? sub.run.shell,
   }));
-  const dependencies = sub.dependencies.map((d) => ({ ...d, name: q(d.name), repo: d.repo ?? r.name, root: d.root ?? r.root }));
+  const dependencies = sub.dependencies.map((d) => ({ ...d, name: q(d.name), repo: d.repo ?? r.name, root: d.root ?? r.root, shell: d.shell ?? sub.run.shell }));
   return { services, dependencies, suites };
 }
 

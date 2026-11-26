@@ -146,7 +146,7 @@ export async function checkCommand(cfg: Config, o: { stage?: Stage; service?: st
       let pluginMissing = false;
       for (const pl of ad.plugins ?? []) {
         if (!pl.needed(!!s.perTestTimeoutMs) || !pl.probeArgs) continue;
-        const r = await runCapture(fillSelect(addArgs(substitute(s.cmd, svars), pl.probeArgs)), { cwd, env: cenv, timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.plugins.log`), abort, track: run.tracker("list", s.name) });
+        const r = await runCapture(fillSelect(addArgs(substitute(s.cmd, svars), pl.probeArgs)), { cwd, env: cenv, timeoutMs: 5 * 60_000, log: run.file("logs", `${s.name}.plugins.log`), abort, track: run.tracker("list", s.name), shell: s.shell });
         if (r.code === 0 || !pl.missing.test(r.out)) continue;
         const d = diagnose({ stage: "suite", cause: "setup_failed", suite: s.name, command: s.cmd, evidence: r.out.split(/\r?\n/).find((l) => pl.missing.test(l))?.trim(), extraTry: [pl.hint] });
         report.push({ stage: "suite", ok: false, detail: `${s.name}: ${pl.name} is missing`, diagnosis: d });
@@ -282,7 +282,7 @@ export async function downCommand(cfg: Config, o: { json: boolean }): Promise<nu
   for (const [name, s] of Object.entries(state.services).reverse()) {
     const svc = cfg.services.find((x) => x.name === name);
     if (s.external) continue;
-    if (svc?.stop) await runCapture(svc.stop, { cwd: path.resolve(svc.root ?? cfg.root, svc.cwd), env: childEnv(envOf(svc.repo), { PORT: String(s.port ?? "") }), timeoutMs: 60_000, log: s.log });
+    if (svc?.stop) await runCapture(svc.stop, { cwd: path.resolve(svc.root ?? cfg.root, svc.cwd), env: childEnv(envOf(svc.repo), { PORT: String(s.port ?? "") }), timeoutMs: 60_000, log: s.log, shell: svc.shell });
     if (s.pid && pidAlive(s.pid)) {
       try {
         signalPid(s.pid, false);
@@ -297,7 +297,7 @@ export async function downCommand(cfg: Config, o: { json: boolean }): Promise<nu
   for (const d of [...state.deps_started].reverse()) {
     const dep = cfg.dependencies.find((x) => x.name === d);
     if (dep?.stop) {
-      await runCapture(dep.stop, { cwd: dep.root ?? cfg.root, env: childEnv(envOf(dep.repo)), timeoutMs: 120_000 });
+      await runCapture(dep.stop, { cwd: dep.root ?? cfg.root, env: childEnv(envOf(dep.repo)), timeoutMs: 120_000, shell: dep.shell });
       p.line(`down   ${d} · stopped`);
     }
   }

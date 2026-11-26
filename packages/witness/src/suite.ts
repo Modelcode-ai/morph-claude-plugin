@@ -7,7 +7,7 @@ import { listSuiteTests, type TestList, writeListCache } from "./listing.ts";
 import type { Progress } from "./output.ts";
 import { parseReportFile } from "./parsers/index.ts";
 import type { ParsedFile } from "./parsers/types.ts";
-import { childEnv, killGroup, spawnGroup } from "./proc.ts";
+import { childEnv, killGroup, quotedFor, spawnGroup } from "./proc.ts";
 import { fromReruns, missing, reconcile, type ReconcileResult, type SuiteEnd, type SuiteSummary, suiteLevel, summarize, type TestRecord, toRecord } from "./reconcile.ts";
 import type { RunDir } from "./rundir.ts";
 import type { Stack } from "./stack.ts";
@@ -139,6 +139,10 @@ export function perTestTimeoutArgs(suite: Suite, adapter: Adapter, cwd: string, 
 
 /** Build the command a suite runs: select, report args, per-test timeout; runner args go where `${WITNESS_SELECT}` is, else at the end. */
 export function suiteCommand(suite: Suite, adapter: Adapter, vars: Record<string, string | undefined>, reportDir: string, select?: string[], cwd = "."): string {
+  return quotedFor(suite.shell, () => buildSuiteCommand(suite, adapter, vars, reportDir, select, cwd));
+}
+
+function buildSuiteCommand(suite: Suite, adapter: Adapter, vars: Record<string, string | undefined>, reportDir: string, select: string[] | undefined, cwd: string): string {
   let cmd = substitute(suite.cmd, vars);
   let selection: string | undefined;
   if (select?.length) {
@@ -295,7 +299,7 @@ async function execWatched(ctx: SuiteCtx, suite: Suite, adapter: Adapter, cmd: s
     ...Object.fromEntries(Object.entries(suite.env).map(([k, v]) => [k, substitute(v, { ...vars, WITNESS_REPORT_DIR: reportDir })])),
   });
   const t0 = Date.now();
-  const proc = spawnGroup(cmd, { name: suite.name, cwd, env, log });
+  const proc = spawnGroup(cmd, { name: suite.name, cwd, env, log, shell: suite.shell });
   ctx.run.track({ kind: "suite", name: suite.name, pid: proc.pid, pgid: proc.pgid });
   let lastSize = -1;
   let lastProgress = Date.now();

@@ -2,7 +2,7 @@ import { type ChildProcess, spawn, spawnSync, type StdioOptions } from "node:chi
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
-import { setQuoteStyle, sleep } from "./util.ts";
+import { type QuoteStyle, setQuoteStyle, sleep, withQuoteStyle } from "./util.ts";
 
 /** The OS facts process handling depends on; tests pass a fake one to exercise the Windows branches anywhere. */
 export interface Host {
@@ -51,32 +51,68 @@ export function childEnv(base: Record<string, string>, extra: Record<string, str
   return env;
 }
 
-export type ShellPref = "auto" | "bash" | "cmd";
-export const SHELL_PREFS: ShellPref[] = ["auto", "bash", "cmd"];
+export type ShellPref = "auto" | "bash" | "pwsh" | "powershell" | "cmd";
+export const SHELL_PREFS: ShellPref[] = ["auto", "bash", "pwsh", "powershell", "cmd"];
 
 export interface Shell {
-  kind: "bash" | "cmd";
+  kind: "bash" | "pwsh" | "powershell" | "cmd";
   file: string;
 }
 
 export class ShellError extends Error {}
 
-/** The shell witness.toml commands run under: always bash on macOS/Linux; on Windows Git Bash, else cmd.exe (`pref` forces one). */
+export const isPowerShell = (sh: Shell) => sh.kind === "pwsh" || sh.kind === "powershell";
+
+export const quoteStyleOf = (sh: Shell): QuoteStyle => (sh.kind === "bash" ? "posix" : sh.kind === "cmd" ? "cmd" : "pwsh");
+
+/** The shell witness.toml commands run under: bash on macOS/Linux (pwsh when asked); on Windows pwsh, then Windows PowerShell, then cmd.exe, and bash only when asked. */
 export function resolveShell(pref: ShellPref = "auto", host: Host = HOST): Shell {
-  if (host.platform !== "win32") return { kind: "bash", file: "bash" };
-  if (pref !== "cmd") {
+  if (host.platform !== "win32") {
+    if (pref !== "pwsh") return { kind: "bash", file: "bash" };
+    if ((envGet(host.env, "PATH", host.platform) ?? "").split(":").some((d) => d && host.isFile(path.posix.join(d, "pwsh")))) return { kind: "pwsh", file: "pwsh" };
+    throw new ShellError('shell = "pwsh" but pwsh is not on PATH (install PowerShell 7)');
+  }
+  if (pref === "bash") {
     const bash = findWindowsBash(host);
     if (bash) return { kind: "bash", file: bash };
-    if (pref === "bash") throw new ShellError("shell = \"bash\" but no bash.exe was found (install Git for Windows, or put its bin folder on PATH); WSL's bash can't run Windows commands");
+    throw new ShellError('shell = "bash" but no bash.exe was found (install Git for Windows, or put its bin folder on PATH); WSL\'s bash can\'t run Windows commands');
+  }
+  if (pref === "auto" || pref === "pwsh") {
+    const pwsh = findPwsh(host);
+    if (pwsh) return { kind: "pwsh", file: pwsh };
+    if (pref === "pwsh") throw new ShellError('shell = "pwsh" but no pwsh.exe was found (install PowerShell 7, or set "powershell" for Windows PowerShell 5.1)');
+  }
+  if (pref === "auto" || pref === "powershell") {
+    const ps = findWindowsPowerShell(host);
+    if (ps) return { kind: "powershell", file: ps };
+    if (pref === "powershell") throw new ShellError('shell = "powershell" but powershell.exe was not found');
   }
   return { kind: "cmd", file: envGet(host.env, "ComSpec", "win32") || "cmd.exe" };
+}
+
+const winPath = (host: Host) => (envGet(host.env, "PATH", "win32") ?? "").split(";").filter(Boolean);
+
+/** pwsh.exe (PowerShell 7) on PATH, else in its default install folder. */
+function findPwsh(host: Host): string | undefined {
+  const w = path.win32;
+  for (const d of winPath(host)) if (host.isFile(w.join(d, "pwsh.exe"))) return w.join(d, "pwsh.exe");
+  const bases = [envGet(host.env, "ProgramFiles", "win32"), envGet(host.env, "ProgramW6432", "win32")];
+  return bases.map((b) => b && w.join(b, "PowerShell", "7", "pwsh.exe")).find((f) => f && host.isFile(f)) || undefined;
+}
+
+/** Windows PowerShell 5.1, which every Windows has in System32. */
+function findWindowsPowerShell(host: Host): string | undefined {
+  const w = path.win32;
+  const sys = w.join(envGet(host.env, "SystemRoot", "win32") ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  if (host.isFile(sys)) return sys;
+  for (const d of winPath(host)) if (host.isFile(w.join(d, "powershell.exe"))) return w.join(d, "powershell.exe");
 }
 
 /** bash.exe on PATH (not WSL's launcher, which runs commands inside Linux), else the one next to git.exe, else Git's default install. */
 export function findWindowsBash(host: Host): string | undefined {
   const w = path.win32;
   const sysRoot = (envGet(host.env, "SystemRoot", "win32") ?? "C:\\Windows").toLowerCase();
-  const dirs = (envGet(host.env, "PATH", "win32") ?? "").split(";").filter(Boolean);
+  const dirs = winPath(host);
   const wsl = (d: string) => w.resolve(d).toLowerCase().startsWith(w.join(sysRoot, "system32")) || /\\windowsapps\\?$/i.test(d);
   for (const d of dirs) if (!wsl(d) && host.isFile(w.join(d, "bash.exe"))) return w.join(d, "bash.exe");
   for (const d of dirs) {
@@ -89,33 +125,103 @@ export function findWindowsBash(host: Host): string | undefined {
   return installs.map((base) => base && w.join(base, "Git", "bin", "bash.exe")).find((f) => f && host.isFile(f)) || undefined;
 }
 
-/** How to start `cmd` under `shell`; cmd.exe gets Node's own `shell: true` command line. */
+// Fail fast like bash -e, keep a native command's exit code, and pass arguments the same way on 5.1 and 7 (shq relies on it).
+const PS_PRELUDE = [
+  "$ErrorActionPreference = 'Stop'",
+  "$PSNativeCommandUseErrorActionPreference = $true",
+  "$PSNativeCommandArgumentPassing = 'Legacy'",
+  "$ProgressPreference = 'SilentlyContinue'",
+  "$OutputEncoding = New-Object System.Text.UTF8Encoding $false",
+  "try { [Console]::OutputEncoding = $OutputEncoding } catch {}",
+  "try {",
+].join("\n");
+const PS_EPILOGUE = [
+  "} catch {",
+  "  [Console]::Error.WriteLine(\"$_\")",
+  "  if ($_.FullyQualifiedErrorId -like 'CommandNotFoundException*') { exit 127 }",
+  "  if ($LASTEXITCODE) { exit $LASTEXITCODE }",
+  "  exit 1",
+  "}",
+  "exit $LASTEXITCODE",
+].join("\n");
+
+/** The script PowerShell runs for `cmd`. */
+export const psScript = (cmd: string) => `${PS_PRELUDE}\n${cmd}\n${PS_EPILOGUE}`;
+
+/** How to start `cmd` under `shell`; cmd.exe gets Node's own `shell: true` command line, PowerShell an encoded script (no quoting layer). */
 export function shellArgv(shell: Shell, cmd: string): { file: string; args: string[]; windowsVerbatimArguments?: boolean } {
-  return shell.kind === "cmd" ? { file: shell.file, args: ["/d", "/s", "/c", `"${cmd}"`], windowsVerbatimArguments: true } : { file: shell.file, args: ["-c", cmd] };
+  if (shell.kind === "cmd") return { file: shell.file, args: ["/d", "/s", "/c", `"${cmd}"`], windowsVerbatimArguments: true };
+  if (shell.kind === "bash") return { file: shell.file, args: ["-c", cmd] };
+  const script = psScript(cmd);
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
+  const flags = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"];
+  // a command line holds 32767 characters; past that the script goes as plain text
+  return { file: shell.file, args: encoded.length < 30_000 ? [...flags, "-EncodedCommand", encoded] : [...flags, "-Command", script] };
 }
 
-let current: Shell | undefined;
+const PLAIN = /^[\w+=:./\\-]+(?:[ \t]+[\w+=:./\\-]+)*$/;
 
-/** Pick the shell for this process (from `[run] shell`); shq quotes for it from then on. */
+/** On Windows, a command of plain words (no quotes, variables or operators) whose program is an .exe: started directly, without PowerShell's startup. */
+export function directArgv(cmd: string, cwd: string, env: NodeJS.ProcessEnv, host: Host = HOST): { file: string; args: string[] } | null {
+  if (host.platform !== "win32" || !PLAIN.test(cmd.trim())) return null;
+  const [prog, ...args] = cmd.trim().split(/[ \t]+/);
+  const w = path.win32;
+  const exts = [".ps1", ...(envGet(env, "PATHEXT", "win32") ?? ".COM;.EXE;.BAT;.CMD").toLowerCase().split(";").filter(Boolean)];
+  const dirs = /[\\/]/.test(prog) ? [w.resolve(cwd, w.dirname(prog))] : (envGet(env, "PATH", "win32") ?? "").split(";").filter(Boolean);
+  const name = w.basename(prog);
+  // the first match is what PowerShell would run; only an .exe or .com starts without a shell
+  for (const d of dirs) {
+    for (const f of /\.\w+$/.test(name) ? [name] : exts.map((e) => name + e)) {
+      if (host.isFile(w.join(d, f))) return /\.(exe|com)$/i.test(f) ? { file: w.join(d, f), args } : null;
+    }
+  }
+  return null;
+}
+
+/** How to start `cmd` under `sh`, directly when directArgv allows it. */
+function commandArgv(sh: Shell, cmd: string, cwd: string, env: NodeJS.ProcessEnv): { file: string; args: string[]; windowsVerbatimArguments?: boolean } {
+  return (isPowerShell(sh) && directArgv(cmd, cwd, env)) || shellArgv(sh, cmd);
+}
+
+let runPref: ShellPref = "auto";
+let shellHost: Host = HOST;
+const resolved = new Map<ShellPref, Shell>();
+
+/** Pick `[run] shell` for this process; shq quotes for it from then on. */
 export function useShell(pref: ShellPref = "auto", host: Host = HOST): Shell {
-  current = resolveShell(pref, host);
-  setQuoteStyle(current.kind === "cmd" ? "cmd" : "posix");
-  return current;
+  runPref = pref;
+  shellHost = host;
+  resolved.clear();
+  const sh = shellFor();
+  setQuoteStyle(quoteStyleOf(sh));
+  return sh;
 }
 
-export function activeShell(): Shell {
-  return current ?? useShell();
+/** The shell for a service's or suite's own `shell`; unset, `[run] shell`. */
+export function shellFor(pref?: ShellPref): Shell {
+  const p = pref ?? runPref;
+  let sh = resolved.get(p);
+  if (!sh) {
+    sh = resolveShell(p, shellHost);
+    resolved.set(p, sh);
+  }
+  return sh;
 }
+
+export const activeShell = () => shellFor();
+
+/** Run `fn` (synchronous) with shq quoting for the shell `pref` resolves to. */
+export const quotedFor = <T>(pref: ShellPref | undefined, fn: () => T): T => withQuoteStyle(quoteStyleOf(shellFor(pref)), fn);
 
 /** Start `cmd` in its own process group (POSIX) or as the root of its own process tree (Windows). */
-function spawnShell(cmd: string, o: { cwd: string; env: Record<string, string>; stdio: StdioOptions }): ChildProcess {
-  const sh = shellArgv(activeShell(), cmd);
+function spawnShell(cmd: string, o: { cwd: string; env: Record<string, string>; stdio: StdioOptions; shell?: ShellPref }): ChildProcess {
+  const sh = commandArgv(shellFor(o.shell), cmd, o.cwd, o.env);
   return spawn(sh.file, sh.args, { cwd: o.cwd, env: o.env, stdio: o.stdio, detached: true, windowsHide: true, windowsVerbatimArguments: sh.windowsVerbatimArguments });
 }
 
-/** Run `cmd` to completion under the active shell, ignoring its output (stop commands during cleanup). */
-export function runShellSync(cmd: string, o: { cwd?: string; timeoutMs: number }) {
-  const sh = shellArgv(activeShell(), cmd);
+/** Run `cmd` to completion under its shell, ignoring its output (stop commands during cleanup). */
+export function runShellSync(cmd: string, o: { cwd?: string; timeoutMs: number; shell?: ShellPref }) {
+  const sh = commandArgv(shellFor(o.shell), cmd, o.cwd ?? process.cwd(), process.env);
   return spawnSync(sh.file, sh.args, { cwd: o.cwd, stdio: "ignore", timeout: o.timeoutMs, windowsHide: true, windowsVerbatimArguments: sh.windowsVerbatimArguments });
 }
 
@@ -140,11 +246,11 @@ function openLogForChild(log: string, platform: NodeJS.Platform = process.platfo
 }
 
 /** Start `cmd` under the shell in its own process group (tree, on Windows), appending output to `log`. */
-export function spawnGroup(cmd: string, opts: { name: string; cwd: string; env: Record<string, string>; log: string }): Proc {
+export function spawnGroup(cmd: string, opts: { name: string; cwd: string; env: Record<string, string>; log: string; shell?: ShellPref }): Proc {
   fs.mkdirSync(path.dirname(opts.log), { recursive: true });
   const fd = openLogForChild(opts.log);
   fs.writeSync(fd, `$ ${cmd}\n`);
-  const child = spawnShell(cmd, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", fd, fd] });
+  const child = spawnShell(cmd, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", fd, fd], shell: opts.shell });
   fs.closeSync(fd);
   const p: Proc = {
     name: opts.name,
@@ -171,15 +277,17 @@ export function spawnGroup(cmd: string, opts: { name: string; cwd: string; env: 
   return p;
 }
 
-/** The pid in a pidfile (0 if none yet); under Git Bash, `$!` is an MSYS pid, mapped to its Windows pid through /proc. */
-export function pidFromFile(file: string, host: Host = HOST): number {
+/** The pid in a pidfile (0 if none yet), UTF-16 too (Windows PowerShell's `>`); under Git Bash, `$!` is an MSYS pid, mapped to its Windows pid through /proc. */
+export function pidFromFile(file: string, shell?: ShellPref, host: Host = HOST): number {
   let pid = 0;
   try {
-    pid = Number(fs.readFileSync(file, "utf8").trim()) || 0;
+    const buf = fs.readFileSync(file);
+    const text = buf[0] === 0xff && buf[1] === 0xfe ? buf.subarray(2).toString("utf16le") : buf.toString("utf8");
+    pid = Number(text.replace(/^\uFEFF/, "").trim()) || 0;
   } catch {
     return 0;
   }
-  const sh = activeShell();
+  const sh = shellFor(shell);
   if (pid <= 0 || host.platform !== "win32" || sh.kind !== "bash") return pid;
   const r = spawnSync(sh.file, ["-c", `cat /proc/${pid}/winpid 2>/dev/null`], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
   return Number(r.stdout?.trim()) || pid;
@@ -239,11 +347,13 @@ export interface CaptureOpts {
   abort?: { aborted: boolean };
   /** Called with the group id while it runs, so a crash leaves it in state.json for the reaper. */
   track?: (pgid: number, running: boolean) => void;
+  /** The service's or suite's `shell`; unset, `[run] shell`. */
+  shell?: ShellPref;
 }
 
 /** Run a command to completion (group-killed on timeout or abort); output is captured and optionally logged. */
 export async function runCapture(cmd: string, opts: CaptureOpts): Promise<{ code: number | null; out: string; timedOut: boolean }> {
-  const child = spawnShell(cmd, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnShell(cmd, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"], shell: opts.shell });
   if (child.pid) opts.track?.(child.pid, true);
   const chunks: Buffer[] = [];
   child.stdout?.on("data", (d: Buffer) => chunks.push(d));
