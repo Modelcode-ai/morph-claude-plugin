@@ -1,0 +1,63 @@
+From 804c3b490d23e7bee380fcb0257e4fcf086fd033 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Tue, 24 Nov 2026 21:49:29 -0800
+Subject: [PATCH 2/2] witness eval phase 2: [[repo]] rest, screenshots and
+ video under WITNESS_EVIDENCE
+
+---
+ .witness/playwright.config.ts |  7 ++++++-
+ .witness/witness.toml         | 15 +++++++--------
+ 2 files changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/.witness/playwright.config.ts b/.witness/playwright.config.ts
+index 68bee7d..5b1a7bf 100644
+--- a/.witness/playwright.config.ts
++++ b/.witness/playwright.config.ts
+@@ -7,5 +7,10 @@ export default {
+   ...rest,
+   testDir: path.join(__dirname, '..', 'e2e'),
+   outputDir: path.join(__dirname, 'scratch', 'test-results'),
+-  use: { ...base.use, baseURL: process.env.WITNESS_WEB_URL ?? 'http://127.0.0.1:4200' },
++  use: {
++    ...base.use,
++    baseURL: process.env.WITNESS_WEB_URL ?? 'http://127.0.0.1:4200',
++    screenshot: process.env.WITNESS_EVIDENCE ? 'on' : 'off',
++    video: process.env.WITNESS_EVIDENCE ? 'on' : 'off',
++  },
+ };
+diff --git a/.witness/witness.toml b/.witness/witness.toml
+index 697dbe7..c9d8c8b 100644
+--- a/.witness/witness.toml
++++ b/.witness/witness.toml
+@@ -12,13 +12,11 @@ setup = "npm ci --no-audit --no-fund"
+ start = "npx ng serve --host 127.0.0.1 --port ${PORT}"
+ ready = { http = "${self.url}/", timeout = "180s" }
+ 
+-# The REST backend from the sibling checkout; its own .witness/ wrappers build and run it in Docker.
+-[[service]]
+-name = "api"
+-cwd = "../spring-petclinic-rest-witness-eval"
+-setup = ".witness/mvn -B -q -Dmaven.test.skip=true package"
+-start = ".witness/app"
+-ready = { http = "${self.url}/petclinic/actuator/health", timeout = "180s" }
++# The REST backend: its own .witness/ config builds and runs it in Docker.
++[[repo]]
++name = "rest"
++path = "../spring-petclinic-rest-witness-eval"
++services = ["app"]
+ 
+ # vitest (.): unit tests, left out
+ [[suite]]
+@@ -37,7 +35,8 @@ kind = "ui"
+ adapter = "playwright"
+ cwd = "."
+ cmd = "npx playwright test -c .witness/playwright.live.config.ts"
+-service = ["web", "api"]
++service = ["web", "rest.app"]
++env = { WITNESS_API_URL = "${rest.app.url}" }
+ timeout = "20m"
+ per_test_timeout = "60s"
+ 
+-- 
+2.50.1 (Apple Git-155)
+

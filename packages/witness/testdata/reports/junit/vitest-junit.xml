@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="3" failures="1" errors="0" time="0.123">
+    <testsuite name="src/cart.test.ts" timestamp="2026-11-20T10:00:00.000Z" hostname="mac" tests="3" failures="1" errors="0" skipped="1" time="0.012">
+        <testcase classname="src/cart.test.ts" name="cart &gt; adds an item" time="0.002">
+        </testcase>
+        <testcase classname="src/cart.test.ts" name="cart &gt; totals &gt; applies discount" time="0.004">
+            <failure message="expected 90 to be 81 // Object.is equality" type="AssertionError">
+AssertionError: expected 90 to be 81 // Object.is equality
+ ❯ src/cart.test.ts:20:25
+            </failure>
+        </testcase>
+        <testcase classname="src/cart.test.ts" name="cart &gt; todo later" time="0">
+            <skipped/>
+        </testcase>
+    </testsuite>
+</testsuites>

@@ -1,0 +1,48 @@
+From 04bb4bd829743086bd11ddb4dd3fc6a9c8c7e935 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 09:00:37 -0800
+Subject: [PATCH 4/7] witness eval: test plan for the basket invalid-quantity
+ change
+
+---
+ .witness/plan.yaml | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+ create mode 100644 .witness/plan.yaml
+
+diff --git a/.witness/plan.yaml b/.witness/plan.yaml
+new file mode 100644
+index 0000000..9bda703
+--- /dev/null
++++ b/.witness/plan.yaml
+@@ -0,0 +1,28 @@
++version: 1
++source: "request in commit e9d3947 (basket update with an invalid quantity); diff of src/Web/Pages/Basket vs 5f331db"
++items:
++  - id: P1
++    behavior: "POST /basket/update with a negative quantity keeps the basket page showing the basket and the validation message"
++    expect: "the response page lists '.NET Black & White Mug' with the message 'Quantity must be 0 or more', and does not say 'Basket is empty'"
++    kind: changed
++    tests: ["dotnet:Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket.IndexTest#OnPostUpdateNegativeQuantityShowsBasketAndValidationMessage"]
++  - id: P2
++    behavior: "A rejected update does not change the stored basket"
++    expect: "GET /basket after the rejected update still shows the item with quantity 1 and the total 8.50"
++    kind: new
++    tests: ["dotnet:Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket.IndexTest#OnPostUpdateNegativeQuantityLeavesBasketUnchanged"]
++  - id: P3
++    behavior: "Updating a quantity to 49 still recalculates the total"
++    expect: "the page shows the total 416.50"
++    kind: parity
++    tests: ["dotnet:Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket.IndexTest#OnPostUpdateTo50Successfully"]
++  - id: P4
++    behavior: "Updating the only item to quantity 0 still empties the basket"
++    expect: "the page says 'Basket is empty'"
++    kind: parity
++    tests: ["dotnet:Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket.IndexTest#OnPostUpdateTo0EmptyBasket"]
++  - id: P5
++    behavior: "Checkout, which binds the same basket item model, still places an order"
++    expect: "redirect to /Basket/Success showing 'Thanks for your Order!'"
++    kind: parity
++    tests: ["dotnet:Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket.CheckoutTest#SucessfullyPay"]
+-- 
+2.50.1 (Apple Git-155)
+

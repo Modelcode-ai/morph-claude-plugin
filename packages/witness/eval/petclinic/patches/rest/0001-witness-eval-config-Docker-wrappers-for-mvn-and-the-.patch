@@ -1,0 +1,126 @@
+From 6a0d02f1283a80d9254b340516b6adf1a0fec12f Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Tue, 24 Nov 2026 21:37:26 -0800
+Subject: [PATCH] witness eval: config, Docker wrappers for mvn and the app
+
+---
+ .witness/.gitignore   |  8 ++++++++
+ .witness/app          | 21 +++++++++++++++++++++
+ .witness/mvn          | 18 ++++++++++++++++++
+ .witness/witness.toml | 36 ++++++++++++++++++++++++++++++++++++
+ 4 files changed, 83 insertions(+)
+ create mode 100644 .witness/.gitignore
+ create mode 100755 .witness/app
+ create mode 100755 .witness/mvn
+ create mode 100644 .witness/witness.toml
+
+diff --git a/.witness/.gitignore b/.witness/.gitignore
+new file mode 100644
+index 0000000..a3df962
+--- /dev/null
++++ b/.witness/.gitignore
+@@ -0,0 +1,8 @@
++runs/
++check/
++cache/
++up/
++up.json
++run.lock
++scratch/
++.env
+diff --git a/.witness/app b/.witness/app
+new file mode 100755
+index 0000000..bc1f2b2
+--- /dev/null
++++ b/.witness/app
+@@ -0,0 +1,21 @@
++#!/bin/sh
++# Runs the built jar in the foreground in eclipse-temurin:17-jre, published on 127.0.0.1:$PORT (container port 9966).
++: "${PORT:?set PORT}"
++root=$(cd "$(dirname "$0")/.." && pwd)
++jar=$(ls "$root"/target/spring-petclinic-rest-*.jar 2>/dev/null | grep -v '\.original$' | head -1)
++[ -n "$jar" ] || { echo "no jar in $root/target; run the setup (mvn package) first" >&2; exit 1; }
++# a copy, so a rebuild of target/ while the app runs can't swap classes under it
++copy=$(mktemp "${TMPDIR:-/tmp}/petclinic-eval-jar.XXXXXX"); cp "$jar" "$copy"
++envfile=$(mktemp "${TMPDIR:-/tmp}/petclinic-eval-env.XXXXXX")
++env | grep -E '^(SPRING_[A-Z0-9_]*|PETCLINIC_[A-Z0-9_]*|SERVER_[A-Z0-9_]*)=' > "$envfile"
++name="petclinic-eval-app-$PORT"
++docker rm -f "$name" >/dev/null 2>&1
++cleanup() { docker rm -f "$name" >/dev/null 2>&1; rm -f "$envfile" "$copy"; }
++trap 'cleanup; exit 143' TERM INT
++docker run --rm --init --name "$name" -p "127.0.0.1:$PORT:9966" --env-file "$envfile" \
++  -v "$copy:/app/app.jar:ro" eclipse-temurin:17-jre java -XX:TieredStopAtLevel=1 -jar /app/app.jar "$@" &
++child=$!
++wait $child
++code=$?
++cleanup
++exit $code
+diff --git a/.witness/mvn b/.witness/mvn
+new file mode 100755
+index 0000000..1f60d96
+--- /dev/null
++++ b/.witness/mvn
+@@ -0,0 +1,18 @@
++#!/bin/sh
++# mvn from the maven:3.9-eclipse-temurin-17 image (no JDK on the host); the checkout is mounted at its own path so host paths in args stay valid.
++root=$(cd "$(dirname "$0")/.." && pwd)
++envfile=$(mktemp "${TMPDIR:-/tmp}/petclinic-eval-env.XXXXXX")
++env | grep -E '^(WITNESS_[A-Z0-9_]*|SPRING_[A-Z0-9_]*|PETCLINIC_[A-Z0-9_]*)=' > "$envfile"
++name="petclinic-eval-mvn-$$-$(date +%s)"
++extra=""
++case "$WITNESS_RUN_DIR" in ""|"$root"/*) ;; *) extra="-v $WITNESS_RUN_DIR:$WITNESS_RUN_DIR" ;; esac
++cleanup() { docker rm -f "$name" >/dev/null 2>&1; rm -f "$envfile"; }
++trap 'cleanup; exit 143' TERM INT
++docker run --rm --init --name "$name" --env-file "$envfile" \
++  -v "$root:$root" $extra -v "$HOME/.m2:/root/.m2" -w "$PWD" \
++  maven:3.9-eclipse-temurin-17 mvn "$@" &
++child=$!
++wait $child
++code=$?
++cleanup
++exit $code
+diff --git a/.witness/witness.toml b/.witness/witness.toml
+new file mode 100644
+index 0000000..038171f
+--- /dev/null
++++ b/.witness/witness.toml
+@@ -0,0 +1,36 @@
++# Spring PetClinic REST under witness. No JDK or Maven on the host: builds, tests and the app run in Docker (.witness/mvn, .witness/app).
++version = 1
++
++[env]
++file = ".witness/.env"
++required = []
++
++[[service]]
++name = "app"
++cwd = "."
++setup = ".witness/mvn -B -q -Dmaven.test.skip=true package"
++start = ".witness/app"
++ready = { http = "${self.url}/petclinic/actuator/health", timeout = "180s" }
++
++[[suite]]
++name = "mockmvc"
++kind = "api"
++adapter = "junit-maven"
++cwd = "."
++cmd = ".witness/mvn -B test -Dtest='org/springframework/samples/petclinic/rest/**/*' -Dsurefire.failIfNoSpecifiedTests=false"
++service = []                 # the tests start the app themselves
++timeout = "20m"
++
++[[suite]]
++name = "newman"
++kind = "api"
++adapter = "generic"
++cwd = "."
++cmd = "npx -y -p newman newman run src/test/postman/petclinic-nonregressiontests.postman_collection.json -e src/test/postman/petclinic-env.postman_environment.json --env-var baseUrl=${app.url}/petclinic --timeout-request 5000 -r cli,junit --reporter-junit-export ${WITNESS_REPORT_DIR}/newman.xml"
++service = ["app"]
++timeout = "10m"
++
++[run]
++stall_timeout = "5m"
++heartbeat = "60s"
++keep_runs = 30
+-- 
+2.50.1 (Apple Git-155)
+

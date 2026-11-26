@@ -1,0 +1,10 @@
+{
+  "name": "witness-kit-jest",
+  "private": true,
+  "devDependencies": {
+    "jest": "30.5.2"
+  },
+  "jest": {
+    "testEnvironment": "node"
+  }
+}

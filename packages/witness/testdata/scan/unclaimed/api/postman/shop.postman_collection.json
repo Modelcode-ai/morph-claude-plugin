@@ -1,0 +1,158 @@
+{
+  "info": {
+    "name": "Shop",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test(\"responds\", function () { pm.expect(pm.response).to.be.ok; });"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Orders",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// pm.test(\"commented out\", () => {});",
+              "pm.test('is JSON', () => pm.response.to.be.json);"
+            ]
+          }
+        }
+      ],
+      "item": [
+        {
+          "name": "Create order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer secret-token"
+              }
+            ],
+            "url": "{{baseUrl}}/api/items",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"mug\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"creates\", () => pm.response.to.have.status(200));",
+                  "tests[\"legacy \\\"quoted\\\" name\"] = true;",
+                  "pm.test(`made ${pm.info.iteration}`, () => {});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer secret-token"
+              }
+            ],
+            "url": "{{baseUrl}}/api/items/1"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test.skip(\"later\", () => {});",
+                  "pm.test(\"name is banana\", () => pm.expect(pm.response.json().name).to.eql(\"banana\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin",
+          "item": [
+            {
+              "name": "Purge",
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer secret-token"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/items"
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const x = JSON.parse(\"nope\");",
+                      "pm.test(\"never runs\", () => {});"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer secret-token"
+          }
+        ],
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "Down",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer secret-token"
+          }
+        ],
+        "url": "http://127.0.0.1:1/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"is up\", () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

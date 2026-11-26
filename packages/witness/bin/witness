@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Runs the TypeScript sources when present (Node >= 22.18), else the bundle.
+set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+if [[ -f "$DIR/src/cli.ts" && -d "$DIR/node_modules" && -z "${WITNESS_USE_DIST:-}" ]]; then
+  exec node --no-warnings "$DIR/src/cli.ts" "$@"
+fi
+exec node --no-warnings "$DIR/dist/witness.mjs" "$@"

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="default" tests="3" assertions="3" errors="0" failures="1" skipped="0" time="0.02">
+    <testsuite name="Tests\Feature\CartTest" file="/app/tests/Feature/CartTest.php" tests="3" assertions="3" errors="0" failures="1" skipped="0" time="0.02">
+      <testcase name="testAddsItem" class="Tests\Feature\CartTest" classname="Tests.Feature.CartTest" file="/app/tests/Feature/CartTest.php" line="12" assertions="1" time="0.004"/>
+      <testsuite name="Tests\Feature\CartTest::testTotals" tests="2" assertions="2" errors="0" failures="1" skipped="0" time="0.01">
+        <testcase name="testTotals with data set #0" class="Tests\Feature\CartTest" classname="Tests.Feature.CartTest" file="/app/tests/Feature/CartTest.php" line="30" assertions="1" time="0.005"/>
+        <testcase name="testTotals with data set #1" class="Tests\Feature\CartTest" classname="Tests.Feature.CartTest" file="/app/tests/Feature/CartTest.php" line="30" assertions="1" time="0.005">
+          <failure type="PHPUnit\Framework\ExpectationFailedException">Tests\Feature\CartTest::testTotals with data set #1
+Failed asserting that 9 matches expected 10.</failure>
+        </testcase>
+      </testsuite>
+    </testsuite>
+  </testsuite>
+</testsuites>

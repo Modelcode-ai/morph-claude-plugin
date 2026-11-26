@@ -1,0 +1,44 @@
+# Config used to evaluate witness on dotnet-architecture/eShopOnWeb (.NET 11, xunit v3 + MSTest on MTP).
+# Functional suites only: UnitTests, IntegrationTests and AppHostTests run in the project's own build.
+# publicapi needs Microsoft.Testing.Extensions.TrxReport added to its csproj (witness says so when it is missing).
+version = 1
+
+[env]
+file = ".witness/.env"
+
+[[service]]
+name = "web"
+setup = "dotnet build src/Web/Web.csproj"
+start = "dotnet run --no-build --no-launch-profile --project src/Web/Web.csproj --urls http://127.0.0.1:${PORT}"
+env = { UseOnlyInMemoryDatabase = "true", ASPNETCORE_ENVIRONMENT = "Development" }
+ready = { http = "${self.url}/home_page_health_check", timeout = "180s" }
+
+[[suite]]
+name = "functional"
+kind = "api"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/FunctionalTests/FunctionalTests.csproj"
+timeout = "15m"
+
+# DependencyTests checks the package graph, not the API.
+[[suite]]
+name = "publicapi"
+kind = "api"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/PublicApiIntegrationTests/PublicApiIntegrationTests.csproj --filter 'FullyQualifiedName!~PublicApiIntegrationTests.DependencyTests'"
+timeout = "15m"
+
+[[suite]]
+name = "e2e"
+kind = "ui"
+adapter = "dotnet"
+service = []
+cmd = "dotnet test --project tests/EndToEndTests/EndToEndTests.csproj"
+timeout = "15m"
+# browsers: tests/EndToEndTests/bin/Debug/net11.0/.playwright/node/<os>/node .../package/cli.js install chromium
+
+[run]
+stall_timeout = "5m"
+heartbeat = "30s"

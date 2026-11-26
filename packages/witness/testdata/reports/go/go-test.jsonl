@@ -1,0 +1,21 @@
+# example.com/shop/broken
+broken/x.go:3:1: syntax error: non-declaration statement outside function body
+{"Time":"2026-11-20T10:00:00.1Z","Action":"start","Package":"example.com/shop/api"}
+{"Time":"2026-11-20T10:00:00.2Z","Action":"run","Package":"example.com/shop/api","Test":"TestHealth"}
+{"Time":"2026-11-20T10:00:00.2Z","Action":"output","Package":"example.com/shop/api","Test":"TestHealth","Output":"=== RUN   TestHealth\n"}
+{"Time":"2026-11-20T10:00:00.3Z","Action":"output","Package":"example.com/shop/api","Test":"TestHealth","Output":"--- PASS: TestHealth (0.10s)\n"}
+{"Time":"2026-11-20T10:00:00.3Z","Action":"pass","Package":"example.com/shop/api","Test":"TestHealth","Elapsed":0.1}
+{"Time":"2026-11-20T10:00:00.4Z","Action":"run","Package":"example.com/shop/api","Test":"TestOrders"}
+{"Time":"2026-11-20T10:00:00.4Z","Action":"run","Package":"example.com/shop/api","Test":"TestOrders/create"}
+{"Time":"2026-11-20T10:00:00.5Z","Action":"output","Package":"example.com/shop/api","Test":"TestOrders/create","Output":"    orders_test.go:31: got status 500, want 201\n"}
+{"Time":"2026-11-20T10:00:00.5Z","Action":"fail","Package":"example.com/shop/api","Test":"TestOrders/create","Elapsed":0.05}
+{"Time":"2026-11-20T10:00:00.5Z","Action":"run","Package":"example.com/shop/api","Test":"TestOrders/list"}
+{"Time":"2026-11-20T10:00:00.6Z","Action":"pass","Package":"example.com/shop/api","Test":"TestOrders/list","Elapsed":0.01}
+{"Time":"2026-11-20T10:00:00.6Z","Action":"fail","Package":"example.com/shop/api","Test":"TestOrders","Elapsed":0.07}
+{"Time":"2026-11-20T10:00:00.7Z","Action":"run","Package":"example.com/shop/api","Test":"TestLegacy"}
+{"Time":"2026-11-20T10:00:00.7Z","Action":"output","Package":"example.com/shop/api","Test":"TestLegacy","Output":"    legacy_test.go:9: needs docker\n"}
+{"Time":"2026-11-20T10:00:00.7Z","Action":"skip","Package":"example.com/shop/api","Test":"TestLegacy","Elapsed":0}
+{"Time":"2026-11-20T10:00:00.8Z","Action":"output","Package":"example.com/shop/api","Output":"FAIL\n"}
+{"Time":"2026-11-20T10:00:00.8Z","Action":"fail","Package":"example.com/shop/api","Elapsed":0.6}
+{"Time":"2026-11-20T10:00:00.9Z","Action":"output","Package":"example.com/shop/broken","Output":"FAIL\texample.com/shop/broken [build failed]\n"}
+{"Time":"2026-11-20T10:00:00.9Z","Action":"fail","Package":"example.com/shop/broken","Elapsed":0}

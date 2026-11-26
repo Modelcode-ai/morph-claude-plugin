@@ -1,0 +1,36 @@
+# Spring PetClinic REST under witness. No JDK or Maven on the host: builds, tests and the app run in Docker (.witness/mvn, .witness/app).
+version = 1
+
+[env]
+file = ".witness/.env"
+required = []
+
+[[service]]
+name = "app"
+cwd = "."
+setup = ".witness/mvn -B -q -Dmaven.test.skip=true package"
+start = ".witness/app"
+ready = { http = "${self.url}/petclinic/actuator/health", timeout = "180s" }
+
+[[suite]]
+name = "mockmvc"
+kind = "api"
+adapter = "junit-maven"
+cwd = "."
+cmd = ".witness/mvn -B test -Dtest='org/springframework/samples/petclinic/rest/**/*' -Dsurefire.failIfNoSpecifiedTests=false"
+service = []                 # the tests start the app themselves
+timeout = "20m"
+
+[[suite]]
+name = "newman"
+kind = "api"
+adapter = "generic"
+cwd = "."
+cmd = "npx -y -p newman newman run src/test/postman/petclinic-nonregressiontests.postman_collection.json -e src/test/postman/petclinic-env.postman_environment.json --env-var baseUrl=${app.url}/petclinic --timeout-request 5000 -r cli,junit --reporter-junit-export ${WITNESS_REPORT_DIR}/newman.xml"
+service = ["app"]
+timeout = "10m"
+
+[run]
+stall_timeout = "5m"
+heartbeat = "60s"
+keep_runs = 30

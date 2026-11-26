@@ -1,0 +1,298 @@
+diff --git a/.witness/plan.yaml b/.witness/plan.yaml
+new file mode 100644
+index 0000000..753cec5
+--- /dev/null
++++ b/.witness/plan.yaml
+@@ -0,0 +1,39 @@
++version: 1
++source: "user request (bug report: future visit dates accepted on POST /api/owners/{ownerId}/pets/{petId}/visits and PUT /api/visits/{visitId})"
++items:
++  - id: P1
++    behavior: "POST /api/owners/{ownerId}/pets/{petId}/visits with a date after today is rejected"
++    expect: "400 MethodArgumentNotValidException whose schemaValidationErrors names field 'date'; no visit is saved"
++    kind: new
++    tests: ["junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testCreateVisitWithFutureDateShouldReturnBadRequest"]
++  - id: P2
++    behavior: "PUT /api/visits/{visitId} with a date after today is rejected"
++    expect: "400 MethodArgumentNotValidException whose schemaValidationErrors names field 'date'; the visit is not saved"
++    kind: new
++    tests: ["junit-maven:org.springframework.samples.petclinic.rest.controller.VisitRestControllerV1Tests#testUpdateVisitWithFutureDateShouldReturnBadRequest"]
++  - id: P3
++    behavior: "POST /api/owners/{ownerId}/pets/{petId}/visits still accepts a visit dated today or earlier"
++    expect: "201 Created for a visit dated today and for one dated yesterday"
++    kind: parity
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testCreateVisitSuccess"
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.OwnerRestControllerV1Tests#testCreateVisitWithPastDateSuccess"
++  - id: P4
++    behavior: "PUT /api/visits/{visitId} still accepts a visit dated today or earlier"
++    expect: "204 for a visit dated today and for one dated yesterday, and the saved visit carries the sent date"
++    kind: parity
++    tests:
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.VisitRestControllerV1Tests#testUpdateVisitSuccess"
++      - "junit-maven:org.springframework.samples.petclinic.rest.controller.VisitRestControllerV1Tests#testUpdateVisitWithPastDateSuccess"
++  - id: P5
++    behavior: "POST /api/visits with a date after today is rejected too (not in the request: it shares the VisitFields schema)"
++    expect: "400 whose schemaValidationErrors names field 'date'; no visit is saved"
++    kind: new
++    tests: ["junit-maven:org.springframework.samples.petclinic.rest.controller.VisitRestControllerV1Tests#testCreateVisitWithFutureDateShouldReturnBadRequest"]
++  - id: P6
++    behavior: "Scheduling a visit with a past date still works end to end against the running app"
++    expect: "the visit is registered and the response carries its id, the pet id and the date that was sent"
++    kind: parity
++    tests:
++      - "generic:01FirstVisitScheduleAVisit#Visit register contains a ID , petId is equal to the expected? Date matches to the expected?"
++      - "generic:02ReturningCustomerScheduleANewVisit#Visit register contains a ID , petId is equal to the expected? Date matches to the expected?"
+diff --git a/src/main/java/org/springframework/samples/petclinic/model/Visit.java b/src/main/java/org/springframework/samples/petclinic/model/Visit.java
+index e1d763f..d77b0c7 100644
+--- a/src/main/java/org/springframework/samples/petclinic/model/Visit.java
++++ b/src/main/java/org/springframework/samples/petclinic/model/Visit.java
+@@ -18,6 +18,7 @@ package org.springframework.samples.petclinic.model;
+ import jakarta.persistence.*;
+ import jakarta.validation.constraints.NotBlank;
+ import jakarta.validation.constraints.NotNull;
++import jakarta.validation.constraints.PastOrPresent;
+ import java.time.LocalDate;
+ 
+ /**
+@@ -33,6 +34,7 @@ public class Visit extends BaseEntity {
+      * Holds value of property date.
+      */
+     @NotNull
++    @PastOrPresent
+     @Column(name = "visit_date", columnDefinition = "DATE")
+     private LocalDate date;
+ 
+diff --git a/src/main/resources/openapi.yml b/src/main/resources/openapi.yml
+index db13847..5f4acad 100755
+--- a/src/main/resources/openapi.yml
++++ b/src/main/resources/openapi.yml
+@@ -2272,10 +2272,11 @@ components:
+       properties:
+         date:
+           title: Date
+-          description: The date of the visit.
++          description: The date of the visit. Must be today or earlier.
+           type: string
+           format: date
+           example: '2013-01-01'
++          x-field-extra-annotation: "@jakarta.validation.constraints.PastOrPresent"
+         description:
+           title: Description
+           description: The description for the visit.
+diff --git a/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java b/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java
+index 673bb31..3ac7df2 100644
+--- a/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java
++++ b/src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java
+@@ -21,6 +21,7 @@ import org.springframework.samples.petclinic.rest.controller.v1.OwnerRestControl
+ import tools.jackson.databind.ObjectMapper;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.TestInfo;
+ import org.junit.jupiter.params.ParameterizedTest;
+ import org.junit.jupiter.params.provider.CsvSource;
+ import org.junit.jupiter.params.provider.ValueSource;
+@@ -96,9 +97,10 @@ class OwnerRestControllerV1Tests {
+     private List<VisitDto> visits;
+ 
+     @BeforeEach
+-    void initOwners() {
++    void initOwners(TestInfo testInfo) {
+         this.mockMvc = MockMvcBuilders.standaloneSetup(ownerRestControllerV1)
+             .setControllerAdvice(new ExceptionControllerAdvice())
++            .alwaysDo(WitnessEvidence.recorder(testInfo.getTestMethod().map(m -> m.getDeclaringClass().getName() + "#" + m.getName()).orElse(null)))
+             .build();
+         owners = new ArrayList<>();
+ 
+@@ -616,6 +618,34 @@ class OwnerRestControllerV1Tests {
+             .andExpect(jsonPath("$.schemaValidationErrors[0].field").value("date"));
+     }
+ 
++    @Test
++    @WithMockUser(roles = "OWNER_ADMIN")
++    void testCreateVisitWithFutureDateShouldReturnBadRequest() throws Exception {
++        String tomorrow = LocalDate.now().plusDays(1).toString();
++        String body = "{\"date\":\"" + tomorrow + "\",\"description\":\"rabies shot\"}";
++        this.mockMvc.perform(post("/api/owners/1/pets/1/visits")
++                .content(body).accept(MediaType.APPLICATION_JSON_VALUE).contentType(MediaType.APPLICATION_JSON_VALUE))
++            .andExpect(status().isBadRequest())
++            .andExpect(jsonPath("$.title").value("MethodArgumentNotValidException"))
++            .andExpect(jsonPath("$.schemaValidationErrors.length()").value(1))
++            .andExpect(jsonPath("$.schemaValidationErrors[0].field").value("date"))
++            .andExpect(jsonPath("$.schemaValidationErrors[0].rejectedValue").value(tomorrow));
++        verify(this.clinicService, never()).saveVisit(any());
++    }
++
++    @Test
++    @WithMockUser(roles = "OWNER_ADMIN")
++    void testCreateVisitWithPastDateSuccess() throws Exception {
++        String yesterday = LocalDate.now().minusDays(1).toString();
++        String body = "{\"date\":\"" + yesterday + "\",\"description\":\"rabies shot\"}";
++        this.mockMvc.perform(post("/api/owners/1/pets/1/visits")
++                .content(body).accept(MediaType.APPLICATION_JSON_VALUE).contentType(MediaType.APPLICATION_JSON_VALUE))
++            .andExpect(status().isCreated())
++            .andExpect(jsonPath("$.date").value(yesterday))
++            .andExpect(jsonPath("$.description").value("rabies shot"))
++            .andExpect(jsonPath("$.petId").value(1));
++    }
++
+     @Test
+     @WithMockUser(roles = "OWNER_ADMIN")
+     void testGetOwnerPetSuccess() throws Exception {
+diff --git a/src/test/java/org/springframework/samples/petclinic/rest/controller/VisitRestControllerV1Tests.java b/src/test/java/org/springframework/samples/petclinic/rest/controller/VisitRestControllerV1Tests.java
+index 98e3710..b1624d5 100644
+--- a/src/test/java/org/springframework/samples/petclinic/rest/controller/VisitRestControllerV1Tests.java
++++ b/src/test/java/org/springframework/samples/petclinic/rest/controller/VisitRestControllerV1Tests.java
+@@ -20,6 +20,7 @@ import org.springframework.samples.petclinic.rest.controller.v1.VisitRestControl
+ import tools.jackson.databind.ObjectMapper;
+ import org.junit.jupiter.api.BeforeEach;
+ import org.junit.jupiter.api.Test;
++import org.junit.jupiter.api.TestInfo;
+ import org.junit.jupiter.params.ParameterizedTest;
+ import org.junit.jupiter.params.provider.ValueSource;
+ import org.springframework.beans.factory.annotation.Autowired;
+@@ -47,6 +48,7 @@ import java.util.List;
+ 
+ import static org.mockito.BDDMockito.given;
+ import static org.mockito.ArgumentMatchers.any;
++import static org.mockito.ArgumentMatchers.argThat;
+ import static org.mockito.Mockito.never;
+ import static org.mockito.Mockito.verify;
+ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+@@ -76,9 +78,10 @@ class VisitRestControllerV1Tests {
+     private List<Visit> visits;
+ 
+     @BeforeEach
+-    void initVisits(){
++    void initVisits(TestInfo testInfo){
+         this.mockMvc = MockMvcBuilders.standaloneSetup(visitRestControllerV1)
+     			.setControllerAdvice(new ExceptionControllerAdvice())
++    			.alwaysDo(WitnessEvidence.recorder(testInfo.getTestMethod().map(m -> m.getDeclaringClass().getName() + "#" + m.getName()).orElse(null)))
+     			.build();
+ 
+         visits = new ArrayList<>();
+@@ -294,4 +297,48 @@ class VisitRestControllerV1Tests {
+         	.andExpect(status().isNotFound());
+     }
+ 
++    @Test
++    @WithMockUser(roles="OWNER_ADMIN")
++    void testUpdateVisitWithFutureDateShouldReturnBadRequest() throws Exception {
++        given(this.clinicService.findVisitById(2)).willReturn(visits.get(0));
++        String tomorrow = LocalDate.now().plusDays(1).toString();
++        String body = "{\"date\":\"" + tomorrow + "\",\"description\":\"rabies shot\"}";
++        this.mockMvc.perform(put("/api/visits/2")
++                .content(body).accept(MediaType.APPLICATION_JSON_VALUE).contentType(MediaType.APPLICATION_JSON_VALUE))
++            .andExpect(status().isBadRequest())
++            .andExpect(jsonPath("$.title").value("MethodArgumentNotValidException"))
++            .andExpect(jsonPath("$.schemaValidationErrors.length()").value(1))
++            .andExpect(jsonPath("$.schemaValidationErrors[0].field").value("date"))
++            .andExpect(jsonPath("$.schemaValidationErrors[0].rejectedValue").value(tomorrow));
++        verify(this.clinicService, never()).saveVisit(any());
++    }
++
++    @Test
++    @WithMockUser(roles="OWNER_ADMIN")
++    void testUpdateVisitWithPastDateSuccess() throws Exception {
++        given(this.clinicService.findVisitById(2)).willReturn(visits.get(0));
++        LocalDate yesterday = LocalDate.now().minusDays(1);
++        String body = "{\"date\":\"" + yesterday + "\",\"description\":\"rabies shot\"}";
++        this.mockMvc.perform(put("/api/visits/2")
++                .content(body).accept(MediaType.APPLICATION_JSON_VALUE).contentType(MediaType.APPLICATION_JSON_VALUE))
++            .andExpect(status().isNoContent())
++            .andExpect(jsonPath("$.id").value(2))
++            .andExpect(jsonPath("$.date").value(yesterday.toString()));
++        verify(this.clinicService).saveVisit(argThat(v -> yesterday.equals(v.getDate())));
++    }
++
++    @Test
++    @WithMockUser(roles="OWNER_ADMIN")
++    void testCreateVisitWithFutureDateShouldReturnBadRequest() throws Exception {
++        String tomorrow = LocalDate.now().plusDays(1).toString();
++        String body = "{\"date\":\"" + tomorrow + "\",\"description\":\"rabies shot\",\"petId\":8}";
++        this.mockMvc.perform(post("/api/visits")
++                .content(body).accept(MediaType.APPLICATION_JSON_VALUE).contentType(MediaType.APPLICATION_JSON_VALUE))
++            .andExpect(status().isBadRequest())
++            .andExpect(jsonPath("$.title").value("MethodArgumentNotValidException"))
++            .andExpect(jsonPath("$.schemaValidationErrors[0].field").value("date"))
++            .andExpect(jsonPath("$.schemaValidationErrors[0].rejectedValue").value(tomorrow));
++        verify(this.clinicService, never()).saveVisit(any());
++    }
++
+ }
+diff --git a/src/test/java/org/springframework/samples/petclinic/rest/controller/WitnessEvidence.java b/src/test/java/org/springframework/samples/petclinic/rest/controller/WitnessEvidence.java
+new file mode 100644
+index 0000000..e33dfeb
+--- /dev/null
++++ b/src/test/java/org/springframework/samples/petclinic/rest/controller/WitnessEvidence.java
+@@ -0,0 +1,70 @@
++package org.springframework.samples.petclinic.rest.controller;
++
++import org.springframework.mock.web.MockHttpServletRequest;
++import org.springframework.mock.web.MockHttpServletResponse;
++import org.springframework.test.web.servlet.ResultHandler;
++import tools.jackson.databind.ObjectMapper;
++
++import java.io.IOException;
++import java.io.UncheckedIOException;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.StandardOpenOption;
++import java.util.Collections;
++import java.util.LinkedHashMap;
++import java.util.Map;
++
++/**
++ * Records each MockMvc exchange as witness evidence when the tests run under witness
++ * (WITNESS_ARTIFACTS set). Does nothing otherwise and never changes the exchange.
++ */
++final class WitnessEvidence {
++
++    private static final int MAX_BODY = 64 * 1024;
++    private static final ObjectMapper MAPPER = new ObjectMapper();
++
++    private WitnessEvidence() {
++    }
++
++    static ResultHandler recorder(String testName) {
++        return result -> {
++            String root = System.getenv("WITNESS_ARTIFACTS");
++            if (root == null || root.isEmpty() || testName == null) {
++                return;
++            }
++            MockHttpServletRequest request = result.getRequest();
++            MockHttpServletResponse response = result.getResponse();
++            String query = request.getQueryString();
++            Map<String, Object> data = new LinkedHashMap<>();
++            data.put("method", request.getMethod());
++            data.put("url", request.getRequestURI() + (query == null ? "" : "?" + query));
++            data.put("status", response.getStatus());
++            data.put("request", Collections.singletonMap("body", cut(bodyOf(request.getContentAsByteArray()))));
++            data.put("response", Collections.singletonMap("body", cut(response.getContentAsString(StandardCharsets.UTF_8))));
++            Map<String, Object> line = new LinkedHashMap<>();
++            line.put("v", 1);
++            line.put("kind", "http");
++            line.put("data", data);
++            Path folder = Path.of(root, testName.replaceAll("[^A-Za-z0-9_.@-]", "_"));
++            try {
++                Files.createDirectories(folder);
++                Files.writeString(folder.resolve("evidence.jsonl"), MAPPER.writeValueAsString(line) + "\n",
++                    StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
++            } catch (IOException e) {
++                throw new UncheckedIOException(e);
++            }
++        };
++    }
++
++    private static String bodyOf(byte[] content) {
++        return content == null ? null : new String(content, StandardCharsets.UTF_8);
++    }
++
++    private static String cut(String body) {
++        if (body == null || body.length() <= MAX_BODY) {
++            return body;
++        }
++        return body.substring(0, MAX_BODY) + "... [cut " + (body.length() - MAX_BODY) + " chars]";
++    }
++}

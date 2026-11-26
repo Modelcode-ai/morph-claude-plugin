@@ -1,0 +1,1 @@
+{"config":{"projects":[{"name":""}]},"suites":[{"title":"home.spec.ts","file":"home.spec.ts","specs":[{"title":"shows title","file":"home.spec.ts","line":4,"tests":[{"projectName":"","expectedStatus":"passed","status":"expected","results":[{"status":"passed","duration":120,"retry":0}]}]}]}],"errors":[]}

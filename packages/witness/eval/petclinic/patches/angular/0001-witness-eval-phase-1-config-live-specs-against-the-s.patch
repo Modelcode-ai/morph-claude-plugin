@@ -1,0 +1,159 @@
+From 9157abdb2ac3bfc5a3d7f904c7e76f0839f43d55 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Tue, 24 Nov 2026 21:48:30 -0800
+Subject: [PATCH 1/2] witness eval phase 1: config, live specs against the
+ sibling REST checkout
+
+---
+ .witness/.gitignore                |  8 +++++
+ .witness/playwright.config.ts      | 11 +++++++
+ .witness/playwright.live.config.ts |  9 ++++++
+ .witness/witness.toml              | 47 ++++++++++++++++++++++++++++++
+ e2e-live/owners.live.spec.ts       | 32 ++++++++++++++++++++
+ 5 files changed, 107 insertions(+)
+ create mode 100644 .witness/.gitignore
+ create mode 100644 .witness/playwright.config.ts
+ create mode 100644 .witness/playwright.live.config.ts
+ create mode 100644 .witness/witness.toml
+ create mode 100644 e2e-live/owners.live.spec.ts
+
+diff --git a/.witness/.gitignore b/.witness/.gitignore
+new file mode 100644
+index 0000000..a3df962
+--- /dev/null
++++ b/.witness/.gitignore
+@@ -0,0 +1,8 @@
++runs/
++check/
++cache/
++up/
++up.json
++run.lock
++scratch/
++.env
+diff --git a/.witness/playwright.config.ts b/.witness/playwright.config.ts
+new file mode 100644
+index 0000000..68bee7d
+--- /dev/null
++++ b/.witness/playwright.config.ts
+@@ -0,0 +1,11 @@
++// The repo's Playwright config, pointed at the web service witness started (WITNESS_WEB_URL) instead of a webServer on fixed port 4200.
++import path from 'node:path';
++import base from '../playwright.config';
++
++const { webServer: _ignored, ...rest } = base;
++export default {
++  ...rest,
++  testDir: path.join(__dirname, '..', 'e2e'),
++  outputDir: path.join(__dirname, 'scratch', 'test-results'),
++  use: { ...base.use, baseURL: process.env.WITNESS_WEB_URL ?? 'http://127.0.0.1:4200' },
++};
+diff --git a/.witness/playwright.live.config.ts b/.witness/playwright.live.config.ts
+new file mode 100644
+index 0000000..4a7084d
+--- /dev/null
++++ b/.witness/playwright.live.config.ts
+@@ -0,0 +1,9 @@
++// Live specs (e2e-live/) against the web and REST services witness started.
++import path from 'node:path';
++import base from './playwright.config';
++
++export default {
++  ...base,
++  testDir: path.join(__dirname, '..', 'e2e-live'),
++  testMatch: '**/*.spec.ts',
++};
+diff --git a/.witness/witness.toml b/.witness/witness.toml
+new file mode 100644
+index 0000000..697dbe7
+--- /dev/null
++++ b/.witness/witness.toml
+@@ -0,0 +1,47 @@
++# Spring PetClinic Angular under witness. The upstream e2e specs mock the REST API in the browser (page.route), so no backend runs here.
++version = 1
++
++[env]
++file = ".witness/.env"
++required = []
++
++[[service]]
++name = "web"
++cwd = "."
++setup = "npm ci --no-audit --no-fund"
++start = "npx ng serve --host 127.0.0.1 --port ${PORT}"
++ready = { http = "${self.url}/", timeout = "180s" }
++
++# The REST backend from the sibling checkout; its own .witness/ wrappers build and run it in Docker.
++[[service]]
++name = "api"
++cwd = "../spring-petclinic-rest-witness-eval"
++setup = ".witness/mvn -B -q -Dmaven.test.skip=true package"
++start = ".witness/app"
++ready = { http = "${self.url}/petclinic/actuator/health", timeout = "180s" }
++
++# vitest (.): unit tests, left out
++[[suite]]
++name = "e2e"
++kind = "ui"
++adapter = "playwright"
++cwd = "."
++cmd = "npx playwright test -c .witness/playwright.config.ts"
++service = ["web"]
++timeout = "20m"
++per_test_timeout = "60s"
++
++[[suite]]
++name = "e2e-live"
++kind = "ui"
++adapter = "playwright"
++cwd = "."
++cmd = "npx playwright test -c .witness/playwright.live.config.ts"
++service = ["web", "api"]
++timeout = "20m"
++per_test_timeout = "60s"
++
++[run]
++stall_timeout = "5m"
++heartbeat = "60s"
++keep_runs = 30
+diff --git a/e2e-live/owners.live.spec.ts b/e2e-live/owners.live.spec.ts
+new file mode 100644
+index 0000000..12a22a2
+--- /dev/null
++++ b/e2e-live/owners.live.spec.ts
+@@ -0,0 +1,32 @@
++import { expect, test } from '@playwright/test';
++
++// The app calls http://localhost:9966/petclinic/api/ (environment.ts); forward those calls to the backend witness started.
++test.beforeEach(async ({ page }) => {
++  const api = process.env.WITNESS_API_URL;
++  if (!api) throw new Error('WITNESS_API_URL is not set: these tests need the REST backend');
++  await page.route('http://localhost:9966/petclinic/api/**', async route => {
++    const url = route.request().url().replace('http://localhost:9966', api);
++    await route.fulfill({ response: await route.fetch({ url }) });
++  });
++});
++
++test('lists the seeded owners from the REST backend', async ({ page }) => {
++  await page.goto('/petclinic/owners');
++  await expect(page.getByRole('link', { name: 'George Franklin' })).toBeVisible();
++  await expect(page.getByRole('link', { name: 'Jeff Black' })).toBeVisible();
++});
++
++test('a new owner is saved by the REST backend', async ({ page, request }) => {
++  const lastName = `Live${Date.now().toString(36).replace(/[0-9]/g, c => 'abcdefghij'[Number(c)])}`;
++  await page.goto('/petclinic/owners/add');
++  await page.getByLabel('First Name').fill('Ada');
++  await page.getByLabel('Last Name').fill(lastName);
++  await page.getByLabel('Address').fill('1 Main St.');
++  await page.getByLabel('City').fill('Springfield');
++  await page.getByLabel('Telephone').fill('6085551234');
++  await page.getByRole('button', { name: 'Add Owner' }).click();
++  await expect(page.getByRole('link', { name: `Ada ${lastName}` })).toBeVisible();
++  const res = await request.get(`${process.env.WITNESS_API_URL}/petclinic/api/owners?lastName=${lastName}`);
++  expect(res.status()).toBe(200);
++  expect((await res.json()).map((o: { lastName: string }) => o.lastName)).toEqual([lastName]);
++});
+-- 
+2.50.1 (Apple Git-155)
+

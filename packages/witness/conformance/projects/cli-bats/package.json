@@ -1,0 +1,10 @@
+{
+  "name": "witness-kit-cli-bats",
+  "private": true,
+  "bin": {
+    "kit-items": "cli/kit-items"
+  },
+  "devDependencies": {
+    "bats": "1.13.0"
+  }
+}

@@ -1,0 +1,69 @@
+From 32f20bf4ffd5f1851f1b09342710835fef50d38f Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 09:01:51 -0800
+Subject: [PATCH 5/7] Basket: functional tests for an update with a negative
+ quantity (plan items P1, P2)
+
+---
+ .../Web/Pages/Basket/IndexTest.cs             | 47 +++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs b/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs
+index 79bd5f3..80c381d 100644
+--- a/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs
++++ b/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs
+@@ -92,4 +92,51 @@ public class IndexTest : IClassFixture<TestApplication>
+         Assert.Contains("/basket/update", updateResponse!.RequestMessage!.RequestUri!.ToString()!);
+         Assert.Contains("Basket is empty", stringUpdateResponse);
+     }
++
++    [Fact]
++    public async Task OnPostUpdateNegativeQuantityShowsBasketAndValidationMessage()
++    {
++        var basketPage = await AddMugToBasket();
++
++        var updateResponse = await WebPageHelpers.PostFormAsync(Client, "/basket/update", basketPage,
++            new("Items[0].Id", WebPageHelpers.GetId(basketPage)),
++            new("Items[0].Quantity", "-1"));
++
++        var stringUpdateResponse = await updateResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
++        Assert.Contains("Quantity must be 0 or more", stringUpdateResponse);
++        Assert.Contains(".NET Black &amp; White Mug", stringUpdateResponse);
++        Assert.DoesNotContain("Basket is empty", stringUpdateResponse);
++    }
++
++    [Fact]
++    public async Task OnPostUpdateNegativeQuantityLeavesBasketUnchanged()
++    {
++        var basketPage = await AddMugToBasket();
++
++        await WebPageHelpers.PostFormAsync(Client, "/basket/update", basketPage,
++            new("Items[0].Id", WebPageHelpers.GetId(basketPage)),
++            new("Items[0].Quantity", "-1"));
++
++        var getResponse = await Client.GetAsync("/basket", TestContext.Current.CancellationToken);
++        getResponse.EnsureSuccessStatusCode();
++        var stringGetResponse = await getResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
++        Assert.Contains(".NET Black &amp; White Mug", stringGetResponse);
++        Assert.Contains(@"name=""Items[0].Quantity"" value=""1""", stringGetResponse);
++        Assert.Contains("$ " + 8.50M.ToString("N2"), stringGetResponse);
++    }
++
++    private async Task<string> AddMugToBasket()
++    {
++        var response = await Client.GetAsync("/", TestContext.Current.CancellationToken);
++        response.EnsureSuccessStatusCode();
++        var homePage = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
++
++        var postResponse = await WebPageHelpers.PostFormAsync(Client, "/basket/index", homePage,
++            new("id", "2"),
++            new("name", "shirt"));
++        postResponse.EnsureSuccessStatusCode();
++        var basketPage = await postResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
++        Assert.Contains(".NET Black &amp; White Mug", basketPage);
++        return basketPage;
++    }
+ }
+-- 
+2.50.1 (Apple Git-155)
+

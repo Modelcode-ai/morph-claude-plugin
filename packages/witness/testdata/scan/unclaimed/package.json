@@ -1,0 +1,15 @@
+{
+  "name": "shop-api",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "jest",
+    "test:unit": "react-scripts test",
+    "test:all": "turbo run test",
+    "test:smoke": "./scripts/api-tests.sh",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "jest": "^30.0.0"
+  }
+}

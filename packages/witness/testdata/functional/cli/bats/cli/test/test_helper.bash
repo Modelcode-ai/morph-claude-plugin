@@ -1,0 +1,1 @@
+PATH="$BATS_TEST_DIRNAME/../bin:$PATH"

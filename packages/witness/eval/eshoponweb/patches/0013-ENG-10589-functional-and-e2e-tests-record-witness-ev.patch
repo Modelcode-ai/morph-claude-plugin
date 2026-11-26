@@ -1,0 +1,194 @@
+From 454d40dad31511d1db1292ddee6e91c0973e5253 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 20:18:06 -0800
+Subject: [PATCH] ENG-10589: functional and e2e tests record witness evidence
+ (HTTP exchanges through the WebApplicationFactory client, ui steps with
+ screenshots, one check)
+
+---
+ .../Playwright/BrowserFixture.cs              | 18 +++++-
+ .../EndToEndTests/Playwright/CatalogTests.cs  |  4 +-
+ .../Web/Pages/Basket/IndexTest.cs             |  3 +-
+ tests/FunctionalTests/Web/WebTestFixture.cs   | 18 +++---
+ tests/FunctionalTests/Web/WitnessEvidence.cs  | 63 +++++++++++++++++++
+ 5 files changed, 96 insertions(+), 10 deletions(-)
+ create mode 100644 tests/FunctionalTests/Web/WitnessEvidence.cs
+
+diff --git a/tests/EndToEndTests/Playwright/BrowserFixture.cs b/tests/EndToEndTests/Playwright/BrowserFixture.cs
+index 70a5869..28e8d5d 100644
+--- a/tests/EndToEndTests/Playwright/BrowserFixture.cs
++++ b/tests/EndToEndTests/Playwright/BrowserFixture.cs
+@@ -1,5 +1,7 @@
+-﻿using System.Diagnostics;
++using System.Diagnostics;
+ using System.Net.Http;
++using System.Text.Json;
++using System.Text.RegularExpressions;
+ using Microsoft.Playwright;
+ using Xunit;
+ 
+@@ -79,6 +81,20 @@ public sealed class BrowserFixture : IAsyncLifetime
+         return (context, testDirectory);
+     }
+ 
++    /// <summary>Witness evidence: a screenshot of the page and a ui observation for this step of the running test. A no-op outside a witness run.</summary>
++    public async Task RecordStepAsync(IPage page, string step, string action, string? target = null, string? value = null)
++    {
++        var root = Environment.GetEnvironmentVariable("WITNESS_ARTIFACTS");
++        var test = TestContext.Current.Test?.TestDisplayName;
++        if (string.IsNullOrEmpty(root) || test is null) return;
++        var dir = Path.Combine(root, Regex.Replace(test, @"[^\w.@-]+", "_"));
++        Directory.CreateDirectory(dir);
++        var shot = $"{Directory.GetFiles(dir, "*.png").Length + 1:D2}-{Regex.Replace(step, @"[^\w]+", "-").Trim('-').ToLowerInvariant()}.png";
++        await page.ScreenshotAsync(new PageScreenshotOptions { Path = Path.Combine(dir, shot) });
++        var line = JsonSerializer.Serialize(new { v = 1, kind = "ui", step, files = new[] { shot }, data = new { action, target, value, url = page.Url } });
++        await File.AppendAllTextAsync(Path.Combine(dir, "evidence.jsonl"), line + "\n");
++    }
++
+     public async Task CaptureFailureArtifactsAsync(IBrowserContext context, IPage page, string outputDirectory)
+     {
+         Directory.CreateDirectory(outputDirectory);
+diff --git a/tests/EndToEndTests/Playwright/CatalogTests.cs b/tests/EndToEndTests/Playwright/CatalogTests.cs
+index f4523af..d2e3ae9 100644
+--- a/tests/EndToEndTests/Playwright/CatalogTests.cs
++++ b/tests/EndToEndTests/Playwright/CatalogTests.cs
+@@ -1,4 +1,4 @@
+-﻿using Microsoft.eShopWeb.EndToEndTests.Playwright.Pages;
++using Microsoft.eShopWeb.EndToEndTests.Playwright.Pages;
+ using Microsoft.Playwright;
+ using Xunit;
+ using static Microsoft.Playwright.Assertions;
+@@ -19,8 +19,10 @@ public sealed class CatalogTests(BrowserFixture browserFixture) : IClassFixture<
+         var catalogPage = new CatalogPage(page);
+ 
+         await catalogPage.GotoAsync(browserFixture.BaseUrl);
++        await browserFixture.RecordStepAsync(page, "open the catalog", "navigate", value: browserFixture.BaseUrl);
+ 
+         await catalogPage.AssertPageTitleAsync();
+         await Expect(catalogPage.AddToBasketButton).ToBeVisibleAsync();
++        await browserFixture.RecordStepAsync(page, "see the Add to basket button", "see", target: "Add to basket");
+     }
+ }
+diff --git a/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs b/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs
+index 80c381d..08c0931 100644
+--- a/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs
++++ b/tests/FunctionalTests/Web/Pages/Basket/IndexTest.cs
+@@ -1,4 +1,4 @@
+-﻿using Microsoft.AspNetCore.Mvc.Testing;
++using Microsoft.AspNetCore.Mvc.Testing;
+ using Xunit;
+ 
+ namespace Microsoft.eShopWeb.FunctionalTests.Web.Pages.Basket;
+@@ -104,6 +104,7 @@ public class IndexTest : IClassFixture<TestApplication>
+ 
+         var stringUpdateResponse = await updateResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+         Assert.Contains("Quantity must be 0 or more", stringUpdateResponse);
++        WitnessEvidence.Record("check", new { what = "the basket page shows the validation message", expected = "Quantity must be 0 or more", ok = true });
+         Assert.Contains(".NET Black &amp; White Mug", stringUpdateResponse);
+         Assert.DoesNotContain("Basket is empty", stringUpdateResponse);
+     }
+diff --git a/tests/FunctionalTests/Web/WebTestFixture.cs b/tests/FunctionalTests/Web/WebTestFixture.cs
+index 76ab537..7bb78c4 100644
+--- a/tests/FunctionalTests/Web/WebTestFixture.cs
++++ b/tests/FunctionalTests/Web/WebTestFixture.cs
+@@ -1,4 +1,5 @@
+-﻿using Microsoft.AspNetCore.Mvc.Testing;
++using Microsoft.AspNetCore.Mvc.Testing;
++using Microsoft.AspNetCore.Mvc.Testing.Handlers;
+ using Microsoft.EntityFrameworkCore;
+ using Microsoft.eShopWeb.Infrastructure.Data;
+ using Microsoft.eShopWeb.Infrastructure.Identity;
+@@ -23,12 +24,15 @@ public class TestApplication : WebApplicationFactory<IBasketViewModelService>
+         ClientOptions.BaseAddress = HttpsBaseAddress;
+     }
+ 
+-    public HttpClient CreateClient(bool allowAutoRedirect) =>
+-        CreateClient(new WebApplicationFactoryClientOptions
+-        {
+-            AllowAutoRedirect = allowAutoRedirect,
+-            BaseAddress = HttpsBaseAddress
+-        });
++    /// <summary>A client like CreateClient(options) gives, that also records each exchange as witness evidence.</summary>
++    public HttpClient CreateClient(bool allowAutoRedirect)
++    {
++        var handlers = new List<DelegatingHandler>();
++        if (allowAutoRedirect) handlers.Add(new RedirectHandler());
++        handlers.Add(new CookieContainerHandler());
++        handlers.Add(new EvidenceHandler());
++        return CreateDefaultClient(HttpsBaseAddress, handlers.ToArray());
++    }
+ 
+     protected override void ConfigureClient(HttpClient client)
+     {
+diff --git a/tests/FunctionalTests/Web/WitnessEvidence.cs b/tests/FunctionalTests/Web/WitnessEvidence.cs
+new file mode 100644
+index 0000000..f62bf25
+--- /dev/null
++++ b/tests/FunctionalTests/Web/WitnessEvidence.cs
+@@ -0,0 +1,63 @@
++using System.Diagnostics;
++using System.Text.Json;
++using System.Text.RegularExpressions;
++using Xunit;
++
++namespace Microsoft.eShopWeb.FunctionalTests.Web;
++
++/// <summary>Witness evidence: what the running test sent and saw, appended to its timeline. A no-op outside a witness run.</summary>
++public static class WitnessEvidence
++{
++    private const int Limit = 64 * 1024;
++    private static readonly HashSet<string> Secret = new(StringComparer.OrdinalIgnoreCase) { "Authorization", "Cookie", "Set-Cookie" };
++    private static readonly object Gate = new();
++
++    public static void Record(string kind, object data, string? step = null)
++    {
++        var root = Environment.GetEnvironmentVariable("WITNESS_ARTIFACTS");
++        var test = TestContext.Current.Test?.TestDisplayName;
++        if (string.IsNullOrEmpty(root) || test is null) return;
++        var dir = Path.Combine(root, Regex.Replace(test, @"[^\w.@-]+", "_"));
++        var line = JsonSerializer.Serialize(new { v = 1, kind, step, data, t = DateTime.UtcNow.ToString("o") });
++        lock (Gate)
++        {
++            Directory.CreateDirectory(dir);
++            File.AppendAllText(Path.Combine(dir, "evidence.jsonl"), line + "\n");
++        }
++    }
++
++    internal static string Cut(string s) => s.Length <= Limit ? s : s[..Limit] + $"\n[cut, {s.Length} characters]";
++
++    internal static Dictionary<string, string> Headers(params System.Net.Http.Headers.HttpHeaders?[] all)
++    {
++        var d = new Dictionary<string, string>();
++        foreach (var h in all)
++            if (h is not null)
++                foreach (var kv in h) d[kv.Key] = Secret.Contains(kv.Key) ? "[redacted]" : string.Join(", ", kv.Value);
++        return d;
++    }
++}
++
++/// <summary>Records every request the test client sends to the app, and the app's answer.</summary>
++public sealed class EvidenceHandler : DelegatingHandler
++{
++    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
++    {
++        var requestBody = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
++        var sw = Stopwatch.StartNew();
++        var response = await base.SendAsync(request, ct);
++        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WITNESS_ARTIFACTS"))) return response;
++        await response.Content.LoadIntoBufferAsync(ct);
++        var responseBody = await response.Content.ReadAsStringAsync(ct);
++        WitnessEvidence.Record("http", new
++        {
++            method = request.Method.Method,
++            url = request.RequestUri?.ToString(),
++            status = (int)response.StatusCode,
++            ms = sw.ElapsedMilliseconds,
++            request = new { headers = WitnessEvidence.Headers(request.Headers, request.Content?.Headers), body = WitnessEvidence.Cut(Regex.Replace(requestBody, @"(__RequestVerificationToken=)[^&]+", "$1[redacted]")) },
++            response = new { headers = WitnessEvidence.Headers(response.Headers, response.Content.Headers), body = WitnessEvidence.Cut(responseBody) },
++        });
++        return response;
++    }
++}
+-- 
+2.50.1 (Apple Git-155)
+

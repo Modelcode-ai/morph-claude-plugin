@@ -1,0 +1,80 @@
+diff --git a/.witness/.gitignore b/.witness/.gitignore
+new file mode 100644
+index 0000000..a3df962
+--- /dev/null
++++ b/.witness/.gitignore
+@@ -0,0 +1,8 @@
++runs/
++check/
++cache/
++up/
++up.json
++run.lock
++scratch/
++.env
+diff --git a/.witness/witness.toml b/.witness/witness.toml
+new file mode 100644
+index 0000000..29e3949
+--- /dev/null
++++ b/.witness/witness.toml
+@@ -0,0 +1,60 @@
++# Witness config (version 1). Functional tests only; unit and integration tests stay with `./mvnw -B verify`.
++#
++# Java runs in Docker: this machine has no JDK 17 or Maven (user's choice: Docker, not a local install).
++# Containers are named petclinic-eval-* and mount the user's warm ~/.m2 cache (user's choice).
++# Ports avoid 9966 and 4200: other apps on this machine use them (user's constraint).
++version = 1
++
++[env]
++file = ".witness/.env"        # KEY=VALUE lines, gitignored
++required = []                 # default h2 in-memory profile: no database URL or password needed
++
++# mysql, postgres (docker-compose.yml): not needed, the app's default profile is h2 (application.properties:20).
++
++[[service]]
++name = "app"
++cwd = "."
++# Build the jar once in a throwaway container and copy it out of target/, so the maven-tests suite
++# rebuilding target/ never touches the running app.
++setup = "docker rm -f petclinic-eval-build >/dev/null 2>&1; docker run --rm --name petclinic-eval-build -v \"$PWD\":\"$PWD\" -w \"$PWD\" -v \"$HOME/.m2\":/root/.m2 maven:3.9-eclipse-temurin-17 ./mvnw -B -DskipTests package && cp target/spring-petclinic-rest-*.jar .witness/scratch/app.jar"
++# --init forwards witness's SIGTERM to java so --rm removes the container when the service stops.
++start = "docker rm -f petclinic-eval-app >/dev/null 2>&1; exec docker run --rm --init --name petclinic-eval-app -p 127.0.0.1:${PORT}:${PORT} -v \"$PWD/.witness/scratch/app.jar\":/app.jar:ro eclipse-temurin:17-jre java -jar /app.jar --server.port=${PORT}"
++ports = "19966-19975"         # never the default 9966
++ready = { http = "${self.url}/petclinic/actuator/health", timeout = "180s" }
++
++# Controller tests: MockMvc against the app loaded inside the test JVM (no network port).
++# Same filter the scan proposed; the other test classes are unit/integration tests (see below).
++# -Djacoco.skip: the coverage gate (jacoco:check in verify) fails on this subset; CI's full verify still enforces it.
++[[suite]]
++name = "maven-tests"
++kind = "api"
++adapter = "junit-maven"
++cwd = "."
++cmd = "docker rm -f petclinic-eval-mvn >/dev/null 2>&1; docker run --rm --init --name petclinic-eval-mvn -v \"$PWD\":\"$PWD\" -w \"$PWD\" -v \"$HOME/.m2\":/root/.m2 maven:3.9-eclipse-temurin-17 ./mvnw -B verify -Dtest='org/springframework/samples/petclinic/rest/**/*' -Dsurefire.failIfNoSpecifiedTests=false -Djacoco.skip=true"
++service = []                  # the tests start the app themselves
++timeout = "20m"
++
++# Postman non-regression collection against the real server (user asked for a suite that exercises it).
++# Same collection and environment as postman-tests.sh / newman-pipeline.yml; baseUrl points at the
++# witness-started app instead of localhost:9966. No Newman adapter: generic reads its JUnit report.
++[[suite]]
++name = "newman"
++kind = "api"
++adapter = "generic"
++cwd = "."
++cmd = "npx -y -p newman newman run src/test/postman/petclinic-nonregressiontests.postman_collection.json -e src/test/postman/petclinic-env.postman_environment.json --env-var baseUrl=${app.url}/petclinic --reporters cli,junit --reporter-junit-export \"$WITNESS_REPORT_DIR/newman.xml\" --timeout-request 5000"
++service = ["app"]
++timeout = "10m"
++
++# Not suites: these test classes don't drive the app (no request, browser, command, window or device).
++#   src/test/java/org/springframework/samples/petclinic/SpringConfigTests.java
++#   src/test/java/org/springframework/samples/petclinic/model/ValidatorTests.java
++#   src/test/java/org/springframework/samples/petclinic/service/clinicService/*Tests.java
++#   src/test/java/org/springframework/samples/petclinic/service/userService/*Tests.java
++#   src/test/java/org/springframework/validation/PetAgeValidatorTest.java
++
++[run]
++stall_timeout = "5m"
++heartbeat = "60s"
++keep_runs = 10
++kill_grace = "15s"            # give the Spring app time to shut down before SIGKILL

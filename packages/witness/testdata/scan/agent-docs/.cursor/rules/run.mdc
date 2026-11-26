@@ -1,0 +1,4 @@
+---
+description: run rules
+---
+Start everything with `docker compose up -d`.

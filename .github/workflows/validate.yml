@@ -19,3 +19,155 @@ jobs:
         run: claude plugin validate .
       - name: Validate the plugin
         run: claude plugin validate plugins/morph
+
+  witness:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: packages/witness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Build the bundle (dist/ is not committed; the bundle test runs it)
+        run: npm run build
+      - run: npm test
+      - run: npm run check:skills
+
+  witness-conformance:
+    runs-on: ubuntu-24.04   # Playwright 1.60 has no Chromium build for Ubuntu 26.04
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [pytest, jest, vitest, mocha, newman, playwright, cli-bats, junit-maven, junit-gradle, go, rspec, phpunit, dotnet-xunit, dotnet-mstest]
+    defaults:
+      run:
+        working-directory: packages/witness
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - if: matrix.framework == 'pytest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: startsWith(matrix.framework, 'junit-')
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - if: matrix.framework == 'junit-gradle'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - if: matrix.framework == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - if: matrix.framework == 'rspec'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - if: matrix.framework == 'phpunit'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: pcntl
+          tools: composer:v2
+      - if: startsWith(matrix.framework, 'dotnet-')
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+      - run: npm ci
+      - run: npm run conformance -- ${{ matrix.framework }}
+
+  witness-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/witness
+    steps:
+      - name: Check out with LF line endings (fixtures and snapshots are compared byte for byte)
+        working-directory: .
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
+      - name: Take Git Bash off PATH (Morph's Windows sandboxes may not have it)
+        working-directory: .
+        run: ./.github/scripts/no-git-bash.ps1
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Build the bundle (dist/ is not committed; the bundle test runs it)
+        run: npm run build
+      - run: npm test
+      - run: npm run check:skills
+
+  witness-windows-conformance:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [pytest, playwright, dotnet-xunit]
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: packages/witness
+    steps:
+      - name: Check out with LF line endings
+        working-directory: .
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - if: matrix.framework == 'pytest'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: startsWith(matrix.framework, 'dotnet-')
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+      - name: Take Git Bash off PATH
+        working-directory: .
+        run: ./.github/scripts/no-git-bash.ps1
+      - run: npm ci
+      - run: npm run conformance -- ${{ matrix.framework }}
+
+  witness-windows-bash:
+    # shell = "bash" stays supported: the kit and its configs under Git Bash
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: packages/witness
+    env:
+      KIT_SHELL: bash
+    steps:
+      - name: Check out with LF line endings
+        working-directory: .
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Which bash witness will find
+        shell: cmd
+        run: where bash
+      - run: npm ci
+      - run: npm run conformance -- pytest playwright

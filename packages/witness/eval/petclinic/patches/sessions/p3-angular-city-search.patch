@@ -1,0 +1,292 @@
+diff --git a/.witness/plan.yaml b/.witness/plan.yaml
+new file mode 100644
+index 0000000..e97f812
+--- /dev/null
++++ b/.witness/plan.yaml
+@@ -0,0 +1,36 @@
++version: 1
++source: "user request (City search next to the last-name search on the Owners page: shows only the owners who live in the city, combines with the last name; backend GET /api/owners gets an optional city parameter, case-insensitive, whole city name, 404 when nothing matches)"
++items:
++  - id: A1
++    behavior: "The Owners page has a City field next to Last name; searching a city shows only the owners who live there, whatever the letter case typed"
++    expect: "City 'madison' against the real backend lists exactly George Franklin, Peter McTavish, Maria Escobito and David Schroeder, every row in Madison"
++    kind: new
++    tests:
++      - "playwright:backend.e2e-spec.ts > the City search shows only the owners living in that city, in any letter case"
++  - id: A2
++    behavior: "The City search combines with the Last name search"
++    expect: "Last name 'Davis' + City 'Sun Prairie' lists only Betty Davis (not Harold Davis of Windsor); the request sent carries both lastName and city"
++    kind: new
++    tests:
++      - "playwright:backend.e2e-spec.ts > the City search combines with the last name"
++      - "playwright:app.e2e-spec.ts > searches owners by city together with the last name"
++  - id: A3
++    behavior: "When no owner matches, the page says so and shows no table; a partial city name matches nobody"
++    expect: "City 'Mad' shows 'No owners living in \"Mad\"'; Davis + Madison shows 'No owners with LastName starting with \"Davis\" living in \"Madison\"'; #ownersTable absent"
++    kind: new
++    tests:
++      - "playwright:backend.e2e-spec.ts > the City search matches the whole city name and says so when nobody matches"
++      - "playwright:app.e2e-spec.ts > searches owners by city together with the last name"
++  - id: A4
++    behavior: "Last-name search alone works as before, including its no-results message"
++    expect: "Franklin finds George Franklin on the real backend; 'Unknown' shows 'No owners with LastName starting with \"Unknown\"'"
++    kind: parity
++    tests:
++      - "playwright:backend.e2e-spec.ts > lists the backend seed data on the vets and owners pages"
++      - "playwright:app.e2e-spec.ts > displays message when owner search returns no results"
++  - id: A5
++    behavior: "The Owners page with no search still lists all owners"
++    expect: "the owners list page shows the owners from the backend"
++    kind: parity
++    tests:
++      - "playwright:app.e2e-spec.ts > displays backend data on list pages"
+diff --git a/e2e-live/backend.e2e-spec.ts b/e2e-live/backend.e2e-spec.ts
+index 15eb86d..3db9a4e 100644
+--- a/e2e-live/backend.e2e-spec.ts
++++ b/e2e-live/backend.e2e-spec.ts
+@@ -15,3 +15,47 @@ test('lists the backend seed data on the vets and owners pages', async ({ page }
+   await page.getByRole('button', { name: 'Find Owner' }).click();
+   await expect(page.getByRole('link', { name: 'George Franklin' })).toBeVisible();
+ });
++
++// Seeded owners (spring-petclinic-rest db/h2/data.sql): Madison is home to George Franklin, Peter
++// McTavish, Maria Escobito and David Schroeder; Betty Davis lives in Sun Prairie, Harold Davis in
++// Windsor.
++
++test('the City search shows only the owners living in that city, in any letter case', async ({ page }) => {
++  await page.goto('/petclinic/owners');
++  await expect(page.locator('.ownerFullName')).not.toHaveCount(0);
++
++  await page.locator('#city').fill('madison');
++  const response = page.waitForResponse(r => r.url().includes('/petclinic/api/owners?'));
++  await page.getByRole('button', { name: 'Find Owner' }).click();
++  expect((await response).status()).toBe(200);
++
++  await expect(page.locator('.ownerFullName')).toHaveCount(4);
++  const names = (await page.locator('.ownerFullName').allTextContents()).map(n => n.trim()).sort();
++  expect(names).toEqual(['David Schroeder', 'George Franklin', 'Maria Escobito', 'Peter McTavish']);
++  const cities = page.locator('#ownersTable tbody > tr > td:nth-child(3)');
++  await expect(cities).toHaveText(['Madison', 'Madison', 'Madison', 'Madison']);
++});
++
++test('the City search combines with the last name', async ({ page }) => {
++  await page.goto('/petclinic/owners');
++  await page.locator('#lastName').fill('Davis');
++  await page.locator('#city').fill('Sun Prairie');
++  await page.getByRole('button', { name: 'Find Owner' }).click();
++
++  await expect(page.locator('.ownerFullName')).toHaveText(['Betty Davis']);
++  await expect(page.getByRole('link', { name: 'Harold Davis' })).toHaveCount(0);
++});
++
++test('the City search matches the whole city name and says so when nobody matches', async ({ page }) => {
++  await page.goto('/petclinic/owners');
++  await page.locator('#city').fill('Mad');
++  await page.getByRole('button', { name: 'Find Owner' }).click();
++  await expect(page.getByText('No owners living in "Mad"')).toBeVisible();
++  await expect(page.locator('#ownersTable')).toHaveCount(0);
++
++  await page.locator('#lastName').fill('Davis');
++  await page.locator('#city').fill('Madison');
++  await page.getByRole('button', { name: 'Find Owner' }).click();
++  await expect(page.getByText('No owners with LastName starting with "Davis" living in "Madison"')).toBeVisible();
++  await expect(page.locator('#ownersTable')).toHaveCount(0);
++});
+diff --git a/e2e/app.e2e-spec.ts b/e2e/app.e2e-spec.ts
+index 6b7e6d7..ce27c8e 100644
+--- a/e2e/app.e2e-spec.ts
++++ b/e2e/app.e2e-spec.ts
+@@ -59,8 +59,11 @@ async function mockBackend(page: Page) {
+     if (resource === 'owners') {
+       if (method === 'GET') {
+         const lastName = url.searchParams.get('lastName');
+-        if (lastName !== null) {
+-          const matches = owners.filter(o => o.lastName.startsWith(lastName));
++        const city = url.searchParams.get('city');
++        if (lastName !== null || city !== null) {
++          const matches = owners.filter(o =>
++            (lastName === null || o.lastName.startsWith(lastName)) &&
++            (city === null || o.city.toLowerCase() === city.toLowerCase()));
+           await route.fulfill(matches.length > 0 ? { json: matches } : { status: 404 });
+           return;
+         }
+@@ -430,6 +433,24 @@ test('displays message when owner search returns no results', async ({ page }) =
+   await expect(page.locator('#ownersTable')).toHaveCount(0);
+ });
+ 
++test('searches owners by city together with the last name', async ({ page }) => {
++  await page.goto('/petclinic/owners');
++
++  await page.locator('#lastName').fill('Fr');
++  await page.locator('#city').fill('MADISON');
++  const found = page.waitForRequest(request => request.url().includes('/petclinic/api/owners?'));
++  await page.getByRole('button', { name: 'Find Owner' }).click();
++  const foundParams = new URL((await found).url()).searchParams;
++  expect(foundParams.get('lastName')).toBe('Fr');
++  expect(foundParams.get('city')).toBe('MADISON');
++  await expect(page.locator('.ownerFullName')).toHaveText(['George Franklin']);
++
++  await page.locator('#city').fill('Windsor');
++  await page.getByRole('button', { name: 'Find Owner' }).click();
++  await expect(page.getByText('No owners with LastName starting with "Fr" living in "Windsor"')).toBeVisible();
++  await expect(page.locator('#ownersTable')).toHaveCount(0);
++});
++
+ test('adds and edits a pet from the owner detail page', async ({ page }) => {
+   await page.goto('/petclinic/owners/1');
+   await page.getByRole('button', { name: 'Add New Pet' }).click();
+diff --git a/src/app/owners/owner-list/owner-list.component.html b/src/app/owners/owner-list/owner-list.component.html
+index 2e60c04..b232bc4 100644
+--- a/src/app/owners/owner-list/owner-list.component.html
++++ b/src/app/owners/owner-list/owner-list.component.html
+@@ -27,6 +27,12 @@
+           <input class="form-control" size="30" id="lastName" [formField]="searchForm.lastName" />
+         </div>
+       </div>
++      <div class="row mb-3" id="cityGroup">
++        <label for="city" class="col-sm-2 col-form-label">City</label>
++        <div class="col-sm-10">
++          <input class="form-control" size="30" id="city" [formField]="searchForm.city" />
++        </div>
++      </div>
+       <div class="row">
+         <div class="offset-sm-2 col-sm-10">
+           <button type="submit" class="btn btn-secondary">Find Owner</button>
+@@ -35,7 +41,7 @@
+     </form>
+ 
+     @if (isOwnersDataReceived() && !owners()) {
+-      <div>No owners with LastName starting with "{{searchForm.lastName().value()}}"</div>
++      <div id="noOwnersMessage">{{ noOwnersMessage() }}</div>
+     }
+     @if (owners(); as owners) {
+       <div class="table-responsive" id="ownersTable" >
+diff --git a/src/app/owners/owner-list/owner-list.component.spec.ts b/src/app/owners/owner-list/owner-list.component.spec.ts
+index 98ffc41..f455efc 100644
+--- a/src/app/owners/owner-list/owner-list.component.spec.ts
++++ b/src/app/owners/owner-list/owner-list.component.spec.ts
+@@ -43,7 +43,7 @@ class OwnerServiceStub {
+     getOwners(): Observable<Owner[]> {
+         return of();
+     }
+-    searchOwners(lastName: string): Observable<Owner[]> {
++    searchOwners(lastName: string, city = ''): Observable<Owner[]> {
+         return of();
+     }
+ }
+@@ -142,7 +142,7 @@ describe('OwnerListComponent', () => {
+         fixture.nativeElement.querySelector('#search-owner-form').dispatchEvent(new Event('submit'));
+         await fixture.whenStable();
+ 
+-        expect(searchSpy).toHaveBeenCalledWith('Franklin');
++        expect(searchSpy).toHaveBeenCalledWith('Franklin', '');
+     });
+ 
+ });
+diff --git a/src/app/owners/owner-list/owner-list.component.ts b/src/app/owners/owner-list/owner-list.component.ts
+index f72d2e0..24047cf 100644
+--- a/src/app/owners/owner-list/owner-list.component.ts
++++ b/src/app/owners/owner-list/owner-list.component.ts
+@@ -37,21 +37,24 @@ export class OwnerListComponent {
+   private router = inject(Router);
+   private ownerService = inject(OwnerService);
+ 
+-  private readonly search = signal({lastName: ''});
+-  // search term applied by the "Find Owner" button: changing it reloads the owners
+-  private readonly searchTerm = signal('');
++  private readonly search = signal({lastName: '', city: ''});
++  // criteria applied by the "Find Owner" button: changing them reloads the owners
++  protected readonly searchTerm = signal({lastName: '', city: ''});
+ 
+   private readonly ownersResource = rxResource({
+     params: () => this.searchTerm(),
+-    stream: ({params}) => params === ''
++    stream: ({params}) => params.lastName === '' && params.city === ''
+       ? this.ownerService.getOwners()
+-      : this.ownerService.searchOwners(params)
++      : this.ownerService.searchOwners(params.lastName, params.city)
+   });
+ 
+-  protected readonly searchForm = form(this.search, path => maxLength(path.lastName, 80), {
++  protected readonly searchForm = form(this.search, path => {
++    maxLength(path.lastName, 80);
++    maxLength(path.city, 80);
++  }, {
+     submission: {
+       action: async () => {
+-        this.searchByLastName(this.search().lastName);
++        this.searchOwners(this.search().lastName, this.search().city);
+         return undefined;
+       }
+     }
+@@ -59,6 +62,17 @@ export class OwnerListComponent {
+ 
+   protected readonly owners = computed(() =>
+     this.ownersResource.hasValue() ? this.ownersResource.value() : null);
++  protected readonly noOwnersMessage = computed(() => {
++    const {lastName, city} = this.searchTerm();
++    const parts = ['No owners'];
++    if (lastName || !city) {
++      parts.push(`with LastName starting with "${lastName}"`);
++    }
++    if (city) {
++      parts.push(`living in "${city}"`);
++    }
++    return parts.join(' ');
++  });
+   protected readonly isOwnersDataReceived = computed(() => !this.ownersResource.isLoading());
+ 
+   onSelect(owner: Owner) {
+@@ -69,11 +83,13 @@ export class OwnerListComponent {
+     this.router.navigate(['/owners/add']);
+   }
+ 
+-  searchByLastName(lastName: string) {
+-    if (lastName === this.searchTerm()) {
++  searchOwners(lastName: string, city: string) {
++    const term = {lastName, city: city.trim()};
++    const current = this.searchTerm();
++    if (term.lastName === current.lastName && term.city === current.city) {
+       this.ownersResource.reload();
+     } else {
+-      this.searchTerm.set(lastName);
++      this.searchTerm.set(term);
+     }
+   }
+ }
+diff --git a/src/app/owners/owner.service.ts b/src/app/owners/owner.service.ts
+index 8ca7bb3..f5913d8 100644
+--- a/src/app/owners/owner.service.ts
++++ b/src/app/owners/owner.service.ts
+@@ -24,7 +24,7 @@ import { Injectable, inject } from '@angular/core';
+ import { Owner } from './owner';
+ import { Observable } from 'rxjs';
+ import { environment } from '../../environments/environment';
+-import { HttpClient } from '@angular/common/http';
++import { HttpClient, HttpParams } from '@angular/common/http';
+ import { catchError } from 'rxjs/operators';
+ import { HandleError, HttpErrorHandler } from '../error.service';
+ 
+@@ -74,13 +74,17 @@ export class OwnerService {
+       .pipe(catchError(this.handlerError('deleteOwner', [ownerId])));
+   }
+ 
+-  searchOwners(lastName: string): Observable<Owner[]> {
+-    let url = this.entityUrl;
+-    if (lastName !== undefined) {
+-      url += '?lastName=' + lastName;
++  /** Owners whose last name starts with `lastName` and who live in `city` (whole name, any case); blank criteria are ignored. */
++  searchOwners(lastName: string, city = ''): Observable<Owner[]> {
++    let params = new HttpParams();
++    if (lastName) {
++      params = params.set('lastName', lastName);
++    }
++    if (city) {
++      params = params.set('city', city);
+     }
+     return this.http
+-      .get<Owner[]>(url)
++      .get<Owner[]>(this.entityUrl, {params})
+       .pipe(catchError(this.handlerError('searchOwners', [])));
+   }
+ }

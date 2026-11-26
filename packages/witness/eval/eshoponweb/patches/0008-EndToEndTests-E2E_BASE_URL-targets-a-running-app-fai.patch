@@ -1,0 +1,57 @@
+From 3d4577691f4ba3e98ff4c6a8e87e40abf195ad12 Mon Sep 17 00:00:00 2001
+From: dserebro <dserebro@modelcode.ai>
+Date: Mon, 23 Nov 2026 10:46:37 -0800
+Subject: [PATCH 8/9] EndToEndTests: E2E_BASE_URL targets a running app;
+ failure artifacts go to $WITNESS_ARTIFACTS/<Class#Method>/ when set
+
+---
+ .../EndToEndTests/Playwright/BrowserFixture.cs  | 17 ++++++++++++++---
+ 1 file changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/tests/EndToEndTests/Playwright/BrowserFixture.cs b/tests/EndToEndTests/Playwright/BrowserFixture.cs
+index f1cc70e..70a5869 100644
+--- a/tests/EndToEndTests/Playwright/BrowserFixture.cs
++++ b/tests/EndToEndTests/Playwright/BrowserFixture.cs
+@@ -9,6 +9,7 @@ public sealed class BrowserFixture : IAsyncLifetime
+ {
+     private readonly HttpClient _httpClient;
+     private string _solutionRoot = string.Empty;
++    private string? _witnessArtifactsPath;
+     private Process? _webProcess;
+     private IPlaywright? _playwright;
+ 
+@@ -30,10 +31,18 @@ public sealed class BrowserFixture : IAsyncLifetime
+     public async ValueTask InitializeAsync()
+     {
+         _solutionRoot = FindSolutionRoot();
+-        ArtifactsRootPath = Path.Combine(_solutionRoot, "TestResults", "PlaywrightArtifacts");
++        // Witness collects per-test files from $WITNESS_ARTIFACTS/<test id>/.
++        _witnessArtifactsPath = Environment.GetEnvironmentVariable("WITNESS_ARTIFACTS");
++        ArtifactsRootPath = string.IsNullOrEmpty(_witnessArtifactsPath)
++            ? Path.Combine(_solutionRoot, "TestResults", "PlaywrightArtifacts")
++            : _witnessArtifactsPath;
+         Directory.CreateDirectory(ArtifactsRootPath);
+ 
+-        BaseUrl = await StartWebAppAsync(_solutionRoot);
++        // E2E_BASE_URL targets an app that is already running instead of starting one.
++        string? externalBaseUrl = Environment.GetEnvironmentVariable("E2E_BASE_URL");
++        BaseUrl = string.IsNullOrEmpty(externalBaseUrl)
++            ? await StartWebAppAsync(_solutionRoot)
++            : externalBaseUrl.TrimEnd('/');
+ 
+         _playwright = await Microsoft.Playwright.Playwright.CreateAsync();
+         Browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+@@ -46,7 +55,9 @@ public sealed class BrowserFixture : IAsyncLifetime
+     {
+         string testDirectory = Path.Combine(
+             ArtifactsRootPath,
+-            $"{SanitizePathSegment(testName)}-{DateTime.UtcNow:yyyyMMdd-HHmmss}");
++            string.IsNullOrEmpty(_witnessArtifactsPath)
++                ? $"{SanitizePathSegment(testName)}-{DateTime.UtcNow:yyyyMMdd-HHmmss}"
++                : $"{TestContext.Current.TestClass?.TestClassName}#{testName}");
+         Directory.CreateDirectory(testDirectory);
+ 
+         string videoDirectory = Path.Combine(testDirectory, "video");
+-- 
+2.50.1 (Apple Git-155)
+

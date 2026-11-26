@@ -1,0 +1,6 @@
+{"Time":"2026-11-20T10:00:00.1Z","Action":"start","Package":"example.com/shop/db"}
+{"Time":"2026-11-20T10:00:00.2Z","Action":"run","Package":"example.com/shop/db","Test":"TestMigrate"}
+{"Time":"2026-11-20T10:00:00.3Z","Action":"pass","Package":"example.com/shop/db","Test":"TestMigrate","Elapsed":0.1}
+{"Time":"2026-11-20T10:00:00.4Z","Action":"run","Package":"example.com/shop/db","Test":"TestSlowQuery"}
+{"Time":"2026-11-20T10:00:00.4Z","Action":"output","Package":"example.com/shop/db","Test":"TestSlowQuery","Output":"=== RUN   TestSlowQuery\n"}
+{"Time":"2026-11-20T10:00:0
