@@ -1,12 +1,12 @@
 // Conformance kit: runs witness against tiny real projects of every supported framework and prints a matrix.
 // Usage: npm run conformance -- [framework...] [--jobs n] [--docker name,...] [--scenario s,...]
 import { readEvidence, titleOf } from "../src/evidence/contract.ts";
-import { resolveShell, shellArgv } from "../src/proc.ts";
+import { shellArgv } from "../src/proc.ts";
 import { resolveRun } from "../src/rundir.ts";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FRAMEWORKS, type Framework, IN_DOCKER, KIT, type Scenario, SCENARIOS, type Tool } from "./frameworks.ts";
+import { FRAMEWORKS, type Framework, IN_DOCKER, KIT, KIT_SHELL, type Scenario, SCENARIOS, SHELL, type Tool } from "./frameworks.ts";
 
 const PKG = path.dirname(KIT);
 const CLI = path.join(PKG, "src", "cli.ts");
@@ -41,8 +41,6 @@ function args() {
   return o;
 }
 
-// the kit's commands are POSIX shell, so on Windows they need Git Bash
-const SHELL = resolveShell("bash");
 const sh = (cmd: string, cwd: string, env: Record<string, string> = {}) => {
   const a = shellArgv(SHELL, cmd);
   return spawnSync(a.file, a.args, { cwd, env: { ...process.env, ...env }, encoding: "utf8", timeout: 20 * 60_000 });
@@ -97,7 +95,7 @@ function toml(fw: Framework, t: Tool, o: { cmd: string; env?: Record<string, str
     "[run]",
     'stall_timeout = "4m"',
     "keep_runs = 100",
-    ...(process.platform === "win32" ? ['shell = "bash"'] : []),
+    ...(KIT_SHELL ? [`shell = ${tq(KIT_SHELL)}`] : []),
     "",
   ].join("\n");
 }

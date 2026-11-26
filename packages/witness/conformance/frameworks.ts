@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { ADAPTERS, type AdapterName } from "../src/adapters.ts";
 import type { Kind } from "../src/config.ts";
+import { isPowerShell, resolveShell, type ShellPref } from "../src/proc.ts";
 
 export const KIT = import.meta.dirname;
 export const IN_DOCKER = path.join(KIT, "bin", "in-docker");
@@ -44,10 +45,16 @@ export interface Framework {
 }
 
 const WIN = process.platform === "win32";
+/** The shell the kit's commands run under: KIT_SHELL, else what witness picks (PowerShell on Windows, bash elsewhere). */
+export const KIT_SHELL = process.env.KIT_SHELL as ShellPref | undefined;
+export const SHELL = resolveShell(KIT_SHELL ?? "auto");
+const PS = isPowerShell(SHELL);
+const NOOP = PS ? "cd ." : "true";
 const PYTHON = WIN ? "python" : "python3";
 const VENV = WIN ? ".venv/Scripts" : ".venv/bin";
 const docker = (args: string) => (t: Tool): Record<string, string> => (t.docker ? { KIT_DOCKER_ARGS: args } : {});
 const node = (bin: string) => `node_modules/.bin/${bin}`;
+const HANG = PS ? `"hang=$env:WITNESS_KIT_HANG"` : `"hang=\${WITNESS_KIT_HANG:-0}"`;
 const dotnet = () => process.env.KIT_DOTNET ?? "dotnet";
 const dotnetEnv = (t: Tool): Record<string, string> => ({
   DOTNET_CLI_TELEMETRY_OPTOUT: "1",
@@ -55,7 +62,7 @@ const dotnetEnv = (t: Tool): Record<string, string> => ({
   ...ADAPTERS.dotnet.env,
   ...(t.docker ? { KIT_DOCKER_ARGS: "-v witness-kit-nuget:/root/.nuget/packages" } : process.env.KIT_DOTNET ? { DOTNET_ROOT: path.dirname(process.env.KIT_DOTNET) } : {}),
 });
-const dotnetLocal = () => `${dotnet()} --list-sdks | grep -Eq '^1[1-9]\\.'`;
+const dotnetLocal = () => (PS ? `if (-not (${dotnet()} --list-sdks | Select-String -Quiet '^1[1-9]\\.')) { exit 1 }` : `${dotnet()} --list-sdks | grep -Eq '^1[1-9]\\.'`);
 
 export const FRAMEWORKS: Framework[] = [
   {
@@ -82,7 +89,7 @@ export const FRAMEWORKS: Framework[] = [
     ids: { pass: "items.test.js > items api > lists items", fail: "items.test.js > items api > item name", skip: "items.test.js > items api > skipped", hang: "items.test.js > items api > hangs" },
     prepare: () => "npm install --no-audit --no-fund --loglevel=error",
     cmd: () => node("jest"),
-    compound: () => `true && ${node("jest")} \${WITNESS_SELECT} && echo kit-done`,
+    compound: () => `${NOOP} && ${node("jest")} \${WITNESS_SELECT} && echo kit-done`,
     versions: () => `node --version && ${node("jest")} --version`,
     list: "native",
     timeout: { perTest: "3s" },
@@ -96,7 +103,7 @@ export const FRAMEWORKS: Framework[] = [
     // npm 10 (Node 22) crashes resolving vitest 5's peers without a lock file, so peers are skipped and vite is a direct dependency
     prepare: () => "npm install --no-audit --no-fund --loglevel=error --legacy-peer-deps",
     cmd: () => `${node("vitest")} run`,
-    compound: () => `true && ${node("vitest")} run \${WITNESS_SELECT} && echo kit-done`,
+    compound: () => `${NOOP} && ${node("vitest")} run \${WITNESS_SELECT} && echo kit-done`,
     versions: () => `node --version && ${node("vitest")} --version`,
     list: "native",
     timeout: { perTest: "3s" },
@@ -109,7 +116,7 @@ export const FRAMEWORKS: Framework[] = [
     ids: { pass: "test/items.test.js > items api > lists items", fail: "test/items.test.js > items api > item name", skip: "test/items.test.js > items api > skipped", hang: "test/items.test.js > items api > hangs" },
     prepare: () => "npm install --no-audit --no-fund --loglevel=error",
     cmd: () => node("mocha"),
-    compound: () => `true && ${node("mocha")} \${WITNESS_SELECT} && echo kit-done`,
+    compound: () => `${NOOP} && ${node("mocha")} \${WITNESS_SELECT} && echo kit-done`,
     versions: () => `node --version && ${node("mocha")} --version`,
     list: "native",
     timeout: { perTest: "3s" },
@@ -121,8 +128,8 @@ export const FRAMEWORKS: Framework[] = [
     project: "newman",
     ids: { pass: "list items > lists items", fail: "get item > item name", skip: "skipped > skipped", hang: "hang > hangs" },
     prepare: () => "npm install --no-audit --no-fund --loglevel=error",
-    cmd: () => `${node("newman")} run items.postman_collection.json --env-var baseUrl=\${app.url} --env-var "hang=\${WITNESS_KIT_HANG:-0}"`,
-    compound: () => `true && ${node("newman")} run items.postman_collection.json --env-var baseUrl=\${app.url} --env-var "hang=\${WITNESS_KIT_HANG:-0}" \${WITNESS_SELECT} && echo kit-done`,
+    cmd: () => `${node("newman")} run items.postman_collection.json --env-var baseUrl=\${app.url} --env-var ${HANG}`,
+    compound: () => `${NOOP} && ${node("newman")} run items.postman_collection.json --env-var baseUrl=\${app.url} --env-var ${HANG} \${WITNESS_SELECT} && echo kit-done`,
     versions: () => `node --version && ${node("newman")} --version`,
     list: "native",
     timeout: { perTest: "3s" },
@@ -136,8 +143,9 @@ export const FRAMEWORKS: Framework[] = [
     project: "playwright",
     ids: { pass: "page.spec.ts > items page > shows the items", fail: "page.spec.ts > items page > heading", skip: "page.spec.ts > items page > skipped", hang: "page.spec.ts > items page > hangs" },
     prepare: () => `npm install --no-audit --no-fund --loglevel=error && ${node("playwright")} install${process.env.CI && !WIN ? " --with-deps" : ""} chromium`,
-    cmd: () => `BASE_URL=\${app.url} ${node("playwright")} test`,
-    compound: () => `export BASE_URL=\${app.url} && ${node("playwright")} test \${WITNESS_SELECT} && echo kit-done`,
+    cmd: () => (PS ? `${node("playwright")} test` : `BASE_URL=\${app.url} ${node("playwright")} test`),
+    compound: () => (PS ? `$env:BASE_URL = '\${app.url}'; ${node("playwright")} test \${WITNESS_SELECT} && echo kit-done` : `export BASE_URL=\${app.url} && ${node("playwright")} test \${WITNESS_SELECT} && echo kit-done`),
+    env: (): Record<string, string> => (PS ? { BASE_URL: "${app.url}" } : {}),
     versions: () => `node --version && ${node("playwright")} --version`,
     list: "native",
     timeout: { perTest: "5s" },
@@ -151,7 +159,7 @@ export const FRAMEWORKS: Framework[] = [
     ids: { pass: "items.bats#lists items", fail: "items.bats#item name", skip: "items.bats#skipped", hang: "items.bats#hangs" },
     prepare: () => "npm install --no-audit --no-fund --loglevel=error",
     cmd: () => `${node("bats")} test`,
-    compound: () => `true && ${node("bats")} test \${WITNESS_SELECT} && echo kit-done`,
+    compound: () => `${NOOP} && ${node("bats")} test \${WITNESS_SELECT} && echo kit-done`,
     versions: () => `node --version && ${node("bats")} --version`,
     list: "last-report",
     timeout: { perTest: "3s" },
@@ -166,7 +174,7 @@ export const FRAMEWORKS: Framework[] = [
     docker: { image: "maven:3.9-eclipse-temurin-17", args: "-v witness-kit-m2:/root/.m2" },
     prepare: (t) => t.run("mvn -B -ntp -q test-compile"),
     cmd: (t) => t.run("mvn -B -ntp test"),
-    compound: (t) => `true && ${t.run("mvn -B -ntp test")} \${WITNESS_SELECT} && echo kit-done`,
+    compound: (t) => `${NOOP} && ${t.run("mvn -B -ntp test")} \${WITNESS_SELECT} && echo kit-done`,
     versions: (t) => t.run("mvn -B -ntp -v"),
     env: docker("-v witness-kit-m2:/root/.m2"),
     list: "last-report",
@@ -183,7 +191,7 @@ export const FRAMEWORKS: Framework[] = [
     docker: { image: "gradle:8.14.3-jdk17", args: "-v witness-kit-gradle:/home/gradle/.gradle" },
     prepare: (t) => t.run("gradle --no-daemon -q testClasses"),
     cmd: (t) => t.run("gradle --no-daemon test"),
-    compound: (t) => `true && ${t.run("gradle --no-daemon test")} \${WITNESS_SELECT} && echo kit-done`,
+    compound: (t) => `${NOOP} && ${t.run("gradle --no-daemon test")} \${WITNESS_SELECT} && echo kit-done`,
     versions: (t) => t.run("gradle --no-daemon --version"),
     env: docker("-v witness-kit-gradle:/home/gradle/.gradle"),
     list: "last-report",
@@ -200,7 +208,7 @@ export const FRAMEWORKS: Framework[] = [
     docker: { image: "golang:1.25", args: "-v witness-kit-go:/go/pkg" },
     prepare: (t) => t.run("go vet ./..."),
     cmd: (t) => t.run("go test -count=1 ./..."),
-    compound: (t) => `true && ${t.run("go test -count=1 ./...")} \${WITNESS_SELECT} && echo kit-done`,
+    compound: (t) => `${NOOP} && ${t.run("go test -count=1 ./...")} \${WITNESS_SELECT} && echo kit-done`,
     versions: (t) => t.run("go version"),
     env: docker("-v witness-kit-go:/go/pkg"),
     list: "native",
@@ -213,12 +221,12 @@ export const FRAMEWORKS: Framework[] = [
     adapter: "rspec",
     project: "rspec",
     ids: { pass: "spec/items_spec.rb > items api lists items", fail: "spec/items_spec.rb > items api item name", skip: "spec/items_spec.rb > items api skipped", hang: "spec/items_spec.rb > items api hangs" },
-    local: "ruby -e 'exit(RUBY_VERSION >= \"3.1\" ? 0 : 1)' && bundle --version",
+    local: `ruby -e "exit(RUBY_VERSION >= '3.1' ? 0 : 1)" && bundle --version`,
     docker: { image: "ruby:3.4-slim", args: "-v witness-kit-bundle:/usr/local/bundle" },
     prepare: (t) => t.run("bundle install --quiet"),
     cmd: (t) => t.run("bundle exec rspec"),
-    compound: (t) => `true && ${t.run("bundle exec rspec")} \${WITNESS_SELECT} && echo kit-done`,
-    versions: (t) => t.run("sh -c 'ruby --version && bundle exec rspec --version'"),
+    compound: (t) => `${NOOP} && ${t.run("bundle exec rspec")} \${WITNESS_SELECT} && echo kit-done`,
+    versions: (t) => (t.docker ? t.run("sh -c 'ruby --version && bundle exec rspec --version'") : "ruby --version && bundle exec rspec --version"),
     env: docker("-v witness-kit-bundle:/usr/local/bundle"),
     list: "native",
     timeout: { na: "RSpec has no per-test timeout flag (only in-code Timeout.timeout wrappers)" },
@@ -233,8 +241,8 @@ export const FRAMEWORKS: Framework[] = [
     docker: { image: "composer:2", args: "" },
     prepare: (t) => t.run("composer install -q --no-interaction"),
     cmd: (t) => t.run("vendor/bin/phpunit"),
-    compound: (t) => `true && ${t.run("vendor/bin/phpunit")} \${WITNESS_SELECT} && echo kit-done`,
-    versions: (t) => t.run("sh -c 'php --version | head -1 && vendor/bin/phpunit --version'"),
+    compound: (t) => `${NOOP} && ${t.run("vendor/bin/phpunit")} \${WITNESS_SELECT} && echo kit-done`,
+    versions: (t) => (t.docker ? t.run("sh -c 'php --version | head -1 && vendor/bin/phpunit --version'") : "php --version && vendor/bin/phpunit --version"),
     list: "native",
     timeout: { perTest: "3s" },
   },
@@ -248,7 +256,7 @@ export const FRAMEWORKS: Framework[] = [
     docker: { image: "mcr.microsoft.com/dotnet/sdk:11.0" },
     prepare: (t) => t.run(`${t.docker ? "dotnet" : dotnet()} build -v q Kit.Xunit.csproj`),
     cmd: (t) => t.run(`${t.docker ? "dotnet" : dotnet()} test --project Kit.Xunit.csproj`),
-    compound: (t) => `true && ${t.run(`${t.docker ? "dotnet" : dotnet()} test --project Kit.Xunit.csproj`)} \${WITNESS_SELECT} && echo kit-done`,
+    compound: (t) => `${NOOP} && ${t.run(`${t.docker ? "dotnet" : dotnet()} test --project Kit.Xunit.csproj`)} \${WITNESS_SELECT} && echo kit-done`,
     versions: (t) => t.run(`${t.docker ? "dotnet" : dotnet()} --version`),
     env: dotnetEnv,
     list: "native",
@@ -264,7 +272,7 @@ export const FRAMEWORKS: Framework[] = [
     docker: { image: "mcr.microsoft.com/dotnet/sdk:11.0" },
     prepare: (t) => t.run(`${t.docker ? "dotnet" : dotnet()} build -v q Kit.MSTest.csproj`),
     cmd: (t) => t.run(`${t.docker ? "dotnet" : dotnet()} test Kit.MSTest.csproj`),
-    compound: (t) => `true && ${t.run(`${t.docker ? "dotnet" : dotnet()} test Kit.MSTest.csproj`)} \${WITNESS_SELECT} && echo kit-done`,
+    compound: (t) => `${NOOP} && ${t.run(`${t.docker ? "dotnet" : dotnet()} test Kit.MSTest.csproj`)} \${WITNESS_SELECT} && echo kit-done`,
     versions: (t) => t.run(`${t.docker ? "dotnet" : dotnet()} --version`),
     env: dotnetEnv,
     list: "native",
