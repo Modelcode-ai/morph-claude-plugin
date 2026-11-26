@@ -41,13 +41,28 @@ Windows run `bin\witness.cmd`, or `node bin/witness.mjs`.
 
 ### Windows
 
-Commands in `witness.toml` run under Git Bash when it's installed (bash.exe on PATH, next to
-git.exe, or in Git's default folder; never WSL's bash), else under `cmd.exe /d /s /c`. Set
-`[run] shell = "bash"` or `"cmd"` to force one; macOS and Linux always use bash. Witness stops a
-process tree with `taskkill /T`, then `taskkill /T /F` (console programs ignore the polite one, so
-it is forced at once). A daemon that leaves its parent's tree is not found that way: give its
-service a `pidfile`. `runs/latest` is a junction there, or a file holding the run id when the
-disk can't hold one; `witness status` and `witness report` read either.
+Commands in `witness.toml` run under PowerShell: `pwsh` (7) when it's installed (on PATH or in its
+default folder), else Windows PowerShell 5.1, else `cmd.exe /d /s /c`. Bash runs them only when the
+config says `shell = "bash"` (Git Bash: bash.exe on PATH, next to git.exe, or in Git's default
+folder; never WSL's bash). `[run] shell` is `auto`, `bash`, `pwsh`, `powershell` or `cmd`, and a
+service, suite or dependency can set its own `shell`; a listed repo's entries keep its own
+`[run] shell`. macOS and Linux use bash, or `pwsh` when asked.
+
+PowerShell runs each command with `-NoProfile -NonInteractive -ExecutionPolicy Bypass`, stops at
+the first error as `bash -e` would (`$ErrorActionPreference = 'Stop'`, and on 7.4+ a native command
+that exits non-zero), exits with the failing program's code (127 for a command that isn't found)
+and writes UTF-8. Arguments go to programs the legacy way on 5.1 and 7 alike, so the report flags
+and test selections witness adds are quoted the same for both. Two differences from bash: `a || b`
+doesn't fall back on 7.4+ (write `try { a } catch { b }`), and 5.1 has no `&&` (chain with
+`; if ($LASTEXITCODE) { exit $LASTEXITCODE };`). Environment variables are `$env:NAME`; witness's
+own `${...}` placeholders are replaced before any shell sees the command. A command of plain words
+(no quotes, `$` or operators) whose program is an `.exe` starts without a shell.
+
+Witness stops a process tree with `taskkill /T`, then `taskkill /T /F` (console programs ignore the
+polite one, so it is forced at once). A daemon that leaves its parent's tree is not found that way:
+give its service a `pidfile` (`Set-Content app.pid $p.Id` after `Start-Process -PassThru`; a
+UTF-16 pidfile from 5.1's `>` reads too). `runs/latest` is a junction there, or a file holding the
+run id when the disk can't hold one; `witness status` and `witness report` read either.
 
 Exit codes: 0 passed, 1 failed, 2 error, 3 mistrial, 4 stalled/timeout, 5 interrupted, 64 usage.
 
@@ -92,7 +107,7 @@ Suites also get `WITNESS_<SERVICE>_URL`, `WITNESS_REPORT_DIR` and `WITNESS_ARTIF
 
 Additions beyond the shared contract: `service.origin_for` (which target an `role = "origin"`
 service stands in for; defaults to the name minus `-origin`), `run.kill_grace` (SIGTERM to SIGKILL
-delay, default 5s), `run.shell` (Windows only: `auto`, `bash` or `cmd`; see Windows above), and the
+delay, default 5s), `run.shell` and a per-entry `shell` (see Windows above), and the
 per-suite overrides below.
 
 Adapters are presets. The dotnet preset runs every command with the MSBuild server, node reuse and
@@ -465,7 +480,10 @@ through a full run, `--select`, listing, a deleted and a truncated report, a per
 `check` and the report warn without them; it checks the CTRF and `status.json`, and prints a framework ×
 scenario matrix (results in `conformance/.results/`). It uses the local toolchain when there is one,
 else a Docker image (`--docker <name>` forces it); `KIT_DOTNET=/path/to/dotnet` picks a .NET SDK.
-CI runs it per framework on native toolchains.
+Its commands run under the shell witness picks (PowerShell on Windows); `KIT_SHELL=bash` or `pwsh`
+sets another, for the kit and its configs. CI runs it per framework on native toolchains, on Windows
+under `pwsh` with Git Bash off PATH, plus one job under Git Bash. `WITNESS_TEST_SHELL=pwsh npm test`
+runs the unit tests' configs under `pwsh` off Windows.
 
 Fixtures live in `testdata/`: report corpus per framework (including broken files) under
 `testdata/reports/`, small node apps for the integration tests under `testdata/apps/`, and one

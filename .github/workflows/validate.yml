@@ -92,6 +92,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
+        shell: pwsh
         working-directory: packages/witness
     steps:
       - name: Check out with LF line endings (fixtures and snapshots are compared byte for byte)
@@ -104,9 +105,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.3.8"
-      - name: Which bash and git witness will find
-        shell: cmd
-        run: where bash git
+      - name: Take Git Bash off PATH (Morph's Windows sandboxes may not have it)
+        working-directory: .
+        run: ./.github/scripts/no-git-bash.ps1
       - run: npm ci
       - run: npm run typecheck
       - name: Build the bundle (dist/ is not committed; the bundle test runs it)
@@ -122,6 +123,7 @@ jobs:
         framework: [pytest, playwright, dotnet-xunit]
     defaults:
       run:
+        shell: pwsh
         working-directory: packages/witness
     steps:
       - name: Check out with LF line endings
@@ -139,5 +141,33 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "11.0.x"
+      - name: Take Git Bash off PATH
+        working-directory: .
+        run: ./.github/scripts/no-git-bash.ps1
       - run: npm ci
       - run: npm run conformance -- ${{ matrix.framework }}
+
+  witness-windows-bash:
+    # shell = "bash" stays supported: the kit and its configs under Git Bash
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: packages/witness
+    env:
+      KIT_SHELL: bash
+    steps:
+      - name: Check out with LF line endings
+        working-directory: .
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Which bash witness will find
+        shell: cmd
+        run: where bash
+      - run: npm ci
+      - run: npm run conformance -- pytest playwright
