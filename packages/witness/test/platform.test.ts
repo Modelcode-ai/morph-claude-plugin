@@ -7,7 +7,7 @@ import { describe, test } from "node:test";
 import { parse } from "smol-toml";
 import { ADAPTERS, nullDevice } from "../src/adapters.ts";
 import { ConfigError, parseConfig, substitute } from "../src/config.ts";
-import { childEnv, directArgv, envGet, groupAlive, type Host, isPowerShell, killGroup, pidFromFile, psScript, resolveShell, ShellError, shellArgv, signalPid, useShell } from "../src/proc.ts";
+import { childEnv, directArgv, envGet, groupAlive, type Host, isPowerShell, killGroup, pidFromFile, psScript, resolveShell, runCapture, ShellError, shellArgv, signalPid, useShell } from "../src/proc.ts";
 import { resolveRun, RunDir } from "../src/rundir.ts";
 import { onPath, playwrightCache } from "../src/scan.ts";
 import { installSkills } from "../src/skills.ts";
@@ -86,6 +86,7 @@ describe("shell", () => {
     const ps = shellArgv({ kind: "pwsh", file: "pwsh.exe" }, "npx playwright test");
     assert.deepEqual(ps.args.slice(0, 5), ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand"]);
     assert.equal(Buffer.from(ps.args[5], "base64").toString("utf16le"), psScript("npx playwright test"));
+    assert.deepEqual(shellArgv({ kind: "powershell", file: "powershell.exe" }, "x").args.slice(4), ["-Command", psScript("x")], "5.1 writes CLIXML to stderr for an encoded command");
     assert.match(psScript("x"), /\$ErrorActionPreference = 'Stop'[\s\S]*\nx\n[\s\S]*exit \$LASTEXITCODE$/);
   });
   test("Windows PowerShell: a plain command whose program is an .exe starts directly; anything else goes through the shell", () => {
@@ -194,6 +195,12 @@ describe("PowerShell, run for real", { skip: !powerShells.length && "no PowerShe
     test(`${sh.kind}: output is UTF-8`, () => {
       assert.match(run(`${node} -e "console.log('caf\\u00e9 \\u2713')"`).out, /café ✓/);
       assert.match(run("Write-Output 'caf\u00e9 \u2713'").out, /café ✓/);
+    });
+    test(`${sh.kind}: witness's own spawn runs the command, its output and exit code intact`, async (t) => {
+      t.after(() => useShell("auto"));
+      useShell(sh.kind);
+      const r = await runCapture(`echo 'caf\u00e9'; ${node} -e "process.exit(3)"`, { cwd: PKG, env: process.env as Record<string, string>, timeoutMs: 60_000 });
+      assert.deepEqual([r.code, r.out.trim()], [3, "café"]);
     });
     test(`${sh.kind}: words quoted by shq reach the program unchanged`, () => {
       const words = ["a b", 'say "hi"', "it's", "-Dfoo.bar=1", "-Djunit.jupiter.execution.timeout.default=3 s", "(a|b)$", "C:/x y/z", "Kit\\ItemsTest#a", "$HOME", "`tick", "50%", "a,b", "@x", "{x}", "it\u2019s", "^(TestA|TestB)$"];

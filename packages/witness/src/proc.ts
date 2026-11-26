@@ -137,7 +137,7 @@ const PS_PRELUDE = [
 ].join("\n");
 const PS_EPILOGUE = [
   "} catch {",
-  "  [Console]::Error.WriteLine(\"$_\")",
+  "  if ($_.Exception.GetType().Name -ne 'NativeCommandExitException') { [Console]::Error.WriteLine(\"$_\") }",
   "  if ($_.FullyQualifiedErrorId -like 'CommandNotFoundException*') { exit 127 }",
   "  if ($LASTEXITCODE) { exit $LASTEXITCODE }",
   "  exit 1",
@@ -155,8 +155,9 @@ export function shellArgv(shell: Shell, cmd: string): { file: string; args: stri
   const script = psScript(cmd);
   const encoded = Buffer.from(script, "utf16le").toString("base64");
   const flags = ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"];
-  // a command line holds 32767 characters; past that the script goes as plain text
-  return { file: shell.file, args: encoded.length < 30_000 ? [...flags, "-EncodedCommand", encoded] : [...flags, "-Command", script] };
+  // Windows PowerShell writes CLIXML progress to stderr for an encoded command; a command line holds 32767 characters
+  if (shell.kind === "powershell" || encoded.length >= 30_000) return { file: shell.file, args: [...flags, "-Command", script] };
+  return { file: shell.file, args: [...flags, "-EncodedCommand", encoded] };
 }
 
 const PLAIN = /^[\w+=:./\\-]+(?:[ \t]+[\w+=:./\\-]+)*$/;
@@ -213,9 +214,15 @@ export const activeShell = () => shellFor();
 /** Run `fn` (synchronous) with shq quoting for the shell `pref` resolves to. */
 export const quotedFor = <T>(pref: ShellPref | undefined, fn: () => T): T => withQuoteStyle(quoteStyleOf(shellFor(pref)), fn);
 
+/** Starts its arguments attached and exits with their exit code. */
+const PS_HOST = `const c = require("child_process").spawn(process.argv[1], process.argv.slice(2), { stdio: "inherit", windowsHide: true }); c.on("error", () => process.exit(127)); c.on("exit", (code) => process.exit(code ?? 1));`;
+
 /** Start `cmd` in its own process group (POSIX) or as the root of its own process tree (Windows). */
 function spawnShell(cmd: string, o: { cwd: string; env: Record<string, string>; stdio: StdioOptions; shell?: ShellPref }): ChildProcess {
-  const sh = commandArgv(shellFor(o.shell), cmd, o.cwd, o.env);
+  const shell = shellFor(o.shell);
+  let sh = commandArgv(shell, cmd, o.cwd, o.env);
+  // PowerShell started detached (no console) exits 0 having run nothing, and attached it would die with witness: a detached node hosts it
+  if (process.platform === "win32" && isPowerShell(shell) && sh.file === shell.file) sh = { file: process.execPath, args: ["-e", PS_HOST, "--", sh.file, ...sh.args] };
   return spawn(sh.file, sh.args, { cwd: o.cwd, env: o.env, stdio: o.stdio, detached: true, windowsHide: true, windowsVerbatimArguments: sh.windowsVerbatimArguments });
 }
 
