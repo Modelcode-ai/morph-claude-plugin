@@ -108,6 +108,9 @@ jobs:
       - name: Take Git Bash off PATH (Morph's Windows sandboxes may not have it)
         working-directory: .
         run: ./.github/scripts/no-git-bash.ps1
+      - name: Probe how PowerShell starts (temporary)
+        working-directory: .
+        run: node .github/scripts/pwsh-probe.mjs
       - run: npm ci
       - run: npm run typecheck
       - name: Build the bundle (dist/ is not committed; the bundle test runs it)
