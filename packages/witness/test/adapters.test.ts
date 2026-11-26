@@ -97,7 +97,7 @@ describe("eShopOnWeb eval fixes: build failures, report paths, TRX hint", () => 
     fs.mkdirSync(path.join(dir, "t"));
     fs.writeFileSync(path.join(dir, "t", "T.csproj"), "<Project />");
     const h = trxHint(dir, "dotnet test --project t/T.csproj");
-    assert.match(h, /<PackageReference Include="Microsoft\.Testing\.Extensions\.TrxReport" Version="<version>" \/> to t\/T\.csproj/);
+    assert.ok(h.includes(`<PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="<version>" /> to ${path.join("t", "T.csproj")}`), h);
     assert.doesNotMatch(h, /PackageVersion/);
   });
 });

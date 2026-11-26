@@ -3,9 +3,10 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, test } from "node:test";
+import { pathToFileURL } from "node:url";
 import { parse } from "smol-toml";
 import { ConfigError, parseConfig, referenceServices } from "../src/config.ts";
-import { APPS, service, tmpRepo, witness } from "./helpers.ts";
+import { service, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
 const cfg = (toml: string) => parseConfig(parse(`version = 1\n${service("ok")}\n${toml}`) as Record<string, unknown>, "/r/.witness/witness.toml");
@@ -89,7 +90,7 @@ cmd = "curl -fsS $WITNESS_API_URL/hello | grep -q \\"$GREETING_WANTED\\" && node
 env = { GREETING_WANTED = "world" }
 
 [reference]
-repo = "${legacy}"
+repo = "${legacy.split(path.sep).join("/")}"
 
 [reference.service.api]
 start = "test -f legacy.marker && node $APPS/server.mjs ok"
@@ -97,7 +98,7 @@ env = { GREETING = "legacy" }
 ${RUN}`);
     const r = await witness(dir, ["run", "--json", "--against", "reference"]);
     assert.equal(r.code, 0, r.stderr);
-    assert.match(r.stderr, new RegExp(`reference services run in ${legacy.replace(/[/.]/g, "\\$&")}`));
+    assert.match(r.stderr, new RegExp(`reference services run in ${legacy.replace(/[\\/.]/g, "\\$&")}`));
     assert.match(r.stderr, /suites run from this checkout against the reference services/);
     assert.equal(r.json?.against.outcome, "failed", "the legacy app answers with its own greeting");
   });
@@ -113,7 +114,7 @@ service = "api"
 cmd = "node $APPS/suite.mjs pass"
 
 [reference]
-repo = "file://${legacy}"
+repo = "${pathToFileURL(legacy).href}"
 ref = "v1"
 
 [reference.service.api]
@@ -127,7 +128,7 @@ ${RUN}`);
     const again = await witness(dir, ["run", "--json", "--against", "main"]);
     assert.equal(again.json?.against.outcome, "passed", "a ref on the command line overrides [reference] ref; the clone is fetched");
 
-    const none = tmpRepo(`version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "node ${APPS}/suite.mjs pass"\n${RUN}`, { git: true });
+    const none = tmpRepo(`version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "node $APPS/suite.mjs pass"\n${RUN}`, { git: true });
     const u = await witness(none, ["run", "--against", "reference"]);
     assert.equal(u.code, 64);
     assert.match(u.stderr, /the config has no \[reference\] section/);

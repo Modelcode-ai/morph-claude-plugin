@@ -84,7 +84,7 @@ describe("[[repo]] config", () => {
     assert.equal(load(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\nservices = []\n`, b: null }), "a").repos[0].file, undefined);
     fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\nservices = ["ap"]\n`, b: svc("api") }), "a", /repo\.b\.services: no service "ap" in .* \(did you mean "api"\?\)/);
     fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\nsuites = ["e2e"]\n`, b: svc("api") }), "a", /repo\.b\.suites: no suite "e2e"/);
-    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n`, b: `[[suite]]\nname = "x"\nkind = "api"\ncmd = "x"\nservice = ["nope"]\n` }), "a", /repo\.b: in .*b\/\.witness\/witness\.toml: suite\.x\.service: unknown service "nope"/);
+    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n`, b: `[[suite]]\nname = "x"\nkind = "api"\ncmd = "x"\nservice = ["nope"]\n` }), "a", /repo\.b: in .*b[\\/]\.witness[\\/]witness\.toml: suite\.x\.service: unknown service "nope"/);
     fails(repos({ a: `[[suite]]\nname = "e2e"\nkind = "ui"\nrepo = "b"\ncmd = "x"\n` }), "a", /suite\.e2e\.repo: unknown repo "b"; list it in a \[\[repo\]\] table/);
     fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n${svc("web", 'depends_on = ["b.nope"]')}`, b: svc("api") }), "a", /service\.web\.depends_on: unknown service "b\.nope"/);
     fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n${svc("web", 'env = { X = "${b.nope.url}" }')}`, b: svc("api") }), "a", /service\.web\.env\.X: \$\{b\.nope\.url\} refers to an unknown service/);
@@ -92,9 +92,9 @@ describe("[[repo]] config", () => {
   });
 
   test("name clashes: one name for two repos, two names for one repo, two services with one URL variable", () => {
-    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n[[repo]]\nname = "b"\npath = "../c"\n`, b: "", c: "" }), "a", /repo\.b: name clash: "b" is .*\/b in this config and .*\/c in this config/);
-    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n[[repo]]\nname = "bee"\npath = "../b"\n`, b: "" }), "a", /repo\.bee: name clash: .*\/b is listed as "b" in this config and as "bee"/);
-    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n[[repo]]\nname = "cee"\npath = "../c"\n`, b: `[[repo]]\nname = "c"\npath = "../c"\n`, c: "" }), "a", /name clash: .*\/c is listed as "cee" in this config and as "c" in repo b's config/);
+    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n[[repo]]\nname = "b"\npath = "../c"\n`, b: "", c: "" }), "a", /repo\.b: name clash: "b" is .*[\\/]b in this config and .*[\\/]c in this config/);
+    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n[[repo]]\nname = "bee"\npath = "../b"\n`, b: "" }), "a", /repo\.bee: name clash: .*[\\/]b is listed as "b" in this config and as "bee"/);
+    fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n[[repo]]\nname = "cee"\npath = "../c"\n`, b: `[[repo]]\nname = "c"\npath = "../c"\n`, c: "" }), "a", /name clash: .*[\\/]c is listed as "cee" in this config and as "c" in repo b's config/);
     fails(repos({ a: `[[repo]]\nname = "b"\npath = "../b"\n${svc("b-api")}`, b: svc("api") }), "a", /service\.b\.api: name clash: its URL variable WITNESS_B_API_URL is also b-api's/);
   });
 

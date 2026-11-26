@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { type Plan, type PlanItem, splitId } from "./plan.ts";
-import { git, globFiles } from "./util.ts";
+import { git, globFiles, realPath, slashPath } from "./util.ts";
 
 export type Lang = "py" | "js" | "cs" | "java" | "go" | "rb" | "php";
 export type Rule = "no-assertion" | "swallowed-exception" | "long-sleep" | "error-status-only" | "status-only";
@@ -570,7 +570,7 @@ export function lintSource(file: string, raw: string, opts: { plan?: Plan; rel?:
 export function changedTestFiles(root: string): string[] {
   const top = git(root, ["rev-parse", "--show-toplevel"]);
   if (!top.ok) return [];
-  const base = top.out.trim();
+  const base = path.join(root, path.relative(realPath(root), realPath(top.out.trim())));
   const names = [...git(base, ["diff", "--name-only", "HEAD"]).out.split("\n"), ...git(base, ["ls-files", "--others", "--exclude-standard"]).out.split("\n")];
   return [...new Set(names.map((s) => s.trim()).filter((s) => s && isTestPath(s)))].map((s) => path.join(base, s)).filter((f) => fs.existsSync(f));
 }
@@ -602,7 +602,7 @@ export function lintCommand(o: { files: string[]; cwd: string; root: string; pla
   let tests = 0;
   const linted: string[] = [];
   for (const f of files) {
-    const rel = path.relative(o.cwd, f) || f;
+    const rel = slashPath(path.relative(o.cwd, f) || f);
     if (!langOf(f)) {
       if (o.files.length) o.log(`lint  skip  ${rel} (not a supported language)`);
       continue;
@@ -626,7 +626,7 @@ export function lintCommand(o: { files: string[]; cwd: string; root: string; pla
   }
   for (const f of findings) o.log(`lint  ${f.level === "error" ? "ERROR" : "warn "} ${f.file}:${f.line} ${f.rule}: ${f.message}`);
   const errors = findings.filter((f) => f.level === "error").length;
-  o.log(`LINT ${errors ? "failed" : "ok"} · ${linted.length} file(s), ${tests} test(s), ${errors} error(s)${o.planFile ? ` · plan ${path.relative(o.cwd, o.planFile)}` : ""}`);
+  o.log(`LINT ${errors ? "failed" : "ok"} · ${linted.length} file(s), ${tests} test(s), ${errors} error(s)${o.planFile ? ` · plan ${slashPath(path.relative(o.cwd, o.planFile))}` : ""}`);
   if (o.json) process.stdout.write(JSON.stringify({ ok: !errors, files: linted, tests, findings }, null, 2) + "\n");
   return errors ? 1 : 0;
 }

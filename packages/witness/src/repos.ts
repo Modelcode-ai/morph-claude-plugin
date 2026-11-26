@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { type Config, type InRepo } from "./config.ts";
 import { type Diagnosis, diagnose } from "./diagnosis.ts";
 import { copyWitnessDir, gitTop, removeWorktree } from "./reference.ts";
-import { git, gitInfo } from "./util.ts";
+import { git, gitInfo, realPath } from "./util.ts";
 
 /** A listed repo's checkout as a run records it. */
 export interface RepoState {
@@ -109,7 +109,7 @@ export function resolveRepoSides(cfg: Config, refs: Record<string, string> = {})
       fs.rmSync(wt, { recursive: true, force: true });
       return fail(`repo ${r.name}: git worktree add failed: ${add.err}`);
     }
-    const root = path.join(wt, path.relative(repoDir, r.root));
+    const root = path.join(wt, path.relative(repoDir, realPath(r.root)));
     copyWitnessDir(path.join(r.root, ".witness"), path.join(root, ".witness"));
     sides.push({ name: r.name, root, label, sha, worktree: wt, repoDir });
   }

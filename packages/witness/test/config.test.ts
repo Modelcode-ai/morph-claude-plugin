@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import * as path from "node:path";
 import { describe, test } from "node:test";
 import { parse } from "smol-toml";
 import { ConfigError, loadEnv, parseConfig, parseEnvFile, substitute, topoOrder } from "../src/config.ts";
@@ -63,7 +64,7 @@ keep_runs = 10
 describe("config v1", () => {
   test("the contract example parses with typed values", () => {
     const c = cfg(FULL);
-    assert.equal(c.root, "/repo");
+    assert.equal(c.root, path.resolve("/repo"));
     assert.deepEqual(c.required, ["DATABASE_URL"]);
     assert.deepEqual(c.services[0].ports, [3000, 3005]);
     assert.equal(c.services[0].ready?.timeoutMs, 120_000);

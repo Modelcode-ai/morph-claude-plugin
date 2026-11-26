@@ -130,10 +130,19 @@ export interface Proc {
   code: number | null;
 }
 
+/** A log fd for a child to append to. On Windows an "a" handle lacks FILE_WRITE_DATA and Git Bash's writes to it fail, so open it read-write and read to the end. */
+function openLogForChild(log: string, platform: NodeJS.Platform = process.platform): number {
+  if (platform !== "win32") return fs.openSync(log, "a");
+  const fd = fs.openSync(log, fs.existsSync(log) ? "r+" : "w+");
+  const buf = Buffer.alloc(1 << 16);
+  while (fs.readSync(fd, buf, 0, buf.length, null) > 0);
+  return fd;
+}
+
 /** Start `cmd` under the shell in its own process group (tree, on Windows), appending output to `log`. */
 export function spawnGroup(cmd: string, opts: { name: string; cwd: string; env: Record<string, string>; log: string }): Proc {
   fs.mkdirSync(path.dirname(opts.log), { recursive: true });
-  const fd = fs.openSync(opts.log, "a");
+  const fd = openLogForChild(opts.log);
   fs.writeSync(fd, `$ ${cmd}\n`);
   const child = spawnShell(cmd, { cwd: opts.cwd, env: opts.env, stdio: ["ignore", fd, fd] });
   fs.closeSync(fd);
@@ -160,6 +169,20 @@ export function spawnGroup(cmd: string, opts: { name: string; cwd: string; env: 
     }),
   };
   return p;
+}
+
+/** The pid in a pidfile (0 if none yet); under Git Bash, `$!` is an MSYS pid, mapped to its Windows pid through /proc. */
+export function pidFromFile(file: string, host: Host = HOST): number {
+  let pid = 0;
+  try {
+    pid = Number(fs.readFileSync(file, "utf8").trim()) || 0;
+  } catch {
+    return 0;
+  }
+  const sh = activeShell();
+  if (pid <= 0 || host.platform !== "win32" || sh.kind !== "bash") return pid;
+  const r = spawnSync(sh.file, ["-c", `cat /proc/${pid}/winpid 2>/dev/null`], { encoding: "utf8", windowsHide: true, timeout: 10_000 });
+  return Number(r.stdout?.trim()) || pid;
 }
 
 /** On Windows `pgid` is the tree's root pid: the tree counts as alive while its root is. */

@@ -6,7 +6,7 @@ import { type Diagnosis, diagnose } from "./diagnosis.ts";
 import { childEnv, runCapture } from "./proc.ts";
 import type { RunDir } from "./rundir.ts";
 import { atRepoSides, releaseRepoSides, type RepoSide, resolveRepoSides } from "./repos.ts";
-import { git } from "./util.ts";
+import { git, realPath } from "./util.ts";
 
 /** Where and how `--against` runs the app it compares with. */
 export interface ReferenceSide {
@@ -81,7 +81,7 @@ function resolvePrimary(cfg: Config, against: string): ReferenceSide | { diagnos
     fs.rmSync(wt, { recursive: true, force: true });
     return bad(`git worktree add failed: ${add.err}`);
   }
-  const root = sameRepo ? path.join(wt, path.relative(repoDir, fs.realpathSync(cfg.root))) : wt;
+  const root = sameRepo ? path.join(wt, path.relative(repoDir, realPath(cfg.root))) : wt;
   const copied = sameRepo && copyWitnessDir(path.join(cfg.root, ".witness"), path.join(root, ".witness"));
   return { ...base, root, suiteRoot: tests === "target" ? cfg.root : root, sha: resolved.out, worktree: wt, repoDir, copied, setupCacheDir: null };
 }
@@ -132,5 +132,5 @@ function cloneOrFetch(cfg: Config, url: string): { dir: string } | { diagnosis: 
 
 export function gitTop(dir: string): string {
   const r = git(dir, ["rev-parse", "--show-toplevel"]);
-  return r.ok ? fs.realpathSync(r.out) : dir;
+  return r.ok ? realPath(r.out) : dir;
 }

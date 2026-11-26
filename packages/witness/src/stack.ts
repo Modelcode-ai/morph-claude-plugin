@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { type Config, type Dependency, type InRepo, type Service, substitute, topoOrder, urlEnvName, type Vars } from "./config.ts";
 import { type Cause, type Diagnosis, diagnose, type Stage } from "./diagnosis.ts";
 import type { Progress } from "./output.ts";
-import { allocatePort, childEnv, groupAlive, httpProbe, killGroup, portAnswers, type Proc, runCapture, signalPid, spawnGroup } from "./proc.ts";
+import { allocatePort, childEnv, groupAlive, httpProbe, killGroup, pidFromFile, portAnswers, type Proc, runCapture, signalPid, spawnGroup } from "./proc.ts";
 import type { RunDir } from "./rundir.ts";
 import { fmtDuration, git, pidAlive, readJson, sha, sleep, writeJson } from "./util.ts";
 
@@ -254,10 +254,7 @@ export class Stack {
     const exitedFail = () => this.fail("boot", "exited_before_ready", { service: svc.name, command: cmd, log: ls.log, cwd: this.shownCwd(svc), port: ls.port, evidence: undefined });
     for (;;) {
       if (this.o.abort.aborted) return;
-      if (pidfile && !ls.pid && fs.existsSync(pidfile)) {
-        const pid = Number(fs.readFileSync(pidfile, "utf8").trim());
-        if (pid > 0) ls.pid = pid;
-      }
+      if (pidfile && !ls.pid) ls.pid = pidFromFile(pidfile) || undefined;
       if (!external) {
         if (pidfile) {
           if (ls.pid && !pidAlive(ls.pid)) exitedFail();
