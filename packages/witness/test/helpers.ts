@@ -11,10 +11,22 @@ export const APPS_FWD = APPS.split(path.sep).join("/");
 export const REPORTS = path.join(PKG, "testdata", "reports");
 export const CLI = path.join(PKG, "src", "cli.ts");
 
+/** The tests' commands run under PowerShell: on Windows (auto), or anywhere with WITNESS_TEST_SHELL=pwsh. */
+export const PS = process.platform === "win32" || process.env.WITNESS_TEST_SHELL === "pwsh";
+
+/** A test command in the syntax of the shell it runs under. */
+export const sh = (posix: string, ps: string) => (PS ? ps : posix);
+
+/** Off Windows, WITNESS_TEST_SHELL=pwsh sets `[run] shell = "pwsh"` in every test config. */
+export function withTestShell(toml: string): string {
+  if (process.platform === "win32" || process.env.WITNESS_TEST_SHELL !== "pwsh") return toml;
+  return /^\[run\]$/m.test(toml) ? toml.replace(/^\[run\]$/m, '[run]\nshell = "pwsh"') : `${toml}\n[run]\nshell = "pwsh"\n`;
+}
+
 export function tmpRepo(toml: string, opts: { git?: boolean; files?: Record<string, string> } = {}): string {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "witness-test-")));
   fs.mkdirSync(path.join(dir, ".witness"), { recursive: true });
-  fs.writeFileSync(path.join(dir, ".witness", "witness.toml"), toml.replace(/\$APPS/g, APPS_FWD));
+  fs.writeFileSync(path.join(dir, ".witness", "witness.toml"), withTestShell(toml.replace(/\$APPS/g, APPS_FWD)));
   fs.writeFileSync(path.join(dir, ".witness", ".gitignore"), "runs/\ncheck/\ncache/\nup/\nup.json\nrun.lock\n.env\n");
   for (const [f, c] of Object.entries(opts.files ?? {})) {
     fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });

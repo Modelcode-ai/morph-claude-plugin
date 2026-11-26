@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as net from "node:net";
 import * as path from "node:path";
 import { describe, test } from "node:test";
-import { alive, APPS_FWD, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
+import { alive, APPS_FWD, ctrf, latest, readJson, service, sh, suite, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "2s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
 
@@ -187,7 +187,7 @@ describe("witness run: outcomes and causes", { concurrency: 4 }, () => {
   });
 
   test("dependency started by witness when its check fails", async () => {
-    const dir = tmpRepo(`version = 1\n[[dependency]]\nname = "db"\ncheck = "test -f db.up"\nstart = "touch db.up"\nstop = "rm db.up"\ntimeout = "5s"\n${service("ok")}${suite("pass")}${RUN}`);
+    const dir = tmpRepo(`version = 1\n[[dependency]]\nname = "db"\n${sh('check = "test -f db.up"\nstart = "touch db.up"\nstop = "rm db.up"', 'check = "if (-not (Test-Path db.up)) { exit 1 }"\nstart = "Set-Content db.up x"\nstop = "Remove-Item db.up"')}\ntimeout = "5s"\n${service("ok")}${suite("pass")}${RUN}`);
     const r = await witness(dir, ["run", "--json"]);
     assert.equal(r.code, 0, r.stderr);
     assert.ok(!fs.existsSync(path.join(dir, "db.up")), "stop ran at teardown");
@@ -323,10 +323,11 @@ ${RUN}`);
   });
 
   test("--against <ref>: per-test parity in CTRF; outcome from the target", async () => {
-    const toml = `version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "bash run.sh"\n${RUN}`;
-    const dir = tmpRepo(toml, { git: true, files: { "run.sh": `node ${APPS_FWD}/suite.mjs pass\n` } });
+    const toml = `version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "${sh("bash run.sh", "./run.ps1")}"\n${RUN}`;
+    const script = sh("run.sh", "run.ps1");
+    const dir = tmpRepo(toml, { git: true, files: { [script]: `node ${APPS_FWD}/suite.mjs pass\n` } });
     const { spawnSync } = await import("node:child_process");
-    fs.writeFileSync(path.join(dir, "run.sh"), `EXTRA_TEST=newtest FLIP=Calc#add node ${APPS_FWD}/suite.mjs pass\n`);
+    fs.writeFileSync(path.join(dir, script), sh(`EXTRA_TEST=newtest FLIP=Calc#add node ${APPS_FWD}/suite.mjs pass\n`, `$env:EXTRA_TEST = 'newtest'; $env:FLIP = 'Calc#add'; node ${APPS_FWD}/suite.mjs pass\n`));
     spawnSync("git", ["commit", "-qam", "change"], { cwd: dir });
     const r = await witness(dir, ["run", "--json", "--against", "HEAD~1"]);
     assert.equal(r.code, 1, r.stderr);
@@ -425,9 +426,14 @@ list = "echo Api#hello"
     const dir = tmpRepo(`version = 1
 [[service]]
 name = "api"
-start = "node $APPS/server.mjs ok > svc.out 2>&1 & echo $! > svc.pid"
+${sh(
+  `start = "node $APPS/server.mjs ok > svc.out 2>&1 & echo $! > svc.pid"
 pidfile = "svc.pid"
-stop = "kill $(cat svc.pid) && echo stopped >> stop.log"
+stop = "kill $(cat svc.pid) && echo stopped >> stop.log"`,
+  `start = "$p = Start-Process -PassThru -FilePath node -ArgumentList '$APPS/server.mjs', 'ok' -RedirectStandardOutput svc.out; Set-Content svc.pid $p.Id"
+pidfile = "svc.pid"
+stop = "Stop-Process -Id (Get-Content svc.pid); echo stopped >> stop.log"`,
+)}
 ready = { http = "\${self.url}/health", timeout = "3s" }
 ${suite("pass")}${RUN}`);
     const r = await witness(dir, ["run"]);

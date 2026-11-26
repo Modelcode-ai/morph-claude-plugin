@@ -10,7 +10,7 @@ import { copyWitnessDir } from "../src/reference.ts";
 import type { Suite } from "../src/config.ts";
 import { machineFacts, type ScanResult } from "../src/scan.ts";
 import { collectArtifacts, copyAttachments } from "../src/suite.ts";
-import { suite, tmpRepo, witness } from "./helpers.ts";
+import { sh, suite, tmpRepo, witness } from "./helpers.ts";
 
 describe("PetClinic eval fixes", () => {
   test("a suite's Playwright attachments survive a later suite that clears the same output folder", () => {
@@ -27,11 +27,12 @@ describe("PetClinic eval fixes", () => {
   });
 
   test("a boot failure after a cached setup runs setup again next time (its output was removed)", async () => {
+    const SETUP = sh("mkdir -p build && echo x > build/app.txt", "New-Item -ItemType Directory -Force build | Out-Null; Set-Content build/app.txt x");
     const svc = `
 [[service]]
 name = "api"
-setup = "mkdir -p build && echo x > build/app.txt"
-start = "test -f build/app.txt && node $APPS/server.mjs ok"
+setup = "${SETUP}"
+start = "${sh("test -f build/app.txt && node $APPS/server.mjs ok", "if (-not (Test-Path build/app.txt)) { exit 1 }; node $APPS/server.mjs ok")}"
 ready = { http = "\${self.url}/health", timeout = "3s" }
 `;
     const dir = tmpRepo(`version = 1\n${svc}${suite("pass")}\n[run]\nstall_timeout = "2s"\nheartbeat = "1s"\nkill_grace = "1s"\n`, { git: true, files: { ".gitignore": "build/\n" } });
@@ -43,7 +44,7 @@ ready = { http = "\${self.url}/health", timeout = "3s" }
     assert.ok(r2.json?.diagnosis.try.some((t: string) => /setup of api was skipped .*the next run runs it again/.test(t)), r2.json?.diagnosis.try.join("\n"));
     const r3 = await witness(dir, ["run"]);
     assert.equal(r3.code, 0, r3.stderr);
-    assert.match(r3.stderr, /setup {2}api · mkdir -p build/);
+    assert.ok(r3.stderr.includes(`setup  api · ${SETUP}`), r3.stderr);
   });
 
   test("machine facts: a java that can't run (the macOS stub) is not found", { skip: process.platform === "win32" }, () => {

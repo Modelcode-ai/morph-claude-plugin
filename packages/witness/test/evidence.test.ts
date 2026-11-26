@@ -65,16 +65,21 @@ describe("evidence in the report", () => {
 kind = "api"
 name = "fake"
 service = "api"
-cmd = "bash rec.sh && node $APPS/suite.mjs pass"
+cmd = "node rec.mjs && node $APPS/suite.mjs pass"
 `;
     const dir = tmpRepo(`version = 1\n${service("ok")}${suite}\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`, {
       git: true,
       files: {
-        "rec.sh": `d="$WITNESS_ARTIFACTS/Calc_add"; mkdir -p "$d"; printf 'png' > "$d/after.png"
-printf '%s\\n' '{"v":1,"kind":"http","data":{"method":"POST","url":"http://x/calc/add","status":200,"request":{"body":"{\\"a\\":1,\\"b\\":2}"},"response":{"body":"{\\"sum\\":3}"}}}' >> "$d/evidence.jsonl"
-printf '%s\\n' '{"v":1,"kind":"ui","step":"see the sum","data":{"action":"see","target":"#sum","value":"3"},"files":["after.png"]}' >> "$d/evidence.jsonl"
-printf '%s\\n' '{"v":1,"kind":"queue-message","data":{"topic":"sums","payload":3}}' >> "$d/evidence.jsonl"
-printf 'oops\\n' >> "$d/evidence.jsonl"
+        "rec.mjs": `import fs from "node:fs";
+const d = process.env.WITNESS_ARTIFACTS + "/Calc_add";
+fs.mkdirSync(d, { recursive: true });
+fs.writeFileSync(d + "/after.png", "png");
+const lines = [
+  { v: 1, kind: "http", data: { method: "POST", url: "http://x/calc/add", status: 200, request: { body: '{"a":1,"b":2}' }, response: { body: '{"sum":3}' } } },
+  { v: 1, kind: "ui", step: "see the sum", data: { action: "see", target: "#sum", value: "3" }, files: ["after.png"] },
+  { v: 1, kind: "queue-message", data: { topic: "sums", payload: 3 } },
+];
+fs.appendFileSync(d + "/evidence.jsonl", lines.map((l) => JSON.stringify(l) + "\\n").join("") + "oops\\n");
 `,
         ".witness/plan.yaml": `version: 1\nsource: the request\nitems:\n  - {id: P1, behavior: adds, expect: "3", kind: new, tests: ["generic:Calc#add"]}\n  - {id: P2, behavior: subtracts, expect: "1", kind: parity, tests: ["generic:Calc#sub"]}\n`,
       },

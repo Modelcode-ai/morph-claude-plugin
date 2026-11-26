@@ -7,9 +7,10 @@ import * as path from "node:path";
 import { describe, test } from "node:test";
 import type { TestRecord } from "../src/reconcile.ts";
 import { collectArtifacts } from "../src/suite.ts";
-import { alive, APPS_FWD, ctrf, latest, readJson, service, suite, tmpRepo, witness } from "./helpers.ts";
+import { alive, APPS_FWD, ctrf, latest, PS, readJson, service, sh, suite, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
+const NO_API = sh("WITNESS_API_URL= node $APPS/suite.mjs pass", "$env:WITNESS_API_URL = ''; node $APPS/suite.mjs pass");
 
 function hold(): Promise<{ port: number; close: () => void }> {
   return new Promise((resolve) => {
@@ -28,7 +29,7 @@ describe("eShopOnWeb eval fixes: boot", { concurrency: 4 }, () => {
       const dir = tmpRepo(`version = 1
 [[service]]
 name = "api"
-start = "FIXED_PORT=${h.port} node $APPS/server.mjs ok"
+start = "${sh(`FIXED_PORT=${h.port} node $APPS/server.mjs ok`, `$env:FIXED_PORT = '${h.port}'; node $APPS/server.mjs ok`)}"
 ready = { http = "http://127.0.0.1:${h.port}/health", timeout = "60s" }
 ${suite("pass")}${RUN}`);
       const t0 = Date.now();
@@ -85,12 +86,12 @@ ${RUN}`);
 
   test("a service that dies skips only the suites that need it, whichever suite was running", async () => {
     const hosted = (name: string, cmd: string) => `\n[[suite]]\nkind = "api"\nname = "${name}"\nservice = []\ncmd = "${cmd}"\n`;
-    const during = tmpRepo(`version = 1\n${service("crash-after-ready")}${suite("slow")}${hosted("unit", "WITNESS_API_URL= node $APPS/suite.mjs pass")}${RUN}`);
+    const during = tmpRepo(`version = 1\n${service("crash-after-ready")}${suite("slow")}${hosted("unit", NO_API)}${RUN}`);
     const r1 = await witness(during, ["run", "--json"]);
     assert.equal(r1.code, 3, r1.stderr);
     const by1 = Object.fromEntries(r1.json?.suites.map((s: any) => [s.name, s]));
     assert.deepEqual([by1.fake.state, by1.unit.state, by1.unit.passed], ["error", "passed", 3]);
-    const before = tmpRepo(`version = 1\n${service("crash-after-ready")}${hosted("unit", "sleep 3 && WITNESS_API_URL= node $APPS/suite.mjs pass")}${suite("pass")}${RUN}`);
+    const before = tmpRepo(`version = 1\n${service("crash-after-ready")}${hosted("unit", sh(`sleep 3 && ${NO_API}`, `Start-Sleep 3; ${NO_API}`))}${suite("pass")}${RUN}`);
     const r2 = await witness(before, ["run", "--json"]);
     assert.equal(r2.code, 3, r2.stderr);
     assert.equal(r2.json?.diagnosis.cause, "service_died");
@@ -100,7 +101,7 @@ ${RUN}`);
   });
 
   test("check starts only the services its suites use", async () => {
-    const dir = tmpRepo(`version = 1\n${service("never-ready")}\n[[suite]]\nkind = "api"\nname = "unit"\nservice = []\ncmd = "WITNESS_API_URL= node $APPS/suite.mjs pass"\n${RUN}`);
+    const dir = tmpRepo(`version = 1\n${service("never-ready")}\n[[suite]]\nkind = "api"\nname = "unit"\nservice = []\ncmd = "${NO_API}"\n${RUN}`);
     const r = await witness(dir, ["check"]);
     assert.equal(r.code, 0, r.stderr);
     assert.match(r.stderr, /not starting api: no suite checked here uses it/);
@@ -116,7 +117,7 @@ ${RUN}`);
 name = "api"
 start = "node $APPS/server.mjs ok"
 env = { PROBE_TOKEN = "secret-\${PORT}" }
-ready = { cmd = "test \\"$PROBE_TOKEN\\" = \\"secret-$PORT\\" && curl -fsS \${self.url}/health", timeout = "5s" }
+ready = { cmd = "${sh('test \\"$PROBE_TOKEN\\" = \\"secret-$PORT\\" && curl -fsS ${self.url}/health', "if ($env:PROBE_TOKEN -ne ('secret-' + $env:PORT)) { exit 1 }; curl -fsS ${self.url}/health")}", timeout = "5s" }
 [[service]]
 name = "legacy"
 external = "http://127.0.0.1:${h.port}"
@@ -150,11 +151,11 @@ describe("eShopOnWeb eval fixes: suites", { concurrency: 4 }, () => {
   });
 
   test("a missing helper script (exit 127) -> setup_failed, not report_missing", async () => {
-    const dir = tmpRepo(`version = 1${gsuite("bash .witness/dotnet test")}${RUN}`);
+    const dir = tmpRepo(`version = 1${gsuite(sh("bash .witness/dotnet test", ".witness/dotnet test"))}${RUN}`);
     const r = await witness(dir, ["run", "--json"]);
     assert.equal(r.code, 2);
     assert.equal(r.json?.diagnosis.cause, "setup_failed");
-    assert.match(r.json?.diagnosis.evidence, /\.witness\/dotnet: No such file or directory/, fs.readFileSync(path.join(latest(dir), "logs", "unit.log"), "utf8"));
+    assert.match(r.json?.diagnosis.evidence, PS ? /\.witness\/dotnet' is not recognized/ : /\.witness\/dotnet: No such file or directory/, fs.readFileSync(path.join(latest(dir), "logs", "unit.log"), "utf8"));
   });
 
   test("every test skipped -> error, not passed", async () => {
@@ -201,10 +202,10 @@ describe("eShopOnWeb eval fixes: --against", { concurrency: 2 }, () => {
 kind = "api"
 name = "fake"
 service = "api"
-cmd = "bash .witness/run-suite.sh"
+cmd = "${sh("bash .witness/run-suite.sh", "./.witness/run-suite.ps1")}"
 report = "\${WITNESS_REPORT_DIR}/*.xml"
 ${RUN}`, { git: true });
-    fs.writeFileSync(path.join(dir, ".witness", "run-suite.sh"), `node ${APPS_FWD}/suite.mjs pass\n`);
+    fs.writeFileSync(path.join(dir, ".witness", sh("run-suite.sh", "run-suite.ps1")), `node ${APPS_FWD}/suite.mjs pass\n`);
     spawnSync("git", ["add", "-A"], { cwd: dir });
     spawnSync("git", ["commit", "-qm", "helper"], { cwd: dir });
     const r = await witness(dir, ["run", "--json", "--against", "HEAD~1"]);
@@ -233,7 +234,7 @@ ready = { http = "\${self.url}/health", timeout = "3s" }
 kind = "api"
 name = "fake"
 service = "api"
-cmd = "curl -fsS $WITNESS_API_URL/hello | grep -q world || exit 3; node $APPS/suite.mjs pass"
+cmd = "${sh("curl -fsS $WITNESS_API_URL/hello | grep -q world || exit 3; node $APPS/suite.mjs pass", "if ((curl -fsS $env:WITNESS_API_URL/hello) -notmatch 'world') { exit 3 }; node $APPS/suite.mjs pass")}"
 ${RUN}`);
     const r = await witness(dir, ["run", "--json", "--against", "legacy"]);
     assert.equal(r.code, 0, r.stderr);

@@ -6,9 +6,10 @@ import { describe, test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { parse } from "smol-toml";
 import { ConfigError, parseConfig, referenceServices } from "../src/config.ts";
-import { service, tmpRepo, witness } from "./helpers.ts";
+import { service, sh, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
+const LEGACY_START = sh("test -f legacy.marker && node $APPS/server.mjs ok", "if (-not (Test-Path legacy.marker)) { exit 1 }; node $APPS/server.mjs ok");
 const cfg = (toml: string) => parseConfig(parse(`version = 1\n${service("ok")}\n${toml}`) as Record<string, unknown>, "/r/.witness/witness.toml");
 const git = (dir: string, ...a: string[]) => spawnSync("git", a, { cwd: dir, encoding: "utf8" });
 const worktrees = (dir: string) => git(dir, "worktree", "list").stdout.trim().split("\n").length;
@@ -19,7 +20,10 @@ const FLAG_SUITE = `
 kind = "api"
 name = "fake"
 service = "api"
-cmd = "test -f report.flag || { echo 'no report package' >&2; exit 2; }; EXTRA_TEST=$(cat new-test.txt 2>/dev/null) node $APPS/suite.mjs pass"
+cmd = "${sh(
+  "test -f report.flag || { echo 'no report package' >&2; exit 2; }; EXTRA_TEST=$(cat new-test.txt 2>/dev/null) node $APPS/suite.mjs pass",
+  "if (-not (Test-Path report.flag)) { [Console]::Error.WriteLine('no report package'); exit 2 }; if (Test-Path new-test.txt) { $env:EXTRA_TEST = Get-Content new-test.txt }; node $APPS/suite.mjs pass",
+)}"
 report = "\${WITNESS_REPORT_DIR}/*.xml"
 `;
 
@@ -59,7 +63,7 @@ describe("--against with [reference]", { concurrency: 2 }, () => {
     assert.match(bare.stderr, /against HEAD~1: origin error \(\w+ in fake: no comparison for that suite\)/);
     assert.match(bare.stderr, /add that step as \[reference\] setup/);
 
-    fs.appendFileSync(path.join(dir, ".witness", "witness.toml"), `\n[reference]\nsetup = "touch report.flag"\n`);
+    fs.appendFileSync(path.join(dir, ".witness", "witness.toml"), `\n[reference]\nsetup = "${sh("touch report.flag", "Set-Content report.flag x")}"\n`);
     const noRef = await witness(dir, ["run", "--against", "reference"]);
     assert.equal(noRef.code, 64);
     assert.match(noRef.stderr, /\[reference\] has no ref.*pass --against <base branch>/);
@@ -86,14 +90,14 @@ describe("--against with [reference]", { concurrency: 2 }, () => {
 kind = "api"
 name = "fake"
 service = "api"
-cmd = "curl -fsS $WITNESS_API_URL/hello | grep -q \\"$GREETING_WANTED\\" && node $APPS/suite.mjs pass"
+cmd = "${sh('curl -fsS $WITNESS_API_URL/hello | grep -q \\"$GREETING_WANTED\\" && node $APPS/suite.mjs pass', "if ((curl -fsS $env:WITNESS_API_URL/hello) -notmatch $env:GREETING_WANTED) { exit 3 }; node $APPS/suite.mjs pass")}"
 env = { GREETING_WANTED = "world" }
 
 [reference]
 repo = "${legacy.split(path.sep).join("/")}"
 
 [reference.service.api]
-start = "test -f legacy.marker && node $APPS/server.mjs ok"
+start = "${LEGACY_START}"
 env = { GREETING = "legacy" }
 ${RUN}`);
     const r = await witness(dir, ["run", "--json", "--against", "reference"]);
@@ -118,7 +122,7 @@ repo = "${pathToFileURL(legacy).href}"
 ref = "v1"
 
 [reference.service.api]
-start = "test -f legacy.marker && node $APPS/server.mjs ok"
+start = "${LEGACY_START}"
 ${RUN}`);
     const r = await witness(dir, ["run", "--json", "--against", "reference"]);
     assert.equal(r.code, 0, r.stderr);
@@ -144,7 +148,7 @@ cmd = "node $APPS/suite.mjs pass"
 
 [reference]
 ref = "HEAD"
-setup = "echo 'package not found' >&2; exit 4"
+setup = "${sh("echo 'package not found' >&2; exit 4", "[Console]::Error.WriteLine('package not found'); exit 4")}"
 ${RUN}`, { git: true });
     const r = await witness(dir, ["run", "--json", "--against", "reference"]);
     assert.equal(r.code, 0, r.stderr);

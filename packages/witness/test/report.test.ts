@@ -9,7 +9,7 @@ import { renderHtml } from "../src/report/html.ts";
 import { writeReport } from "../src/report/index.ts";
 import { renderMd } from "../src/report/md.ts";
 import { buildModel } from "../src/report/model.ts";
-import { latest, service, tmpRepo, witness } from "./helpers.ts";
+import { latest, service, sh, tmpRepo, witness } from "./helpers.ts";
 
 const RUN = `\n[run]\nstall_timeout = "5s"\nheartbeat = "1s"\nkill_grace = "1s"\n`;
 
@@ -146,7 +146,7 @@ describe("run report model", () => {
 
 describe("run report on disk", () => {
   test("every run writes report.html, report.md, a verifiable SHA256SUMS and the runs index", async () => {
-    const dir = tmpRepo(`version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "EXTRA_TEST=$(cat new.txt 2>/dev/null) node $APPS/suite.mjs pass"\n${RUN}`, { git: true });
+    const dir = tmpRepo(`version = 1\n${service("ok")}\n[[suite]]\nkind = "api"\nname = "fake"\nservice = "api"\ncmd = "${sh("EXTRA_TEST=$(cat new.txt 2>/dev/null) node $APPS/suite.mjs pass", "if (Test-Path new.txt) { $env:EXTRA_TEST = Get-Content new.txt }; node $APPS/suite.mjs pass")}"\n${RUN}`, { git: true });
     const g = (...a: string[]) => spawnSync("git", a, { cwd: dir });
     fs.writeFileSync(path.join(dir, "new.txt"), "filters");
     fs.writeFileSync(path.join(dir, ".witness", "plan.yaml"), `version: 1\nsource: "the request"\nitems:\n  - {id: P1, behavior: "Filters", expect: "it works", kind: new, tests: ["generic:Api#filters"]}\n`);
